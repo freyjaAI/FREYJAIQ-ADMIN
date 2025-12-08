@@ -174,7 +174,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
 
       res.json({
-        owner: { ...owner, sellerIntentScore: score },
+        owner: { 
+          id: owner.id,
+          type: owner.type,
+          name: owner.name,
+          akaNames: owner.akaNames,
+          primaryAddress: owner.primaryAddress,
+          mailingAddress: owner.mailingAddress,
+          riskFlags: owner.riskFlags,
+          contactConfidenceScore: owner.contactConfidenceScore,
+          metadata: owner.metadata,
+          createdAt: owner.createdAt,
+          updatedAt: owner.updatedAt,
+          sellerIntentScore: score,
+        },
         properties,
         contacts,
         legalEvents,

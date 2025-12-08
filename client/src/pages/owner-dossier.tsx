@@ -294,7 +294,7 @@ export default function OwnerDossierPage() {
                 <CardTitle className="text-base flex items-center gap-2">
                   <Shield className="h-4 w-4" />
                   Business / LLC Owner Info
-                  {llcUnmasking && (
+                  {llcUnmasking && llcUnmasking.officers && (
                     <Badge variant="secondary" className="text-xs">
                       {llcUnmasking.officers.length} people
                     </Badge>
@@ -343,13 +343,13 @@ export default function OwnerDossierPage() {
                         <Users className="h-4 w-4" />
                         <span className="font-medium">Officers & Members</span>
                       </div>
-                      {llcUnmasking.officers.length > 0 ? (
+                      {llcUnmasking.officers && llcUnmasking.officers.length > 0 ? (
                         <div className="space-y-2">
                           {llcUnmasking.officers.map((officer, idx) => (
                             <div 
                               key={idx} 
                               className="flex items-center justify-between gap-2 p-2 rounded-md bg-muted/50"
-                              data-testid={`officer-${idx}`}
+                              data-testid={`text-llc-officer-${idx}`}
                             >
                               <div>
                                 <div className="font-medium">{officer.name}</div>
@@ -404,7 +404,7 @@ export default function OwnerDossierPage() {
                               <div 
                                 key={idx} 
                                 className="flex items-center justify-between text-sm"
-                                data-testid={`filing-${idx}`}
+                                data-testid={`text-llc-filing-${idx}`}
                               >
                                 <span>{filing.title}</span>
                                 <span className="text-muted-foreground">
