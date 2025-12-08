@@ -187,6 +187,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return { line1, city, state, zip };
       };
 
+      // Helper to normalize name from "Last, First Middle" to "First Middle Last" format
+      const normalizeName = (name?: string | null): string | undefined => {
+        if (!name) return undefined;
+        // Check if name is in "Last, First" format (contains comma)
+        if (name.includes(",")) {
+          const parts = name.split(",").map(s => s.trim());
+          const lastName = parts[0];
+          const firstMiddle = parts.slice(1).join(" ").trim();
+          if (firstMiddle && lastName) {
+            return `${firstMiddle} ${lastName}`;
+          }
+          return lastName || firstMiddle || name;
+        }
+        return name;
+      };
+
       // Fetch contact enrichment data from Data Axle / A-Leads
       let contactEnrichment = null;
       if (owner.type === "entity") {
@@ -206,10 +222,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       let melissaEnrichment = null;
       if (owner.type === "individual" || (owner.type === "entity" && llcUnmasking?.officers?.length)) {
         try {
-          const primaryName = owner.type === "individual" 
+          const rawName = owner.type === "individual" 
             ? owner.name 
             : llcUnmasking?.officers?.[0]?.name;
+          // Normalize name from "Last, First" to "First Last" format for Melissa API
+          const primaryName = normalizeName(rawName);
           const parsed = parseAddress(owner.primaryAddress);
+          
+          console.log(`Melissa lookup: raw name "${rawName}" -> normalized "${primaryName}"`);
           
           if (primaryName || parsed.line1) {
             melissaEnrichment = await dataProviders.fetchMelissaEnrichment({
