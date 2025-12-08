@@ -34,7 +34,6 @@ import { isUnauthorizedError } from "@/lib/authUtils";
 import { ScoreBadge, ProgressScore } from "@/components/score-badge";
 import { EntityTypeBadge, RiskBadge } from "@/components/risk-badge";
 import { PropertyCard } from "@/components/property-card";
-import { ContactCard } from "@/components/contact-card";
 import { LegalEventsTimeline } from "@/components/legal-events-timeline";
 import { LlcNetwork } from "@/components/llc-network";
 import type { Owner, Property, ContactInfo, LegalEvent, OwnerLlcLink } from "@shared/schema";
@@ -442,6 +441,18 @@ export default function OwnerDossierPage() {
                         const allCorporateEntities = officers.length > 0 && officers.every(o => corporatePatterns.test(o.name));
                         const isDelawareLLC = llcUnmasking.jurisdictionCode === "us_de";
                         
+                        // Helper to find contact info for an officer from enrichment data
+                        const getOfficerContact = (officerName: string) => {
+                          if (!contactEnrichment?.employeeProfiles) return null;
+                          // Try to find a matching profile
+                          const nameParts = officerName.toLowerCase().split(/\s+/);
+                          return contactEnrichment.employeeProfiles.find(p => {
+                            const profileParts = p.name.toLowerCase().split(/\s+/);
+                            // Match if first and last name match
+                            return nameParts.some(n => profileParts.includes(n));
+                          });
+                        };
+                        
                         return (
                           <>
                             {allCorporateEntities && (
@@ -461,29 +472,43 @@ export default function OwnerDossierPage() {
                             )}
                             {officers.length > 0 ? (
                               <div className="space-y-2">
-                                {officers.map((officer, idx) => (
-                                  <div 
-                                    key={idx} 
-                                    className="flex items-center justify-between gap-2 p-2 rounded-md bg-muted/50"
-                                    data-testid={`text-llc-officer-${idx}`}
-                                  >
-                                    <div>
-                                      <div className="font-medium">{officer.name}</div>
-                                      <div className="text-sm text-muted-foreground">{officer.position}</div>
+                                {officers.map((officer, idx) => {
+                                  const contact = getOfficerContact(officer.name);
+                                  return (
+                                    <div 
+                                      key={idx} 
+                                      className="p-3 rounded-md bg-muted/50"
+                                      data-testid={`text-llc-officer-${idx}`}
+                                    >
+                                      <div className="flex items-start justify-between gap-2">
+                                        <div className="min-w-0 flex-1">
+                                          <div className="font-medium">{officer.name}</div>
+                                          <div className="text-sm text-muted-foreground">{officer.position || officer.role}</div>
+                                        </div>
+                                        <Badge variant="outline" className="text-xs capitalize shrink-0">
+                                          {officer.role}
+                                        </Badge>
+                                      </div>
+                                      {/* Contact info for this officer */}
+                                      {contact && (contact.phone || contact.email) && (
+                                        <div className="flex flex-wrap items-center gap-3 mt-2 pt-2 border-t border-border/50 text-sm">
+                                          {contact.phone && (
+                                            <div className="flex items-center gap-1 text-muted-foreground">
+                                              <Phone className="h-3 w-3" />
+                                              <span className="font-mono text-xs">{contact.phone}</span>
+                                            </div>
+                                          )}
+                                          {contact.email && (
+                                            <div className="flex items-center gap-1 text-muted-foreground">
+                                              <Mail className="h-3 w-3" />
+                                              <span className="text-xs">{contact.email}</span>
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
                                     </div>
-                                    <div className="flex items-center gap-2">
-                                      <Badge 
-                                        variant="outline" 
-                                        className="text-xs capitalize"
-                                      >
-                                        {officer.role}
-                                      </Badge>
-                                      <Badge variant="secondary" className="text-xs">
-                                        {officer.confidenceScore}%
-                                      </Badge>
-                                    </div>
-                                  </div>
-                                ))}
+                                  );
+                                })}
                               </div>
                             ) : (
                               <p className="text-sm text-muted-foreground">No officers found</p>
@@ -568,117 +593,37 @@ export default function OwnerDossierPage() {
             </Card>
           )}
 
-          {owner.type === "entity" && (
-            <Card data-testid="card-contact-enrichment">
+          {/* Company Emails Section - only show if there are emails not already shown with officers */}
+          {owner.type === "entity" && contactEnrichment?.companyEmails && contactEnrichment.companyEmails.length > 0 && (
+            <Card data-testid="card-company-emails">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
-                  <AtSign className="h-4 w-4" />
-                  Contact Enrichment
-                  {contactEnrichment && (
-                    <Badge variant="secondary" className="text-xs">
-                      {(contactEnrichment.companyEmails?.length || 0) + (contactEnrichment.directDials?.length || 0)} contacts
-                    </Badge>
-                  )}
+                  <Mail className="h-4 w-4" />
+                  Company Emails
+                  <Badge variant="secondary" className="text-xs">
+                    {contactEnrichment.companyEmails.length}
+                  </Badge>
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
-                {contactEnrichment && (contactEnrichment.companyEmails?.length > 0 || contactEnrichment.directDials?.length > 0 || contactEnrichment.employeeProfiles?.length > 0) ? (
-                  <>
-                    {contactEnrichment.companyEmails && contactEnrichment.companyEmails.length > 0 && (
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2">
-                          <Mail className="h-4 w-4" />
-                          <span className="font-medium">Company Emails</span>
-                        </div>
-                        <div className="space-y-2">
-                          {contactEnrichment.companyEmails.map((email, idx) => (
-                            <div 
-                              key={idx} 
-                              className="flex items-center justify-between p-2 rounded-md bg-muted/50"
-                              data-testid={`text-email-${idx}`}
-                            >
-                              <div className="flex items-center gap-2">
-                                <span className="font-mono text-sm">{email.email}</span>
-                                <Badge variant="outline" className="text-xs capitalize">{email.type}</Badge>
-                              </div>
-                              <Badge variant="secondary" className="text-xs">{email.confidence}%</Badge>
-                            </div>
-                          ))}
-                        </div>
+              <CardContent>
+                <div className="space-y-2">
+                  {contactEnrichment.companyEmails.slice(0, 5).map((email, idx) => (
+                    <div 
+                      key={idx} 
+                      className="flex items-center justify-between p-2 rounded-md bg-muted/50"
+                      data-testid={`text-email-${idx}`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <AtSign className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <span className="font-mono text-sm truncate">{email.email}</span>
                       </div>
-                    )}
-
-                    {contactEnrichment.directDials && contactEnrichment.directDials.length > 0 && (
-                      <>
-                        <Separator />
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2">
-                            <PhoneCall className="h-4 w-4" />
-                            <span className="font-medium">Direct Dials</span>
-                          </div>
-                          <div className="space-y-2">
-                            {contactEnrichment.directDials.map((dial, idx) => (
-                              <div 
-                                key={idx} 
-                                className="flex items-center justify-between p-2 rounded-md bg-muted/50"
-                                data-testid={`text-phone-${idx}`}
-                              >
-                                <div>
-                                  <span className="font-mono text-sm">{dial.phone}</span>
-                                  {dial.name && <span className="text-sm text-muted-foreground ml-2">{dial.name}</span>}
-                                  {dial.title && <span className="text-xs text-muted-foreground ml-1">({dial.title})</span>}
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <Badge variant="outline" className="text-xs capitalize">{dial.type}</Badge>
-                                  <Badge variant="secondary" className="text-xs">{dial.confidence}%</Badge>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </>
-                    )}
-
-                    {contactEnrichment.employeeProfiles && contactEnrichment.employeeProfiles.length > 0 && (
-                      <>
-                        <Separator />
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2">
-                            <User className="h-4 w-4" />
-                            <span className="font-medium">Employee Profiles</span>
-                          </div>
-                          <div className="space-y-2">
-                            {contactEnrichment.employeeProfiles.map((profile, idx) => (
-                              <div 
-                                key={idx} 
-                                className="flex items-center justify-between p-2 rounded-md bg-muted/50"
-                                data-testid={`text-employee-${idx}`}
-                              >
-                                <div>
-                                  <div className="font-medium">{profile.name}</div>
-                                  {profile.title && <div className="text-sm text-muted-foreground">{profile.title}</div>}
-                                  <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
-                                    {profile.email && <span>{profile.email}</span>}
-                                    {profile.phone && <span>{profile.phone}</span>}
-                                  </div>
-                                </div>
-                                <Badge variant="secondary" className="text-xs">{profile.confidence}%</Badge>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </>
-                    )}
-
-                    <div className="text-xs text-muted-foreground pt-2">
-                      Sources: {contactEnrichment.sources?.join(", ") || "N/A"} | Last updated: {new Date(contactEnrichment.lastUpdated).toLocaleString()}
+                      <Badge variant="secondary" className="text-xs shrink-0">{email.confidence}%</Badge>
                     </div>
-                  </>
-                ) : (
-                  <div className="text-center py-4">
-                    <p className="text-muted-foreground text-sm">
-                      No contact enrichment data available
-                    </p>
+                  ))}
+                </div>
+                {contactEnrichment.sources && (
+                  <div className="text-xs text-muted-foreground pt-3">
+                    Sources: {contactEnrichment.sources.join(", ")}
                   </div>
                 )}
               </CardContent>
@@ -926,7 +871,74 @@ export default function OwnerDossierPage() {
               </Card>
             )}
 
-          <ContactCard contacts={contacts} />
+          {/* Business Contact Information */}
+          <Card data-testid="card-contact-info">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Contact Information</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Business Phone from Data Axle Places */}
+              {contactEnrichment?.directDials && contactEnrichment.directDials.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                    Business Contacts
+                  </div>
+                  {contactEnrichment.directDials.slice(0, 3).map((dial, idx) => (
+                    <div 
+                      key={idx}
+                      className="flex items-center justify-between gap-2 p-2 rounded-md bg-muted/50"
+                      data-testid={`contact-business-${idx}`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Phone className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <div className="min-w-0">
+                          <div className="font-mono text-sm truncate">{dial.phone}</div>
+                          {dial.name && (
+                            <div className="text-xs text-muted-foreground truncate">{dial.name}</div>
+                          )}
+                        </div>
+                      </div>
+                      <Badge variant="outline" className="text-xs capitalize shrink-0">{dial.type}</Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Existing stored contacts */}
+              {contacts.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                    Saved Contacts
+                  </div>
+                  {contacts.slice(0, 5).map((contact) => (
+                    <div 
+                      key={contact.id}
+                      className="flex items-center justify-between gap-2 p-2 rounded-md bg-muted/50"
+                      data-testid={`contact-saved-${contact.id}`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        {contact.kind === "phone" ? (
+                          <Phone className="h-4 w-4 text-muted-foreground shrink-0" />
+                        ) : (
+                          <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
+                        )}
+                        <span className="font-mono text-sm truncate">{contact.value}</span>
+                      </div>
+                      {contact.confidenceScore && (
+                        <Badge variant="secondary" className="text-xs shrink-0">{contact.confidenceScore}%</Badge>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {(!contactEnrichment?.directDials?.length && !contacts.length) && (
+                <div className="text-sm text-muted-foreground text-center py-4">
+                  No contact information available
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
           {aiOutreach && (
             <Card>
