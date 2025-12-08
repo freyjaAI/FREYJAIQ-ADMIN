@@ -1,0 +1,184 @@
+import { Building2, Search, Users, FileText, ArrowRight, Shield, Zap, Target } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { ThemeToggle } from "@/components/theme-toggle";
+
+export default function Landing() {
+  const features = [
+    {
+      icon: Search,
+      title: "Instant Property Search",
+      description:
+        "Search by address, owner name, or APN. Get results in seconds with comprehensive ownership data.",
+    },
+    {
+      icon: Users,
+      title: "LLC Unmasking",
+      description:
+        "AI-powered entity resolution connects LLCs to real owners with confidence scoring.",
+    },
+    {
+      icon: Target,
+      title: "Seller Intent Scoring",
+      description:
+        "Prioritize your outreach with data-driven seller intent scores based on property signals.",
+    },
+    {
+      icon: FileText,
+      title: "One-Click Dossiers",
+      description:
+        "Generate comprehensive owner profiles with contacts, properties, and AI outreach suggestions.",
+    },
+    {
+      icon: Shield,
+      title: "Contact Verification",
+      description:
+        "Phone and email confidence scores help you reach the right person on the first try.",
+    },
+    {
+      icon: Zap,
+      title: "10x Faster Prospecting",
+      description:
+        "Replace manual research with automated data enrichment and intelligent lead prioritization.",
+    },
+  ];
+
+  const stats = [
+    { value: "10x", label: "Faster Prospecting" },
+    { value: "92%", label: "Contact Accuracy" },
+    { value: "50%", label: "Cost Savings" },
+    { value: "1-Click", label: "Dossier Export" },
+  ];
+
+  return (
+    <div className="min-h-screen bg-background">
+      <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <div className="container mx-auto flex h-14 items-center justify-between gap-4 px-4">
+          <div className="flex items-center gap-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary">
+              <Building2 className="h-4 w-4 text-primary-foreground" />
+            </div>
+            <span className="text-lg font-semibold">PropertyIntel</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            <Button asChild data-testid="button-login">
+              <a href="/api/login">
+                Sign In
+                <ArrowRight className="ml-1 h-4 w-4" />
+              </a>
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      <main>
+        <section className="py-20 md:py-32">
+          <div className="container mx-auto px-4 text-center">
+            <h1 className="text-4xl font-semibold tracking-tight md:text-5xl lg:text-6xl">
+              CRE Prospecting,
+              <br />
+              <span className="text-primary">Supercharged</span>
+            </h1>
+            <p className="mx-auto mt-6 max-w-2xl text-lg text-muted-foreground">
+              Find property owners, unmask LLCs, and close more deals. The modern
+              alternative to outdated data tools - built for commercial real estate
+              professionals.
+            </p>
+            <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
+              <Button size="lg" asChild data-testid="button-get-started">
+                <a href="/api/login">
+                  Get Started Free
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </a>
+              </Button>
+              <Button size="lg" variant="outline" data-testid="button-learn-more">
+                See How It Works
+              </Button>
+            </div>
+          </div>
+        </section>
+
+        <section className="border-t bg-muted/30 py-16">
+          <div className="container mx-auto px-4">
+            <div className="grid grid-cols-2 gap-8 md:grid-cols-4">
+              {stats.map((stat) => (
+                <div key={stat.label} className="text-center">
+                  <div className="text-3xl font-semibold text-primary md:text-4xl">
+                    {stat.value}
+                  </div>
+                  <div className="mt-1 text-sm text-muted-foreground">
+                    {stat.label}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="py-20">
+          <div className="container mx-auto px-4">
+            <div className="text-center">
+              <h2 className="text-3xl font-semibold">
+                Everything You Need to Close Deals
+              </h2>
+              <p className="mx-auto mt-4 max-w-xl text-muted-foreground">
+                Replace expensive, outdated data tools with a modern platform built
+                specifically for CRE brokers.
+              </p>
+            </div>
+            <div className="mt-12 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+              {features.map((feature) => (
+                <Card
+                  key={feature.title}
+                  className="hover-elevate transition-all"
+                >
+                  <CardContent className="p-6">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-md bg-primary/10">
+                      <feature.icon className="h-5 w-5 text-primary" />
+                    </div>
+                    <h3 className="mt-4 text-lg font-semibold">{feature.title}</h3>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      {feature.description}
+                    </p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="border-t bg-muted/30 py-20">
+          <div className="container mx-auto px-4 text-center">
+            <h2 className="text-3xl font-semibold">
+              Ready to Transform Your Prospecting?
+            </h2>
+            <p className="mx-auto mt-4 max-w-xl text-muted-foreground">
+              Join brokers who are closing more deals with less effort.
+            </p>
+            <Button size="lg" className="mt-8" asChild data-testid="button-cta">
+              <a href="/api/login">
+                Start Free Today
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </a>
+            </Button>
+          </div>
+        </section>
+      </main>
+
+      <footer className="border-t py-8">
+        <div className="container mx-auto flex flex-col items-center justify-between gap-4 px-4 sm:flex-row">
+          <div className="flex items-center gap-2">
+            <div className="flex h-6 w-6 items-center justify-center rounded bg-primary">
+              <Building2 className="h-3 w-3 text-primary-foreground" />
+            </div>
+            <span className="text-sm font-medium">PropertyIntel</span>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            The modern CRE prospecting platform
+          </p>
+        </div>
+      </footer>
+    </div>
+  );
+}

@@ -1,38 +1,284 @@
-import { type User, type InsertUser } from "@shared/schema";
-import { randomUUID } from "crypto";
-
-// modify the interface with any CRUD methods
-// you might need
+import {
+  users,
+  owners,
+  properties,
+  contactInfos,
+  legalEvents,
+  ownerLlcLinks,
+  searchHistory,
+  dossierExports,
+  type User,
+  type UpsertUser,
+  type Owner,
+  type InsertOwner,
+  type Property,
+  type InsertProperty,
+  type ContactInfo,
+  type InsertContactInfo,
+  type LegalEvent,
+  type InsertLegalEvent,
+  type OwnerLlcLink,
+  type InsertOwnerLlcLink,
+  type SearchHistory,
+  type InsertSearchHistory,
+  type DossierExport,
+  type InsertDossierExport,
+} from "@shared/schema";
+import { db } from "./db";
+import { eq, ilike, or, desc, sql } from "drizzle-orm";
 
 export interface IStorage {
+  // User operations (required for Replit Auth)
   getUser(id: string): Promise<User | undefined>;
-  getUserByUsername(username: string): Promise<User | undefined>;
-  createUser(user: InsertUser): Promise<User>;
+  upsertUser(user: UpsertUser): Promise<User>;
+
+  // Owner operations
+  getOwner(id: string): Promise<Owner | undefined>;
+  getOwners(): Promise<Owner[]>;
+  createOwner(owner: InsertOwner): Promise<Owner>;
+  updateOwner(id: string, owner: Partial<InsertOwner>): Promise<Owner | undefined>;
+  searchOwners(query: string): Promise<Owner[]>;
+
+  // Property operations
+  getProperty(id: string): Promise<Property | undefined>;
+  getProperties(): Promise<Property[]>;
+  getPropertiesByOwner(ownerId: string): Promise<Property[]>;
+  createProperty(property: InsertProperty): Promise<Property>;
+  updateProperty(id: string, property: Partial<InsertProperty>): Promise<Property | undefined>;
+  searchProperties(query: string): Promise<Property[]>;
+
+  // Contact operations
+  getContactsByOwner(ownerId: string): Promise<ContactInfo[]>;
+  createContact(contact: InsertContactInfo): Promise<ContactInfo>;
+  updateContact(id: string, contact: Partial<InsertContactInfo>): Promise<ContactInfo | undefined>;
+
+  // Legal events
+  getLegalEventsByOwner(ownerId: string): Promise<LegalEvent[]>;
+  getLegalEventsByProperty(propertyId: string): Promise<LegalEvent[]>;
+  createLegalEvent(event: InsertLegalEvent): Promise<LegalEvent>;
+
+  // LLC links
+  getLlcLinksByOwner(ownerId: string): Promise<OwnerLlcLink[]>;
+  createLlcLink(link: InsertOwnerLlcLink): Promise<OwnerLlcLink>;
+
+  // Search history
+  getSearchHistory(userId: string, limit?: number): Promise<SearchHistory[]>;
+  createSearchHistory(history: InsertSearchHistory): Promise<SearchHistory>;
+
+  // Dossier exports
+  getDossierExports(userId: string): Promise<DossierExport[]>;
+  createDossierExport(export_: InsertDossierExport): Promise<DossierExport>;
+
+  // Stats
+  getStats(userId: string): Promise<{
+    totalOwners: number;
+    totalProperties: number;
+    dossiersGenerated: number;
+  }>;
 }
 
-export class MemStorage implements IStorage {
-  private users: Map<string, User>;
-
-  constructor() {
-    this.users = new Map();
-  }
-
+export class DatabaseStorage implements IStorage {
+  // User operations (required for Replit Auth)
   async getUser(id: string): Promise<User | undefined> {
-    return this.users.get(id);
-  }
-
-  async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.username === username,
-    );
-  }
-
-  async createUser(insertUser: InsertUser): Promise<User> {
-    const id = randomUUID();
-    const user: User = { ...insertUser, id };
-    this.users.set(id, user);
+    const [user] = await db.select().from(users).where(eq(users.id, id));
     return user;
   }
+
+  async upsertUser(userData: UpsertUser): Promise<User> {
+    const [user] = await db
+      .insert(users)
+      .values(userData)
+      .onConflictDoUpdate({
+        target: users.id,
+        set: {
+          ...userData,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return user;
+  }
+
+  // Owner operations
+  async getOwner(id: string): Promise<Owner | undefined> {
+    const [owner] = await db.select().from(owners).where(eq(owners.id, id));
+    return owner;
+  }
+
+  async getOwners(): Promise<Owner[]> {
+    return await db.select().from(owners).orderBy(desc(owners.createdAt));
+  }
+
+  async createOwner(owner: InsertOwner): Promise<Owner> {
+    const [newOwner] = await db.insert(owners).values(owner).returning();
+    return newOwner;
+  }
+
+  async updateOwner(id: string, owner: Partial<InsertOwner>): Promise<Owner | undefined> {
+    const [updated] = await db
+      .update(owners)
+      .set({ ...owner, updatedAt: new Date() })
+      .where(eq(owners.id, id))
+      .returning();
+    return updated;
+  }
+
+  async searchOwners(query: string): Promise<Owner[]> {
+    const searchPattern = `%${query}%`;
+    return await db
+      .select()
+      .from(owners)
+      .where(
+        or(
+          ilike(owners.name, searchPattern),
+          ilike(owners.primaryAddress, searchPattern)
+        )
+      )
+      .limit(50);
+  }
+
+  // Property operations
+  async getProperty(id: string): Promise<Property | undefined> {
+    const [property] = await db.select().from(properties).where(eq(properties.id, id));
+    return property;
+  }
+
+  async getProperties(): Promise<Property[]> {
+    return await db.select().from(properties).orderBy(desc(properties.createdAt));
+  }
+
+  async getPropertiesByOwner(ownerId: string): Promise<Property[]> {
+    return await db.select().from(properties).where(eq(properties.ownerId, ownerId));
+  }
+
+  async createProperty(property: InsertProperty): Promise<Property> {
+    const [newProperty] = await db.insert(properties).values(property).returning();
+    return newProperty;
+  }
+
+  async updateProperty(id: string, property: Partial<InsertProperty>): Promise<Property | undefined> {
+    const [updated] = await db
+      .update(properties)
+      .set({ ...property, updatedAt: new Date() })
+      .where(eq(properties.id, id))
+      .returning();
+    return updated;
+  }
+
+  async searchProperties(query: string): Promise<Property[]> {
+    const searchPattern = `%${query}%`;
+    return await db
+      .select()
+      .from(properties)
+      .where(
+        or(
+          ilike(properties.address, searchPattern),
+          ilike(properties.city, searchPattern),
+          ilike(properties.apn, searchPattern)
+        )
+      )
+      .limit(50);
+  }
+
+  // Contact operations
+  async getContactsByOwner(ownerId: string): Promise<ContactInfo[]> {
+    return await db.select().from(contactInfos).where(eq(contactInfos.ownerId, ownerId));
+  }
+
+  async createContact(contact: InsertContactInfo): Promise<ContactInfo> {
+    const [newContact] = await db.insert(contactInfos).values(contact).returning();
+    return newContact;
+  }
+
+  async updateContact(id: string, contact: Partial<InsertContactInfo>): Promise<ContactInfo | undefined> {
+    const [updated] = await db
+      .update(contactInfos)
+      .set(contact)
+      .where(eq(contactInfos.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Legal events
+  async getLegalEventsByOwner(ownerId: string): Promise<LegalEvent[]> {
+    return await db
+      .select()
+      .from(legalEvents)
+      .where(eq(legalEvents.ownerId, ownerId))
+      .orderBy(desc(legalEvents.filedDate));
+  }
+
+  async getLegalEventsByProperty(propertyId: string): Promise<LegalEvent[]> {
+    return await db
+      .select()
+      .from(legalEvents)
+      .where(eq(legalEvents.propertyId, propertyId))
+      .orderBy(desc(legalEvents.filedDate));
+  }
+
+  async createLegalEvent(event: InsertLegalEvent): Promise<LegalEvent> {
+    const [newEvent] = await db.insert(legalEvents).values(event).returning();
+    return newEvent;
+  }
+
+  // LLC links
+  async getLlcLinksByOwner(ownerId: string): Promise<OwnerLlcLink[]> {
+    return await db.select().from(ownerLlcLinks).where(eq(ownerLlcLinks.ownerId, ownerId));
+  }
+
+  async createLlcLink(link: InsertOwnerLlcLink): Promise<OwnerLlcLink> {
+    const [newLink] = await db.insert(ownerLlcLinks).values(link).returning();
+    return newLink;
+  }
+
+  // Search history
+  async getSearchHistory(userId: string, limit = 10): Promise<SearchHistory[]> {
+    return await db
+      .select()
+      .from(searchHistory)
+      .where(eq(searchHistory.userId, userId))
+      .orderBy(desc(searchHistory.createdAt))
+      .limit(limit);
+  }
+
+  async createSearchHistory(history: InsertSearchHistory): Promise<SearchHistory> {
+    const [newHistory] = await db.insert(searchHistory).values(history).returning();
+    return newHistory;
+  }
+
+  // Dossier exports
+  async getDossierExports(userId: string): Promise<DossierExport[]> {
+    return await db
+      .select()
+      .from(dossierExports)
+      .where(eq(dossierExports.userId, userId))
+      .orderBy(desc(dossierExports.createdAt));
+  }
+
+  async createDossierExport(export_: InsertDossierExport): Promise<DossierExport> {
+    const [newExport] = await db.insert(dossierExports).values(export_).returning();
+    return newExport;
+  }
+
+  // Stats
+  async getStats(userId: string): Promise<{
+    totalOwners: number;
+    totalProperties: number;
+    dossiersGenerated: number;
+  }> {
+    const [ownerCount] = await db.select({ count: sql<number>`count(*)` }).from(owners);
+    const [propertyCount] = await db.select({ count: sql<number>`count(*)` }).from(properties);
+    const [dossierCount] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(dossierExports)
+      .where(eq(dossierExports.userId, userId));
+
+    return {
+      totalOwners: Number(ownerCount?.count || 0),
+      totalProperties: Number(propertyCount?.count || 0),
+      dossiersGenerated: Number(dossierCount?.count || 0),
+    };
+  }
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();
