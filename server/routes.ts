@@ -208,11 +208,55 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (owner.type === "entity") {
         try {
           const parsed = parseAddress(owner.primaryAddress);
+          // First search by company name
           contactEnrichment = await dataProviders.fetchContactEnrichment(owner.name, { 
             city: parsed.city, 
             state: parsed.state,
             zip: parsed.zip
           });
+          
+          // If LLC has officers from OpenCorporates, also search A-Leads by officer names
+          if (llcUnmasking?.officers?.length && contactEnrichment) {
+            console.log(`Searching A-Leads for ${llcUnmasking.officers.length} LLC officers...`);
+            for (const officer of llcUnmasking.officers.slice(0, 3)) { // Limit to first 3 officers
+              const normalizedOfficerName = normalizeName(officer.name);
+              if (normalizedOfficerName) {
+                console.log(`A-Leads officer search: "${normalizedOfficerName}"`);
+                const officerResults = await dataProviders.searchALeadsByName(normalizedOfficerName);
+                
+                // Add any found contacts to the enrichment results
+                for (const result of officerResults) {
+                  if (result.email && !contactEnrichment.companyEmails.some((e: any) => e.email === result.email)) {
+                    contactEnrichment.companyEmails.push({
+                      email: result.email,
+                      type: "personal",
+                      confidence: result.confidence || 75,
+                    });
+                  }
+                  if (result.phone && !contactEnrichment.directDials.some((d: any) => d.phone === result.phone)) {
+                    contactEnrichment.directDials.push({
+                      phone: result.phone,
+                      type: "direct",
+                      name: result.name,
+                      title: result.title,
+                      confidence: result.confidence || 75,
+                    });
+                  }
+                  if (result.name && !contactEnrichment.employeeProfiles.some((p: any) => p.name === result.name)) {
+                    contactEnrichment.employeeProfiles.push({
+                      name: result.name,
+                      title: result.title,
+                      email: result.email,
+                      phone: result.phone,
+                      linkedinUrl: result.linkedinUrl,
+                      company: result.company,
+                      confidence: result.confidence || 75,
+                    });
+                  }
+                }
+              }
+            }
+          }
         } catch (err) {
           console.error("Error fetching contact enrichment:", err);
         }

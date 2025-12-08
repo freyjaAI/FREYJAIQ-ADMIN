@@ -1577,6 +1577,20 @@ export class DataProviderManager {
     }
   }
 
+  async searchALeadsByName(name: string): Promise<ALeadsContact[]> {
+    if (!this.aLeads) {
+      return [];
+    }
+    
+    try {
+      console.log(`A-Leads search by person name: "${name}"`);
+      return await this.aLeads.searchContacts({ name });
+    } catch (error) {
+      console.error("Error searching A-Leads by name:", error);
+      return [];
+    }
+  }
+
   async fetchMelissaEnrichment(input: {
     name?: string;
     address?: string;
