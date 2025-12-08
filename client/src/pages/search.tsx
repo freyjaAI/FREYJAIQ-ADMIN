@@ -72,15 +72,28 @@ export default function SearchPage() {
   // Import property from external results
   const importPropertyMutation = useMutation({
     mutationFn: async (property: any) => {
-      const res = await apiRequest("POST", "/api/properties/import", { property });
-      return res.json();
+      const res = await fetch("/api/properties/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ property }),
+        credentials: "include",
+      });
+      const data = await res.json();
+      // Return both the data and status for proper handling
+      return { data, status: res.status };
     },
-    onSuccess: (data) => {
+    onSuccess: ({ data, status }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
       queryClient.invalidateQueries({ queryKey: ["/api/owners"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
-      // Navigate to the owner dossier if owner was created
-      if (data.ownerId) {
+      
+      if (status === 409) {
+        // Property already exists - navigate to the existing owner
+        if (data.property?.ownerId) {
+          setLocation(`/owners/${data.property.ownerId}`);
+        }
+      } else if (data.ownerId) {
+        // New property created - navigate to owner dossier
         setLocation(`/owners/${data.ownerId}`);
       }
     },
