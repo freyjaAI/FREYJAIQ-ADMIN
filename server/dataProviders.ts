@@ -128,6 +128,33 @@ interface GoogleAddressValidationResult {
   };
 }
 
+export interface LlcUnmaskingResult {
+  companyNumber: string;
+  name: string;
+  jurisdictionCode: string;
+  incorporationDate: string | null;
+  companyType: string | null;
+  currentStatus: string;
+  registeredAddress: string | null;
+  officers: Array<{
+    name: string;
+    position: string;
+    startDate?: string;
+    role: "officer" | "agent" | "member" | "manager";
+    confidenceScore: number;
+  }>;
+  registeredAgent: {
+    name: string;
+    address?: string;
+  } | null;
+  filings: Array<{
+    title: string;
+    date: string;
+    url?: string;
+  }>;
+  lastUpdated: string;
+}
+
 export class AttomDataProvider {
   private apiKey: string;
   private baseUrl = "https://api.gateway.attomdata.com";
@@ -988,6 +1015,77 @@ export class DataProviderManager {
     }
 
     return allOfficers;
+  }
+
+  async fetchLlcUnmasking(companyName: string, jurisdiction?: string): Promise<LlcUnmaskingResult | null> {
+    if (!this.openCorporates) {
+      console.warn("OpenCorporates provider not configured");
+      return null;
+    }
+
+    try {
+      const companies = await this.openCorporates.searchCompanies(
+        companyName, 
+        jurisdiction ? `us_${jurisdiction.toLowerCase()}` : undefined
+      );
+      
+      if (companies.length === 0) return null;
+
+      const company = companies[0];
+      const fullCompany = await this.openCorporates.getCompany(
+        company.jurisdictionCode, 
+        company.companyNumber
+      );
+
+      if (!fullCompany) return null;
+
+      const officers = await this.openCorporates.getOfficers(
+        company.jurisdictionCode, 
+        company.companyNumber
+      );
+
+      const categorizeRole = (position: string): "officer" | "agent" | "member" | "manager" => {
+        const pos = position.toLowerCase();
+        if (pos.includes("agent") || pos.includes("registered")) return "agent";
+        if (pos.includes("manager") || pos.includes("managing")) return "manager";
+        if (pos.includes("member")) return "member";
+        return "officer";
+      };
+
+      let registeredAgent: { name: string; address?: string } | null = null;
+      const agentOfficer = officers.find(o => 
+        o.position.toLowerCase().includes("agent") || 
+        o.position.toLowerCase().includes("registered")
+      );
+      if (agentOfficer) {
+        registeredAgent = { name: agentOfficer.name };
+      }
+
+      const normalizedOfficers = officers.map(o => ({
+        name: o.name,
+        position: o.position,
+        startDate: o.startDate,
+        role: categorizeRole(o.position),
+        confidenceScore: 85,
+      }));
+
+      return {
+        companyNumber: fullCompany.companyNumber,
+        name: fullCompany.name,
+        jurisdictionCode: fullCompany.jurisdictionCode,
+        incorporationDate: fullCompany.incorporationDate || null,
+        companyType: fullCompany.companyType || null,
+        currentStatus: fullCompany.currentStatus,
+        registeredAddress: fullCompany.registeredAddress || null,
+        officers: normalizedOfficers,
+        registeredAgent,
+        filings: fullCompany.filings || [],
+        lastUpdated: new Date().toISOString(),
+      };
+    } catch (error) {
+      console.error("Error fetching LLC unmasking data:", error);
+      return null;
+    }
   }
 
   async enrichContact(input: { name?: string; email?: string; phone?: string; address?: string }): Promise<DataAxleContact | null> {
