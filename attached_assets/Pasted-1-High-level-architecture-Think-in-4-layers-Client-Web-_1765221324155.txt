@@ -1,0 +1,317 @@
+1. High-level architecture
+
+Think in 4 layers:
+
+Client (Web App)
+
+Tech: React (or Next.js), TypeScript
+
+Responsibilities:
+
+Search UI (address, owner, APN, etc.)
+
+Results table (owners/properties)
+
+Owner detail page (dossier)
+
+Authentication (login, roles: broker, admin)
+
+Backend API
+
+Tech: Node.js (Express/Fastify) or Python (FastAPI)
+
+Responsibilities:
+
+REST/GraphQL endpoints for:
+
+/search/property
+
+/search/owner
+
+/owner/{id}
+
+/lead-score
+
+Orchestration of all external data providers (DataTree/CoreLogic, OpenCorporates, contact data, etc.)
+
+Rate limiting, retries, logging, auth
+
+Data & Enrichment Layer
+
+Responsibilities:
+
+Normalize different vendor schemas into a unified internal model:
+
+Owner (person or entity)
+
+Property
+
+ContactInfo
+
+LegalEvent (liens, lawsuits, bankruptcies)
+
+Map and merge records that obviously refer to the same real-world entity
+
+Store enriched entities and cached responses
+
+ML / Scoring / AI Layer
+
+Responsibilities:
+
+LLC → Person unmasking (rule-based + AI assist)
+
+Lead prioritization / seller-intent score
+
+“Contact confidence” score
+
+Optional: AI text generation for outreach copy
+
+2. Data model (core entities)
+
+At minimum:
+
+Owner
+
+id
+
+type = individual | entity
+
+name
+
+aka_names[]
+
+primary_address
+
+all_addresses[]
+
+linked_llcs[]
+
+linked_properties[]
+
+contact_info_ids[]
+
+risk_flags[] (litigation, bankruptcy, liens)
+
+metadata (raw vendor refs)
+
+Property
+
+id
+
+address
+
+apn
+
+geo (lat, lng)
+
+property_type
+
+units, sq_ft
+
+assessed_value
+
+last_sale_date, last_sale_price
+
+owner_ids[]
+
+lien_ids[]
+
+risk_signals[] (tax delinquent, code violations, etc.)
+
+ContactInfo
+
+id
+
+owner_id
+
+kind = phone | email
+
+value
+
+source
+
+confidence_score
+
+last_verified_at
+
+LegalEvent
+
+id
+
+owner_ids[]
+
+property_ids[]
+
+type = lien | judgment | lawsuit | bankruptcy | eviction
+
+jurisdiction
+
+case_number
+
+filed_date
+
+status
+
+Store this in something like PostgreSQL for transactional stuff + Redis for caching hot reads.
+
+3. API design (how the frontend talks to this)
+
+Example REST layout:
+
+POST /auth/login
+
+GET /search/property?address=...&city=...
+
+GET /search/owner?name=...&state=...
+
+GET /owners/{ownerId}
+
+GET /properties/{propertyId}
+
+GET /owners/{ownerId}/dossier
+
+POST /owners/{ownerId}/score (if you want separate scoring)
+
+GET /tasks/status/{taskId} (for long-running enrichments)
+
+You can also go GraphQL if you want flexibility on what each view pulls, but REST is fine to launch.
+
+4. Data flow: from user search → enriched dossier
+Step 1: User search
+
+User enters:
+
+Address OR owner name OR APN
+
+Frontend calls /search/property or /search/owner.
+
+Step 2: Search service
+
+Backend flow:
+
+Check Redis cache for similar query.
+
+If cache miss:
+
+Hit primary property data provider (e.g., DataTree / ATTOM / Estated).
+
+Normalize into Property + minimal Owner records.
+
+Save to Postgres.
+
+Optionally enqueue a background “deep enrichment” job.
+
+Return results quickly (don’t wait on deep enrichment).
+
+Step 3: Deep enrichment (async jobs)
+
+Use a job queue system:
+
+On Node: BullMQ / RabbitMQ
+
+On Python: Celery / RQ
+
+Enrichment worker does:
+
+For each owner:
+
+Hit corporate registry (OpenCorporates + SOS bulk data).
+
+If type=entity, try to resolve officers/agents.
+
+Add linked_llcs, aka_names.
+
+Contact enrichment:
+
+Call phone/email enrichment vendors.
+
+Generate ContactInfo rows with confidence_score.
+
+Legal & risk pulls:
+
+Call court data (PACER + state APIs/scrapers).
+
+Link LegalEvents to that owner/property.
+
+AI/ML scoring:
+
+Compute:
+
+contact_confidence
+
+seller_intent_score
+
+risk_score
+
+Cache final enriched dossier in Redis (JSON blob) for fast serving.
+
+5. AI / scoring layer
+
+You don’t need a fancy model day 1. Start rule-based + simple models.
+
+5.1 LLC → human “unmasking”
+
+Pipeline:
+
+Simple deterministic signals:
+
+Same mailing address across multiple LLCs
+
+Same registered agent across entities
+
+Name similarities in corporate docs
+
+Build a “candidate person” and pass candidate info to an LLM:
+
+Ask it for a confidence score and rationale:
+
+“Do these references likely describe the same human owner? 0–1 score.”
+
+Store score + link if above threshold.
+
+You can run this as an offline batch or triggered when a new LLC owner is found.
+
+5.2 Seller-intent score (MVP)
+
+Start as a weighted sum of signals:
+
+Years owned
+
+Loan origination date vs typical term
+
+Tax delinquency?
+
+Code violations?
+
+Litigation / financial distress?
+
+Market appreciation in area
+
+Absentee owner (mailing address ≠ property address)
+
+Return something like:
+
+0–100 score
+
+Plus a JSON of feature contributions for transparency.
+
+6. Infrastructure & DevOps
+Minimum stack
+
+Backend:
+
+Node.js + TypeScript (Express/Fastify) or Python + FastAPI
+
+DB: PostgreSQL (RDS or managed Postgres)
+
+Cache: Redis (for:
+
+session tokens
+
+query responses
+
+precomputed dossiers)
+
+Queue: Redis-backed BullMQ (Node) or Celery + Redis (Python)
+
+File/object storage: S3 or equivalent (for PDFs, exported reports, logs)
