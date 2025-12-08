@@ -540,7 +540,7 @@ export default function OwnerDossierPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {contactEnrichment ? (
+                {contactEnrichment && (contactEnrichment.companyEmails?.length > 0 || contactEnrichment.directDials?.length > 0 || contactEnrichment.employeeProfiles?.length > 0) ? (
                   <>
                     {contactEnrichment.companyEmails && contactEnrichment.companyEmails.length > 0 && (
                       <div className="space-y-2">

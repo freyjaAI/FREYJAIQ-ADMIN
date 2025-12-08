@@ -173,15 +173,30 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
       }
 
+      // Helper to parse address like "33 SW 2ND AVE, MIAMI, FL 33130"
+      const parseAddress = (address?: string | null) => {
+        if (!address) return { line1: undefined, city: undefined, state: undefined, zip: undefined };
+        const parts = address.split(",").map(s => s.trim());
+        const line1 = parts[0] || undefined;
+        const city = parts[1] || undefined;
+        // Last part typically "FL 33130" - split on space
+        const stateZipPart = parts[2] || "";
+        const stateZipMatch = stateZipPart.match(/^([A-Z]{2})\s*(\d{5}(?:-\d{4})?)?$/);
+        const state = stateZipMatch?.[1] || stateZipPart.split(" ")[0] || undefined;
+        const zip = stateZipMatch?.[2] || stateZipPart.split(" ")[1] || undefined;
+        return { line1, city, state, zip };
+      };
+
       // Fetch contact enrichment data from Data Axle / A-Leads
       let contactEnrichment = null;
       if (owner.type === "entity") {
         try {
-          const addressParts = owner.primaryAddress?.split(",").map(s => s.trim()) || [];
-          const city = addressParts[1] || undefined;
-          const statePart = addressParts[2]?.split(" ") || [];
-          const state = statePart[0] || undefined;
-          contactEnrichment = await dataProviders.fetchContactEnrichment(owner.name, { city, state });
+          const parsed = parseAddress(owner.primaryAddress);
+          contactEnrichment = await dataProviders.fetchContactEnrichment(owner.name, { 
+            city: parsed.city, 
+            state: parsed.state,
+            zip: parsed.zip
+          });
         } catch (err) {
           console.error("Error fetching contact enrichment:", err);
         }
@@ -194,20 +209,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           const primaryName = owner.type === "individual" 
             ? owner.name 
             : llcUnmasking?.officers?.[0]?.name;
-          const addressParts = owner.primaryAddress?.split(",").map(s => s.trim()) || [];
-          const addressLine = addressParts[0] || undefined;
-          const city = addressParts[1] || undefined;
-          const statePart = addressParts[2]?.split(" ") || [];
-          const state = statePart[0] || undefined;
-          const zip = statePart[1] || undefined;
+          const parsed = parseAddress(owner.primaryAddress);
           
-          if (primaryName || addressLine) {
+          if (primaryName || parsed.line1) {
             melissaEnrichment = await dataProviders.fetchMelissaEnrichment({
               name: primaryName,
-              address: addressLine,
-              city,
-              state,
-              zip,
+              address: parsed.line1,
+              city: parsed.city,
+              state: parsed.state,
+              zip: parsed.zip,
             });
           }
         } catch (err) {
