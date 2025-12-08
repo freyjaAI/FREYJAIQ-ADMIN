@@ -163,6 +163,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         console.error("Error generating outreach:", err);
       }
 
+      // Fetch LLC unmasking data for entity owners
+      let llcUnmasking = null;
+      if (owner.type === "entity") {
+        try {
+          llcUnmasking = await dataProviders.fetchLlcUnmasking(owner.name);
+        } catch (err) {
+          console.error("Error fetching LLC unmasking:", err);
+        }
+      }
+
       res.json({
         owner: { ...owner, sellerIntentScore: score },
         properties,
@@ -171,6 +181,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         linkedLlcs,
         aiOutreach,
         scoreBreakdown: breakdown,
+        llcUnmasking,
       });
     } catch (error) {
       console.error("Error fetching dossier:", error);

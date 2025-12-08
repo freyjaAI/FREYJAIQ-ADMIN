@@ -10,6 +10,11 @@ import {
   RefreshCw,
   Copy,
   CheckCircle,
+  Users,
+  FileText,
+  MapPin,
+  Calendar,
+  Shield,
 } from "lucide-react";
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,6 +33,33 @@ import { LegalEventsTimeline } from "@/components/legal-events-timeline";
 import { LlcNetwork } from "@/components/llc-network";
 import type { Owner, Property, ContactInfo, LegalEvent, OwnerLlcLink } from "@shared/schema";
 
+interface LlcUnmaskingData {
+  companyNumber: string;
+  name: string;
+  jurisdictionCode: string;
+  incorporationDate: string | null;
+  companyType: string | null;
+  currentStatus: string;
+  registeredAddress: string | null;
+  officers: Array<{
+    name: string;
+    position: string;
+    startDate?: string;
+    role: "officer" | "agent" | "member" | "manager";
+    confidenceScore: number;
+  }>;
+  registeredAgent: {
+    name: string;
+    address?: string;
+  } | null;
+  filings: Array<{
+    title: string;
+    date: string;
+    url?: string;
+  }>;
+  lastUpdated: string;
+}
+
 interface DossierData {
   owner: Owner;
   properties: Property[];
@@ -42,6 +74,7 @@ interface DossierData {
     hasLiens: boolean;
     marketAppreciation: number;
   };
+  llcUnmasking?: LlcUnmaskingData | null;
 }
 
 export default function OwnerDossierPage() {
@@ -165,7 +198,7 @@ export default function OwnerDossierPage() {
     );
   }
 
-  const { owner, properties, contacts, legalEvents, linkedLlcs, aiOutreach, scoreBreakdown } =
+  const { owner, properties, contacts, legalEvents, linkedLlcs, aiOutreach, scoreBreakdown, llcUnmasking } =
     dossier;
 
   const totalPropertyValue = properties.reduce(
@@ -254,6 +287,160 @@ export default function OwnerDossierPage() {
               </CardContent>
             </Card>
           </div>
+
+          {owner.type === "entity" && (
+            <Card data-testid="card-llc-unmasking">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Shield className="h-4 w-4" />
+                  Business / LLC Owner Info
+                  {llcUnmasking && (
+                    <Badge variant="secondary" className="text-xs">
+                      {llcUnmasking.officers.length} people
+                    </Badge>
+                  )}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {llcUnmasking ? (
+                  <>
+                    <div className="space-y-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="font-medium">{llcUnmasking.name}</div>
+                          <div className="text-sm text-muted-foreground">
+                            {llcUnmasking.jurisdictionCode?.toUpperCase().replace("US_", "")} - {llcUnmasking.companyType || "LLC"}
+                          </div>
+                        </div>
+                        <Badge variant={llcUnmasking.currentStatus?.toLowerCase() === "active" ? "default" : "secondary"}>
+                          {llcUnmasking.currentStatus || "Unknown"}
+                        </Badge>
+                      </div>
+
+                      {llcUnmasking.incorporationDate && (
+                        <div className="flex items-center gap-2 text-sm">
+                          <Calendar className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-muted-foreground">Incorporated:</span>
+                          <span>{new Date(llcUnmasking.incorporationDate).toLocaleDateString()}</span>
+                        </div>
+                      )}
+
+                      {llcUnmasking.registeredAddress && (
+                        <div className="flex items-start gap-2 text-sm">
+                          <MapPin className="h-4 w-4 text-muted-foreground mt-0.5" />
+                          <div>
+                            <span className="text-muted-foreground">Registered Address: </span>
+                            <span>{llcUnmasking.registeredAddress}</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <Separator />
+
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2">
+                        <Users className="h-4 w-4" />
+                        <span className="font-medium">Officers & Members</span>
+                      </div>
+                      {llcUnmasking.officers.length > 0 ? (
+                        <div className="space-y-2">
+                          {llcUnmasking.officers.map((officer, idx) => (
+                            <div 
+                              key={idx} 
+                              className="flex items-center justify-between gap-2 p-2 rounded-md bg-muted/50"
+                              data-testid={`officer-${idx}`}
+                            >
+                              <div>
+                                <div className="font-medium">{officer.name}</div>
+                                <div className="text-sm text-muted-foreground">{officer.position}</div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Badge 
+                                  variant="outline" 
+                                  className="text-xs capitalize"
+                                >
+                                  {officer.role}
+                                </Badge>
+                                <Badge variant="secondary" className="text-xs">
+                                  {officer.confidenceScore}%
+                                </Badge>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">No officers found</p>
+                      )}
+                    </div>
+
+                    {llcUnmasking.registeredAgent && (
+                      <>
+                        <Separator />
+                        <div className="space-y-2">
+                          <div className="font-medium text-sm">Registered Agent</div>
+                          <div className="p-2 rounded-md bg-muted/50">
+                            <div className="font-medium">{llcUnmasking.registeredAgent.name}</div>
+                            {llcUnmasking.registeredAgent.address && (
+                              <div className="text-sm text-muted-foreground">
+                                {llcUnmasking.registeredAgent.address}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </>
+                    )}
+
+                    {llcUnmasking.filings && llcUnmasking.filings.length > 0 && (
+                      <>
+                        <Separator />
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <FileText className="h-4 w-4" />
+                            <span className="font-medium">Recent Filings</span>
+                          </div>
+                          <div className="space-y-2">
+                            {llcUnmasking.filings.slice(0, 5).map((filing, idx) => (
+                              <div 
+                                key={idx} 
+                                className="flex items-center justify-between text-sm"
+                                data-testid={`filing-${idx}`}
+                              >
+                                <span>{filing.title}</span>
+                                <span className="text-muted-foreground">
+                                  {new Date(filing.date).toLocaleDateString()}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    )}
+
+                    <div className="text-xs text-muted-foreground pt-2">
+                      Last updated: {new Date(llcUnmasking.lastUpdated).toLocaleString()}
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-center py-4">
+                    <p className="text-muted-foreground text-sm mb-3">
+                      No LLC data available. Click "Refresh Data" to fetch from OpenCorporates.
+                    </p>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => generateDossierMutation.mutate()}
+                      disabled={generateDossierMutation.isPending}
+                      data-testid="button-fetch-llc-data"
+                    >
+                      <RefreshCw className={`h-4 w-4 mr-2 ${generateDossierMutation.isPending ? "animate-spin" : ""}`} />
+                      Fetch LLC Data
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {properties.length > 0 && (
             <Card>
