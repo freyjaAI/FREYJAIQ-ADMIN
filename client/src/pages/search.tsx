@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
-import { useSearch } from "wouter";
-import { useQuery } from "@tanstack/react-query";
-import { Loader2, SearchX, Filter, SortAsc } from "lucide-react";
+import { useSearch, useLocation } from "wouter";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { Loader2, SearchX, Filter, SortAsc, ExternalLink, Database, Globe } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +16,7 @@ import {
 import { SearchBar } from "@/components/search-bar";
 import { OwnerCard } from "@/components/owner-card";
 import { PropertyCard } from "@/components/property-card";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Owner, Property, ContactInfo } from "@shared/schema";
 
 interface SearchResult {
@@ -24,8 +25,17 @@ interface SearchResult {
   total: number;
 }
 
+interface ExternalSearchResult {
+  properties: any[];
+  llcs: any[];
+  contacts: any[];
+  sources: string[];
+  total: number;
+}
+
 export default function SearchPage() {
   const searchParams = useSearch();
+  const [, setLocation] = useLocation();
   const params = new URLSearchParams(searchParams);
   const initialQuery = params.get("q") || "";
   const initialType = params.get("type") || "address";
@@ -33,7 +43,9 @@ export default function SearchPage() {
   const [currentQuery, setCurrentQuery] = useState(initialQuery);
   const [currentType, setCurrentType] = useState(initialType);
   const [sortBy, setSortBy] = useState("relevance");
+  const [externalResults, setExternalResults] = useState<ExternalSearchResult | null>(null);
 
+  // Local database search
   const {
     data: results,
     isLoading,
@@ -43,24 +55,47 @@ export default function SearchPage() {
     enabled: !!currentQuery,
   });
 
+  // External data providers search
+  const externalSearchMutation = useMutation({
+    mutationFn: async ({ query, type }: { query: string; type: string }) => {
+      const res = await apiRequest("POST", "/api/search/external", { query, type });
+      return res.json() as Promise<ExternalSearchResult>;
+    },
+    onSuccess: (data) => {
+      setExternalResults(data);
+    },
+    onError: (error) => {
+      console.error("External search failed:", error);
+    },
+  });
+
   const handleSearch = (query: string, type: string) => {
     setCurrentQuery(query);
     setCurrentType(type);
+    setExternalResults(null);
     window.history.replaceState(
       null,
       "",
       `/search?q=${encodeURIComponent(query)}&type=${type}`
     );
+    // Also trigger external search
+    externalSearchMutation.mutate({ query, type });
   };
 
   useEffect(() => {
     if (initialQuery && initialQuery !== currentQuery) {
       setCurrentQuery(initialQuery);
+      externalSearchMutation.mutate({ query: initialQuery, type: initialType });
     }
   }, [initialQuery]);
 
-  const hasResults =
+  const hasLocalResults =
     results && (results.owners.length > 0 || results.properties.length > 0);
+  
+  const hasExternalResults =
+    externalResults && externalResults.total > 0;
+  
+  const hasResults = hasLocalResults || hasExternalResults;
 
   return (
     <div className="space-y-6">
@@ -145,10 +180,12 @@ export default function SearchPage() {
         </Card>
       ) : hasResults ? (
         <div className="space-y-6">
-          {results.owners.length > 0 && (
+          {/* Local database results */}
+          {results && results.owners.length > 0 && (
             <div className="space-y-4">
               <div className="flex items-center gap-2">
-                <h2 className="text-lg font-semibold">Owners</h2>
+                <Database className="h-4 w-4 text-muted-foreground" />
+                <h2 className="text-lg font-semibold">Saved Owners</h2>
                 <Badge variant="secondary">{results.owners.length}</Badge>
               </div>
               <div className="space-y-3">
@@ -164,15 +201,142 @@ export default function SearchPage() {
             </div>
           )}
 
-          {results.properties.length > 0 && (
+          {results && results.properties.length > 0 && (
             <div className="space-y-4">
               <div className="flex items-center gap-2">
-                <h2 className="text-lg font-semibold">Properties</h2>
+                <Database className="h-4 w-4 text-muted-foreground" />
+                <h2 className="text-lg font-semibold">Saved Properties</h2>
                 <Badge variant="secondary">{results.properties.length}</Badge>
               </div>
               <div className="grid gap-4 md:grid-cols-2">
                 {results.properties.map((property) => (
                   <PropertyCard key={property.id} property={property} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* External data provider results */}
+          {externalSearchMutation.isPending && (
+            <Card>
+              <CardContent className="py-8">
+                <div className="flex items-center justify-center gap-3">
+                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                  <span className="text-muted-foreground">Searching external data providers...</span>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {externalResults && externalResults.properties.length > 0 && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <Globe className="h-4 w-4 text-primary" />
+                <h2 className="text-lg font-semibold">Property Records</h2>
+                <Badge variant="secondary">{externalResults.properties.length}</Badge>
+                {externalResults.sources.length > 0 && (
+                  <Badge variant="outline" className="text-xs">
+                    via {externalResults.sources.join(", ")}
+                  </Badge>
+                )}
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                {externalResults.properties.map((prop: any, idx: number) => (
+                  <Card key={idx} className="hover-elevate">
+                    <CardContent className="p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <h3 className="font-medium">{prop.address?.line1 || prop.address}</h3>
+                          <p className="text-sm text-muted-foreground">
+                            {prop.address?.city}, {prop.address?.state} {prop.address?.zip}
+                          </p>
+                        </div>
+                        {prop.assessedValue && (
+                          <Badge variant="outline">
+                            ${(prop.assessedValue || 0).toLocaleString()}
+                          </Badge>
+                        )}
+                      </div>
+                      {prop.owner && (
+                        <div className="text-sm">
+                          <span className="text-muted-foreground">Owner: </span>
+                          <span className="font-medium">{prop.owner}</span>
+                        </div>
+                      )}
+                      {prop.propertyType && (
+                        <div className="text-sm">
+                          <span className="text-muted-foreground">Type: </span>
+                          <span>{prop.propertyType}</span>
+                        </div>
+                      )}
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        className="w-full"
+                        onClick={() => {
+                          // TODO: Import this property into the system
+                        }}
+                        data-testid={`button-import-property-${idx}`}
+                      >
+                        <ExternalLink className="h-4 w-4 mr-2" />
+                        Import Property
+                      </Button>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {externalResults && externalResults.llcs.length > 0 && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <Globe className="h-4 w-4 text-primary" />
+                <h2 className="text-lg font-semibold">Companies & LLCs</h2>
+                <Badge variant="secondary">{externalResults.llcs.length}</Badge>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                {externalResults.llcs.map((llc: any, idx: number) => (
+                  <Card key={idx} className="hover-elevate">
+                    <CardContent className="p-4 space-y-2">
+                      <h3 className="font-medium">{llc.name}</h3>
+                      {llc.jurisdiction && (
+                        <p className="text-sm text-muted-foreground">
+                          {llc.jurisdiction}
+                        </p>
+                      )}
+                      {llc.status && (
+                        <Badge variant={llc.status === "Active" ? "default" : "secondary"}>
+                          {llc.status}
+                        </Badge>
+                      )}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {externalResults && externalResults.contacts.length > 0 && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <Globe className="h-4 w-4 text-primary" />
+                <h2 className="text-lg font-semibold">Contact Information</h2>
+                <Badge variant="secondary">{externalResults.contacts.length}</Badge>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                {externalResults.contacts.map((contact: any, idx: number) => (
+                  <Card key={idx} className="hover-elevate">
+                    <CardContent className="p-4 space-y-2">
+                      <h3 className="font-medium">{contact.name}</h3>
+                      {contact.phone && (
+                        <p className="text-sm">{contact.phone}</p>
+                      )}
+                      {contact.email && (
+                        <p className="text-sm text-muted-foreground">{contact.email}</p>
+                      )}
+                    </CardContent>
+                  </Card>
                 ))}
               </div>
             </div>
