@@ -83,11 +83,13 @@ export default function SearchPage() {
   };
 
   useEffect(() => {
-    if (initialQuery && initialQuery !== currentQuery) {
+    if (initialQuery) {
       setCurrentQuery(initialQuery);
+      setCurrentType(initialType);
+      // Trigger external search on page load with initial query
       externalSearchMutation.mutate({ query: initialQuery, type: initialType });
     }
-  }, [initialQuery]);
+  }, []);
 
   const hasLocalResults =
     results && (results.owners.length > 0 || results.properties.length > 0);
@@ -143,9 +145,21 @@ export default function SearchPage() {
         </div>
       )}
 
-      {isLoading ? (
+      {isLoading || externalSearchMutation.isPending ? (
         <div className="space-y-4">
-          {[...Array(3)].map((_, i) => (
+          <Card>
+            <CardContent className="py-8">
+              <div className="flex items-center justify-center gap-3">
+                <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                <span className="text-muted-foreground">
+                  {externalSearchMutation.isPending 
+                    ? "Searching property records via ATTOM, OpenCorporates, and other data providers..." 
+                    : "Searching local database..."}
+                </span>
+              </div>
+            </CardContent>
+          </Card>
+          {[...Array(2)].map((_, i) => (
             <Card key={i}>
               <CardContent className="p-4">
                 <div className="space-y-3">
@@ -163,7 +177,7 @@ export default function SearchPage() {
             </Card>
           ))}
         </div>
-      ) : currentQuery && !hasResults ? (
+      ) : currentQuery && !hasResults && !externalSearchMutation.isPending ? (
         <Card>
           <CardContent className="py-16">
             <div className="flex flex-col items-center text-center">

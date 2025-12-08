@@ -34,7 +34,7 @@ export default function Dashboard() {
   });
 
   const { data: recentOwners } = useQuery<Owner[]>({
-    queryKey: ["/api/owners", { limit: 5 }],
+    queryKey: ["/api/owners"],
   });
 
   const handleSearch = (query: string, type: string) => {
