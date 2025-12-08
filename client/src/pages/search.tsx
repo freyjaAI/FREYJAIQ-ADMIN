@@ -69,6 +69,26 @@ export default function SearchPage() {
     },
   });
 
+  // Import property from external results
+  const importPropertyMutation = useMutation({
+    mutationFn: async (property: any) => {
+      const res = await apiRequest("POST", "/api/properties/import", { property });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/properties"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/owners"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      // Navigate to the owner dossier if owner was created
+      if (data.ownerId) {
+        setLocation(`/owners/${data.ownerId}`);
+      }
+    },
+    onError: (error: any) => {
+      console.error("Import failed:", error);
+    },
+  });
+
   const handleSearch = (query: string, type: string) => {
     setCurrentQuery(query);
     setCurrentType(type);
@@ -287,13 +307,21 @@ export default function SearchPage() {
                         variant="outline" 
                         size="sm"
                         className="w-full"
-                        onClick={() => {
-                          // TODO: Import this property into the system
-                        }}
+                        onClick={() => importPropertyMutation.mutate(prop)}
+                        disabled={importPropertyMutation.isPending}
                         data-testid={`button-import-property-${idx}`}
                       >
-                        <ExternalLink className="h-4 w-4 mr-2" />
-                        Import Property
+                        {importPropertyMutation.isPending ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Importing...
+                          </>
+                        ) : (
+                          <>
+                            <ExternalLink className="h-4 w-4 mr-2" />
+                            Import Property
+                          </>
+                        )}
                       </Button>
                     </CardContent>
                   </Card>

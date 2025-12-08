@@ -886,6 +886,79 @@ Generated: ${new Date().toISOString()}
     }
   });
 
+  // Import property from external search results
+  app.post("/api/properties/import", isAuthenticated, async (req: any, res) => {
+    try {
+      const { property } = req.body;
+
+      if (!property || !property.address) {
+        return res.status(400).json({ message: "Property data required" });
+      }
+
+      // Check if property already exists
+      const existingProperties = await storage.searchProperties(
+        property.address.line1 || property.address
+      );
+      if (existingProperties.length > 0) {
+        return res.status(409).json({ 
+          message: "Property already exists",
+          property: existingProperties[0]
+        });
+      }
+
+      // Create owner first if provided
+      let ownerId: string | undefined;
+      if (property.ownership?.ownerName) {
+        const ownerType = property.ownership.ownerType === "entity" ? "entity" : "individual";
+        
+        // Check if owner exists
+        const existingOwners = await storage.searchOwners(property.ownership.ownerName);
+        if (existingOwners.length > 0) {
+          ownerId = existingOwners[0].id;
+        } else {
+          const newOwner = await storage.createOwner({
+            name: property.ownership.ownerName,
+            type: ownerType,
+            primaryAddress: `${property.address.line1 || property.address}, ${property.address.city || ""}, ${property.address.state || ""} ${property.address.zip || ""}`.trim(),
+          });
+          ownerId = newOwner.id;
+        }
+      }
+
+      // Create property
+      const newProperty = await storage.createProperty({
+        address: property.address.line1 || property.address,
+        city: property.address.city || "",
+        state: property.address.state || "",
+        zipCode: property.address.zip || "",
+        apn: property.parcel?.apn || null,
+        propertyType: "other",
+        sqFt: property.building?.sqft || null,
+        yearBuilt: property.building?.yearBuilt || null,
+        assessedValue: property.assessment?.assessedValue || null,
+        marketValue: property.assessment?.marketValue || null,
+        ownerId,
+        metadata: {
+          source: "attom",
+          attomId: property.attomId,
+          fips: property.parcel?.fips,
+          importedAt: new Date().toISOString(),
+        },
+      });
+
+      // Invalidate caches
+      res.json({ 
+        success: true, 
+        property: newProperty,
+        ownerId,
+        message: "Property imported successfully"
+      });
+    } catch (error) {
+      console.error("Error importing property:", error);
+      res.status(500).json({ message: "Failed to import property" });
+    }
+  });
+
   // Auto-enrich owner with external data
   app.post("/api/owners/:id/enrich", isAuthenticated, async (req: any, res) => {
     try {
