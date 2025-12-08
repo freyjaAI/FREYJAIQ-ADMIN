@@ -20,6 +20,7 @@ import {
   User,
   Home,
   Truck,
+  AlertCircle,
 } from "lucide-react";
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -434,35 +435,62 @@ export default function OwnerDossierPage() {
                         <Users className="h-4 w-4" />
                         <span className="font-medium">Officers & Members</span>
                       </div>
-                      {llcUnmasking.officers && llcUnmasking.officers.length > 0 ? (
-                        <div className="space-y-2">
-                          {llcUnmasking.officers.map((officer, idx) => (
-                            <div 
-                              key={idx} 
-                              className="flex items-center justify-between gap-2 p-2 rounded-md bg-muted/50"
-                              data-testid={`text-llc-officer-${idx}`}
-                            >
-                              <div>
-                                <div className="font-medium">{officer.name}</div>
-                                <div className="text-sm text-muted-foreground">{officer.position}</div>
+                      {(() => {
+                        // Check if all officers are corporate entities (registered agents) rather than people
+                        const corporatePatterns = /\b(COMPANY|CORP|INC|LLC|TRUST|NETWORK|SERVICE|SERVICES|CORPORATION|REGISTERED|AGENT)\b/i;
+                        const officers = llcUnmasking.officers || [];
+                        const allCorporateEntities = officers.length > 0 && officers.every(o => corporatePatterns.test(o.name));
+                        const isDelawareLLC = llcUnmasking.jurisdictionCode === "us_de";
+                        
+                        return (
+                          <>
+                            {allCorporateEntities && (
+                              <div className="p-3 rounded-md bg-amber-500/10 border border-amber-500/20 text-sm" data-testid="text-privacy-notice">
+                                <div className="flex items-start gap-2">
+                                  <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+                                  <div>
+                                    <span className="font-medium text-amber-700 dark:text-amber-300">Privacy-Protected Entity</span>
+                                    <p className="text-muted-foreground mt-1">
+                                      {isDelawareLLC 
+                                        ? "Delaware LLCs don't require public disclosure of actual owners. Only the registered agent is listed in public records."
+                                        : "This entity only lists corporate service companies in public records. Actual owners are not disclosed."}
+                                    </p>
+                                  </div>
+                                </div>
                               </div>
-                              <div className="flex items-center gap-2">
-                                <Badge 
-                                  variant="outline" 
-                                  className="text-xs capitalize"
-                                >
-                                  {officer.role}
-                                </Badge>
-                                <Badge variant="secondary" className="text-xs">
-                                  {officer.confidenceScore}%
-                                </Badge>
+                            )}
+                            {officers.length > 0 ? (
+                              <div className="space-y-2">
+                                {officers.map((officer, idx) => (
+                                  <div 
+                                    key={idx} 
+                                    className="flex items-center justify-between gap-2 p-2 rounded-md bg-muted/50"
+                                    data-testid={`text-llc-officer-${idx}`}
+                                  >
+                                    <div>
+                                      <div className="font-medium">{officer.name}</div>
+                                      <div className="text-sm text-muted-foreground">{officer.position}</div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <Badge 
+                                        variant="outline" 
+                                        className="text-xs capitalize"
+                                      >
+                                        {officer.role}
+                                      </Badge>
+                                      <Badge variant="secondary" className="text-xs">
+                                        {officer.confidenceScore}%
+                                      </Badge>
+                                    </div>
+                                  </div>
+                                ))}
                               </div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-sm text-muted-foreground">No officers found</p>
-                      )}
+                            ) : (
+                              <p className="text-sm text-muted-foreground">No officers found</p>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
 
                     {llcUnmasking.registeredAgent && (
