@@ -16,6 +16,30 @@ function getUserId(req: any): string | null {
   return req.user?.claims?.sub || req.user?.id || null;
 }
 
+// Helper to detect if a name looks like an entity/company rather than an individual
+function isEntityName(name: string): boolean {
+  const entityKeywords = [
+    // Common LLC/Corp suffixes
+    'LLC', 'L.L.C.', 'INC', 'CORP', 'CORPORATION', 'LTD', 'LIMITED', 'LP', 'L.P.',
+    'LLP', 'L.L.P.', 'PLLC', 'P.L.L.C.', 'PC', 'P.C.', 'PA', 'P.A.',
+    // Trust indicators
+    'TRUST', 'TRUSTEE', 'ESTATE', 'REVOCABLE', 'IRREVOCABLE',
+    // Investment/Business indicators
+    'HOLDINGS', 'PROPERTIES', 'INVESTMENTS', 'VENTURES', 'CAPITAL', 'PARTNERS',
+    'ASSOCIATES', 'ENTERPRISES', 'GROUP', 'FUND', 'REALTY', 'REAL ESTATE',
+    'DEVELOPMENT', 'MANAGEMENT', 'ACQUISITIONS', 'ASSET', 'EQUITY',
+    // Common business words
+    'COMPANY', 'COMPANIES', 'SERVICES', 'SOLUTIONS', 'NETWORK', 'INTERNATIONAL',
+    // Geographic business names often indicate entities
+    'EAST COAST', 'WEST COAST', 'NATIONWIDE', 'NATIONAL', 'GLOBAL', 'WORLDWIDE',
+    // Other indicators
+    'ASSOCIATION', 'FOUNDATION', 'PARTNERSHIP', 'JOINT VENTURE',
+  ];
+  
+  const upperName = name.toUpperCase();
+  return entityKeywords.some(keyword => upperName.includes(keyword));
+}
+
 export async function registerRoutes(httpServer: Server, app: Express): Promise<void> {
   // Auth middleware
   await setupAuth(app);
@@ -163,9 +187,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         console.error("Error generating outreach:", err);
       }
 
-      // Fetch LLC unmasking data for entity owners
+      // Fetch LLC unmasking data for entity owners (also check if name looks like entity)
+      const isEntity = owner.type === "entity" || isEntityName(owner.name);
       let llcUnmasking = null;
-      if (owner.type === "entity") {
+      if (isEntity) {
         try {
           llcUnmasking = await dataProviders.fetchLlcUnmasking(owner.name);
         } catch (err) {
@@ -205,7 +230,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       // Fetch contact enrichment data from Data Axle / A-Leads
       let contactEnrichment = null;
-      if (owner.type === "entity") {
+      if (isEntity) {
         try {
           const parsed = parseAddress(owner.primaryAddress);
           // First search by company name
@@ -261,9 +286,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
       }
 
-      // Fetch Melissa enrichment data for individuals
+      // Fetch Melissa enrichment data for individuals (or entity officers)
       let melissaEnrichment = null;
-      if (owner.type === "individual" || (owner.type === "entity" && llcUnmasking?.officers?.length)) {
+      if (!isEntity || (isEntity && llcUnmasking?.officers?.length)) {
         try {
           const rawName = owner.type === "individual" 
             ? owner.name 
@@ -334,8 +359,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const { score } = calculateSellerIntentScore(owner, properties, legalEvents);
       await storage.updateOwner(owner.id, { sellerIntentScore: score });
 
-      // If entity, try to unmask
-      if (owner.type === "entity") {
+      // If entity, try to unmask (also check if name looks like entity)
+      const isEntityOwner = owner.type === "entity" || isEntityName(owner.name);
+      if (isEntityOwner) {
         const unmaskResult = await unmaskLlc(
           owner.name,
           undefined, // Would come from OpenCorporates in production
@@ -935,9 +961,13 @@ Generated: ${new Date().toISOString()}
           let ownerId = existingOwner?.id;
 
           if (!existingOwner) {
+            // Detect entity type - override ATTOM if name looks like a company
+            const detectedType = isEntityName(property.ownership.ownerName) 
+              ? "entity" 
+              : (property.ownership.ownerType as "individual" | "entity");
             const newOwner = await storage.createOwner({
               name: property.ownership.ownerName,
-              type: property.ownership.ownerType as "individual" | "entity",
+              type: detectedType,
               primaryAddress: property.ownership.mailingAddress || `${property.address.line1}, ${property.address.city}, ${property.address.state} ${property.address.zip}`,
             });
             ownerId = newOwner.id;
@@ -1050,7 +1080,10 @@ Generated: ${new Date().toISOString()}
       // Create owner first if provided
       let ownerId: string | undefined;
       if (property.ownership?.ownerName) {
-        const ownerType = property.ownership.ownerType === "entity" ? "entity" : "individual";
+        // Detect entity type - override ATTOM if name looks like a company
+        const ownerType = isEntityName(property.ownership.ownerName) 
+          ? "entity" 
+          : (property.ownership.ownerType === "entity" ? "entity" : "individual");
         
         // Check if owner exists
         const existingOwners = await storage.searchOwners(property.ownership.ownerName);
@@ -1138,8 +1171,9 @@ Generated: ${new Date().toISOString()}
         }
       }
 
-      // Get LLC info from OpenCorporates
-      if (owner.type === "entity") {
+      // Get LLC info from OpenCorporates (also check if name looks like entity)
+      const enrichIsEntity = owner.type === "entity" || isEntityName(owner.name);
+      if (enrichIsEntity) {
         const llc = await dataProviders.lookupLlc(owner.name);
         enrichmentResults.llc = llc;
 
@@ -1289,8 +1323,8 @@ Generated: ${new Date().toISOString()}
         }
       }
 
-      // Get contacts from Data Axle People v2 for owner name (for individual owners)
-      if (owner.type === "individual") {
+      // Get contacts from Data Axle People v2 for owner name (for individual owners only)
+      if (!enrichIsEntity) {
         const people = await dataProviders.searchPeopleV2(owner.name);
         for (const person of people) {
           // Add cell phones first (higher value)
