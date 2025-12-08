@@ -240,17 +240,72 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             zip: parsed.zip
           });
           
-          // If LLC has officers from OpenCorporates, also search A-Leads by officer names
+          // If LLC has officers from OpenCorporates, search Data Axle and A-Leads for officer contacts
           if (llcUnmasking?.officers?.length && contactEnrichment) {
-            console.log(`Searching A-Leads for ${llcUnmasking.officers.length} LLC officers...`);
-            for (const officer of llcUnmasking.officers.slice(0, 3)) { // Limit to first 3 officers
+            // Filter out corporate entities to only search for real people
+            const realOfficers = llcUnmasking.officers.filter((o: any) => {
+              const upperName = o.name.toUpperCase();
+              return !['LLC', 'INC', 'CORP', 'COMPANY', 'SERVICE', 'TRUST', 'NETWORK', 'REGISTERED'].some(kw => upperName.includes(kw));
+            });
+            
+            console.log(`Searching Data Axle + A-Leads for ${realOfficers.length} real officers (filtered from ${llcUnmasking.officers.length})...`);
+            
+            for (const officer of realOfficers.slice(0, 5)) { // Limit to first 5 real officers
               const normalizedOfficerName = normalizeName(officer.name);
               if (normalizedOfficerName) {
-                console.log(`A-Leads officer search: "${normalizedOfficerName}"`);
-                const officerResults = await dataProviders.searchALeadsByName(normalizedOfficerName);
+                console.log(`Officer search: "${normalizedOfficerName}"`);
                 
-                // Add any found contacts to the enrichment results
-                for (const result of officerResults) {
+                // Search Data Axle People v2 for the officer
+                const people = await dataProviders.searchPeopleV2(normalizedOfficerName);
+                for (const person of people) {
+                  // Add cell phones
+                  for (const cellPhone of person.cellPhones) {
+                    if (!contactEnrichment.directDials.some((d: any) => d.phone === cellPhone)) {
+                      contactEnrichment.directDials.push({
+                        phone: cellPhone,
+                        type: "mobile",
+                        name: `${person.firstName} ${person.lastName}`.trim(),
+                        confidence: person.confidenceScore,
+                      });
+                    }
+                  }
+                  // Add regular phones
+                  for (const phone of person.phones) {
+                    if (!contactEnrichment.directDials.some((d: any) => d.phone === phone)) {
+                      contactEnrichment.directDials.push({
+                        phone: phone,
+                        type: "direct",
+                        name: `${person.firstName} ${person.lastName}`.trim(),
+                        confidence: person.confidenceScore,
+                      });
+                    }
+                  }
+                  // Add emails
+                  for (const email of person.emails) {
+                    if (!contactEnrichment.companyEmails.some((e: any) => e.email === email)) {
+                      contactEnrichment.companyEmails.push({
+                        email: email,
+                        type: "personal",
+                        confidence: person.confidenceScore,
+                      });
+                    }
+                  }
+                  // Add employee profile
+                  const fullName = `${person.firstName} ${person.lastName}`.trim();
+                  if (fullName && !contactEnrichment.employeeProfiles.some((p: any) => p.name === fullName)) {
+                    contactEnrichment.employeeProfiles.push({
+                      name: fullName,
+                      title: officer.position || "Officer",
+                      email: person.emails[0],
+                      phone: person.cellPhones[0] || person.phones[0],
+                      confidence: person.confidenceScore,
+                    });
+                  }
+                }
+                
+                // Also search A-Leads
+                const aLeadsResults = await dataProviders.searchALeadsByName(normalizedOfficerName);
+                for (const result of aLeadsResults) {
                   if (result.email && !contactEnrichment.companyEmails.some((e: any) => e.email === result.email)) {
                     contactEnrichment.companyEmails.push({
                       email: result.email,

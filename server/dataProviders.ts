@@ -1096,10 +1096,11 @@ export class ALeadsProvider {
       const advancedFilters: Record<string, any> = {};
       
       if (query.name) {
-        const nameParts = query.name.split(' ');
+        const nameParts = query.name.split(' ').filter(p => p.length > 0);
         if (nameParts.length >= 2) {
+          // Use first part as first name, last part as last name (ignoring middle initials)
           advancedFilters.member_name_first = nameParts[0];
-          advancedFilters.member_name_last = nameParts.slice(1).join(' ');
+          advancedFilters.member_name_last = nameParts[nameParts.length - 1];
         } else {
           advancedFilters.member_full_name = query.name;
         }
@@ -1161,10 +1162,11 @@ export class ALeadsProvider {
     try {
       const advancedFilters: Record<string, any> = {};
       
-      const nameParts = input.name.split(' ');
+      const nameParts = input.name.split(' ').filter(p => p.length > 0);
       if (nameParts.length >= 2) {
+        // Use first part as first name, last part as last name (ignoring middle initials)
         advancedFilters.member_name_first = nameParts[0];
-        advancedFilters.member_name_last = nameParts.slice(1).join(' ');
+        advancedFilters.member_name_last = nameParts[nameParts.length - 1];
       } else {
         advancedFilters.member_full_name = input.name;
       }
