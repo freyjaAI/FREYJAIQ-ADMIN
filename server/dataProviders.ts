@@ -971,7 +971,7 @@ export class ALeadsProvider {
         headers: {
           Accept: "application/json",
           "Content-Type": "application/json",
-          Authorization: `Bearer ${this.apiKey}`,
+          "x-api-key": this.apiKey,
         },
         body: JSON.stringify(requestBody),
       });
@@ -1038,7 +1038,7 @@ export class ALeadsProvider {
         headers: {
           Accept: "application/json",
           "Content-Type": "application/json",
-          Authorization: `Bearer ${this.apiKey}`,
+          "x-api-key": this.apiKey,
         },
         body: JSON.stringify(requestBody),
       });
@@ -1590,31 +1590,43 @@ export class DataProviderManager {
       });
 
       if (personatorResult) {
-        if (personatorResult.name.first || personatorResult.name.last) {
+        const firstName = personatorResult.name.first?.trim() || "";
+        const lastName = personatorResult.name.last?.trim() || "";
+        
+        if (firstName || lastName) {
           result.nameMatch = {
             verified: true,
             standardizedName: {
-              first: personatorResult.name.first,
-              last: personatorResult.name.last,
-              full: `${personatorResult.name.first} ${personatorResult.name.last}`.trim(),
+              first: firstName,
+              last: lastName,
+              full: `${firstName} ${lastName}`.trim(),
             },
             confidence: 85,
           };
         }
 
-        if (personatorResult.address.line1) {
+        const addressLine = personatorResult.address.line1?.trim() || "";
+        if (addressLine) {
           result.addressMatch = {
             verified: true,
-            standardizedAddress: personatorResult.address,
+            standardizedAddress: {
+              line1: addressLine,
+              city: personatorResult.address.city?.trim() || "",
+              state: personatorResult.address.state?.trim() || "",
+              zip: personatorResult.address.zip?.trim() || "",
+              plus4: personatorResult.address.plus4?.trim() || "",
+              county: personatorResult.address.county?.trim() || "",
+            },
             deliverability: "verified",
             residenceType: "unknown",
             confidence: 90,
           };
         }
 
-        if (personatorResult.phone) {
+        const phoneNum = personatorResult.phone?.trim() || "";
+        if (phoneNum) {
           result.phoneMatches.push({
-            phone: personatorResult.phone,
+            phone: phoneNum,
             type: "landline",
             lineType: "standard",
             verified: true,
