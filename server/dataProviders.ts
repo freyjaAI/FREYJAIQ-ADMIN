@@ -553,9 +553,50 @@ export class OpenCorporatesProvider {
   }
 }
 
+export interface DataAxlePerson {
+  firstName: string;
+  lastName: string;
+  emails: string[];
+  phones: string[];
+  cellPhones: string[];
+  title?: string;
+  company?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  infousa_id?: string;
+  confidenceScore: number;
+}
+
+export interface DataAxlePlace {
+  name: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  phone?: string;
+  email?: string;
+  uccFilings?: Array<{
+    filingNumber: string;
+    filingDate: string;
+    filingType: string;
+    securedParty?: string;
+  }>;
+  employees?: number;
+  salesVolume?: number;
+  naicsCode?: string;
+  sicCode?: string;
+  infousa_id?: string;
+}
+
 export class DataAxleProvider {
   private apiToken: string;
   private baseUrl = "https://api.data-axle.com/v1";
+  
+  // Package configurations based on user's subscription
+  private peoplePackages = "enhanced_v2,emails_v2,cell_phones_v2";
+  private placesPackages = "enhanced_v3,email_v2,ucc_filings_v1";
 
   constructor(apiToken: string) {
     this.apiToken = apiToken;
@@ -595,12 +636,13 @@ export class DataAxleProvider {
     );
   }
 
-  async searchBusinesses(query: string, location?: { city?: string; state?: string; zip?: string }): Promise<DataAxleContact[]> {
+  // Search for people using People v2 with enhanced data, emails, and cell phones
+  async searchPeopleV2(name: string, location?: { city?: string; state?: string; zip?: string }): Promise<DataAxlePerson[]> {
     try {
-      console.log(`Data Axle searchBusinesses: "${query}" location:`, location);
+      console.log(`Data Axle searchPeopleV2: "${name}" location:`, location);
       const params: Record<string, string> = {
-        query,
-        packages: "standard_v1",
+        query: name,
+        packages: this.peoplePackages,
         limit: "25",
       };
 
@@ -609,32 +651,36 @@ export class DataAxleProvider {
       if (location?.zip) params.postal_code = location.zip;
 
       const data = await this.request<any>("/people/search", params);
-      console.log(`Data Axle returned ${data.documents?.length || 0} results`);
+      console.log(`Data Axle People v2 returned ${data.documents?.length || 0} results`);
 
       return (data.documents || []).map((doc: any) => ({
         firstName: doc.first_name || "",
         lastName: doc.last_name || "",
-        email: doc.email,
-        phone: doc.phone,
-        title: doc.title,
-        company: doc.name,
-        address: doc.street,
+        emails: this.extractEmails(doc),
+        phones: this.extractPhones(doc),
+        cellPhones: this.extractCellPhones(doc),
+        title: doc.title || doc.occupation,
+        company: doc.employer_name || doc.business_name,
+        address: doc.street || doc.address_line_1,
         city: doc.city,
         state: doc.state,
-        zip: doc.postal_code,
-        confidenceScore: doc.confidence_score || 80,
+        zip: doc.postal_code || doc.zip,
+        infousa_id: doc.infousa_id,
+        confidenceScore: doc.match_score || doc.confidence_score || 75,
       }));
     } catch (error: any) {
-      console.error("Data Axle search error:", error?.message || error);
+      console.error("Data Axle People v2 search error:", error?.message || error);
       return [];
     }
   }
 
-  async searchPeople(name: string, location?: { city?: string; state?: string; zip?: string }): Promise<DataAxleContact[]> {
+  // Search for places/businesses using Places v3 with UCC filings
+  async searchPlacesV3(query: string, location?: { city?: string; state?: string; zip?: string }): Promise<DataAxlePlace[]> {
     try {
+      console.log(`Data Axle searchPlacesV3: "${query}" location:`, location);
       const params: Record<string, string> = {
-        query: name,
-        packages: "standard_v1",
+        query,
+        packages: this.placesPackages,
         limit: "25",
       };
 
@@ -642,25 +688,110 @@ export class DataAxleProvider {
       if (location?.state) params.state = location.state;
       if (location?.zip) params.postal_code = location.zip;
 
-      const data = await this.request<any>("/people/search", params);
+      const data = await this.request<any>("/places/search", params);
+      console.log(`Data Axle Places v3 returned ${data.documents?.length || 0} results`);
 
       return (data.documents || []).map((doc: any) => ({
-        firstName: doc.first_name || "",
-        lastName: doc.last_name || "",
-        email: doc.email,
-        phone: doc.phone,
-        title: doc.title,
-        company: doc.employer_name,
-        address: doc.street,
+        name: doc.name || doc.company_name || "",
+        address: doc.street || doc.address_line_1,
         city: doc.city,
         state: doc.state,
-        zip: doc.postal_code,
-        confidenceScore: doc.confidence_score || 75,
+        zip: doc.postal_code || doc.zip,
+        phone: doc.phone || doc.primary_phone,
+        email: doc.email || doc.primary_email,
+        uccFilings: this.extractUccFilings(doc),
+        employees: doc.employee_count || doc.employees,
+        salesVolume: doc.sales_volume || doc.annual_sales,
+        naicsCode: doc.naics_code || doc.primary_naics,
+        sicCode: doc.sic_code || doc.primary_sic,
+        infousa_id: doc.infousa_id,
       }));
-    } catch (error) {
-      console.error("Data Axle people search error:", error);
+    } catch (error: any) {
+      console.error("Data Axle Places v3 search error:", error?.message || error);
       return [];
     }
+  }
+
+  private extractEmails(doc: any): string[] {
+    const emails: string[] = [];
+    if (doc.email) emails.push(doc.email);
+    if (doc.emails && Array.isArray(doc.emails)) {
+      emails.push(...doc.emails.map((e: any) => typeof e === 'string' ? e : e.email).filter(Boolean));
+    }
+    if (doc.email_1) emails.push(doc.email_1);
+    if (doc.email_2) emails.push(doc.email_2);
+    if (doc.email_3) emails.push(doc.email_3);
+    return Array.from(new Set(emails));
+  }
+
+  private extractPhones(doc: any): string[] {
+    const phones: string[] = [];
+    if (doc.phone) phones.push(doc.phone);
+    if (doc.phones && Array.isArray(doc.phones)) {
+      phones.push(...doc.phones.map((p: any) => typeof p === 'string' ? p : p.phone).filter(Boolean));
+    }
+    if (doc.home_phone) phones.push(doc.home_phone);
+    if (doc.work_phone) phones.push(doc.work_phone);
+    return Array.from(new Set(phones));
+  }
+
+  private extractCellPhones(doc: any): string[] {
+    const cells: string[] = [];
+    if (doc.cell_phone) cells.push(doc.cell_phone);
+    if (doc.mobile_phone) cells.push(doc.mobile_phone);
+    if (doc.cell_phones && Array.isArray(doc.cell_phones)) {
+      cells.push(...doc.cell_phones.map((p: any) => typeof p === 'string' ? p : p.phone).filter(Boolean));
+    }
+    return Array.from(new Set(cells));
+  }
+
+  private extractUccFilings(doc: any): DataAxlePlace["uccFilings"] {
+    if (!doc.ucc_filings && !doc.uccFilings) return undefined;
+    
+    const filings = doc.ucc_filings || doc.uccFilings || [];
+    if (!Array.isArray(filings)) return undefined;
+
+    return filings.map((f: any) => ({
+      filingNumber: f.filing_number || f.filingNumber || "",
+      filingDate: f.filing_date || f.filingDate || "",
+      filingType: f.filing_type || f.filingType || "",
+      securedParty: f.secured_party || f.securedParty,
+    }));
+  }
+
+  // Legacy methods for backwards compatibility
+  async searchBusinesses(query: string, location?: { city?: string; state?: string; zip?: string }): Promise<DataAxleContact[]> {
+    const places = await this.searchPlacesV3(query, location);
+    return places.map(p => ({
+      firstName: "",
+      lastName: "",
+      email: p.email,
+      phone: p.phone,
+      title: undefined,
+      company: p.name,
+      address: p.address,
+      city: p.city,
+      state: p.state,
+      zip: p.zip,
+      confidenceScore: 80,
+    }));
+  }
+
+  async searchPeople(name: string, location?: { city?: string; state?: string; zip?: string }): Promise<DataAxleContact[]> {
+    const people = await this.searchPeopleV2(name, location);
+    return people.map(p => ({
+      firstName: p.firstName,
+      lastName: p.lastName,
+      email: p.emails[0],
+      phone: p.cellPhones[0] || p.phones[0],
+      title: p.title,
+      company: p.company,
+      address: p.address,
+      city: p.city,
+      state: p.state,
+      zip: p.zip,
+      confidenceScore: p.confidenceScore,
+    }));
   }
 
   async enrichContact(contact: { name?: string; email?: string; phone?: string; address?: string }): Promise<DataAxleContact | null> {
@@ -678,7 +809,7 @@ export class DataAxleProvider {
           "Content-Type": "application/json",
           "X-AUTH-TOKEN": this.apiToken,
         },
-        body: JSON.stringify({ match_input: matchData, packages: "standard_v1" }),
+        body: JSON.stringify({ match_input: matchData, packages: this.peoplePackages }),
       });
 
       if (!response.ok) return null;
@@ -691,8 +822,8 @@ export class DataAxleProvider {
       return {
         firstName: doc.first_name || "",
         lastName: doc.last_name || "",
-        email: doc.email,
-        phone: doc.phone,
+        email: this.extractEmails(doc)[0],
+        phone: this.extractCellPhones(doc)[0] || this.extractPhones(doc)[0],
         title: doc.title,
         company: doc.employer_name,
         address: doc.street,
@@ -1419,6 +1550,57 @@ export class DataProviderManager {
           confidenceScore: contact.confidence,
         });
       });
+    }
+
+    return results;
+  }
+
+  // Search people using Data Axle People v2 with enhanced data, emails, and cell phones
+  async searchPeopleV2(name: string, location?: { city?: string; state?: string; zip?: string }): Promise<DataAxlePerson[]> {
+    if (!this.dataAxle) {
+      console.warn("Data Axle provider not configured");
+      return [];
+    }
+    return this.dataAxle.searchPeopleV2(name, location);
+  }
+
+  // Search places/businesses using Data Axle Places v3 with UCC filings
+  async searchPlacesV3(query: string, location?: { city?: string; state?: string; zip?: string }): Promise<DataAxlePlace[]> {
+    if (!this.dataAxle) {
+      console.warn("Data Axle provider not configured");
+      return [];
+    }
+    return this.dataAxle.searchPlacesV3(query, location);
+  }
+
+  // Search for people associated with LLC officers (using Data Axle People v2)
+  async findOfficerContacts(officers: Array<{ name: string; position?: string }>, location?: { state?: string }): Promise<Array<{
+    officer: { name: string; position?: string };
+    contacts: DataAxlePerson[];
+  }>> {
+    if (!this.dataAxle) {
+      console.warn("Data Axle provider not configured");
+      return [];
+    }
+
+    const results: Array<{ officer: { name: string; position?: string }; contacts: DataAxlePerson[] }> = [];
+    
+    // Filter out corporate entities (registered agents) - only search for real people
+    const corporatePatterns = /\b(COMPANY|CORP|INC|LLC|TRUST|NETWORK|SERVICE|SERVICES|CORPORATION|REGISTERED|AGENT)\b/i;
+    const realPeopleOfficers = officers.filter(o => !corporatePatterns.test(o.name));
+
+    for (const officer of realPeopleOfficers) {
+      try {
+        console.log(`Searching Data Axle for officer: ${officer.name}`);
+        const people = await this.dataAxle.searchPeopleV2(officer.name, location);
+        results.push({
+          officer,
+          contacts: people,
+        });
+      } catch (error) {
+        console.error(`Error searching for officer ${officer.name}:`, error);
+        results.push({ officer, contacts: [] });
+      }
     }
 
     return results;

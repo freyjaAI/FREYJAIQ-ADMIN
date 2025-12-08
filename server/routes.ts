@@ -245,11 +245,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                   if (result.name && !contactEnrichment.employeeProfiles.some((p: any) => p.name === result.name)) {
                     contactEnrichment.employeeProfiles.push({
                       name: result.name,
-                      title: result.title,
+                      title: result.title || result.company,
                       email: result.email,
                       phone: result.phone,
-                      linkedinUrl: result.linkedinUrl,
-                      company: result.company,
+                      linkedin: result.linkedinUrl,
                       confidence: result.confidence || 75,
                     });
                   }
@@ -1144,8 +1143,9 @@ Generated: ${new Date().toISOString()}
         const llc = await dataProviders.lookupLlc(owner.name);
         enrichmentResults.llc = llc;
 
-        // Create contacts from officers
-        if (llc?.officers) {
+        // Create contacts from officers and search Data Axle for their contact info
+        if (llc?.officers && llc.officers.length > 0) {
+          // First, add officers from OpenCorporates
           for (const officer of llc.officers) {
             const existingContacts = await storage.getContactsByOwner(owner.id);
             const alreadyExists = existingContacts.some(
@@ -1157,6 +1157,115 @@ Generated: ${new Date().toISOString()}
                 name: officer.name,
                 position: officer.position,
                 source: "opencorporates",
+              });
+            }
+          }
+
+          // Now search Data Axle People v2 for each real officer (not corporate entities)
+          console.log(`Searching Data Axle for ${llc.officers.length} officers...`);
+          const officerContacts = await dataProviders.findOfficerContacts(
+            llc.officers.map(o => ({ name: o.name, position: o.position })),
+            { state: owner.primaryAddress?.match(/([A-Z]{2})\s*\d{5}?/)?.[1] }
+          );
+
+          for (const { officer, contacts: officerPeople } of officerContacts) {
+            console.log(`Found ${officerPeople.length} Data Axle results for officer: ${officer.name}`);
+            
+            for (const person of officerPeople) {
+              // Add cell phones
+              for (const cellPhone of person.cellPhones) {
+                const existing = await storage.getContactsByOwner(owner.id);
+                if (!existing.some((c) => c.value === cellPhone)) {
+                  await storage.createContact({
+                    ownerId: owner.id,
+                    kind: "phone",
+                    value: cellPhone,
+                    source: `dataaxle-officer:${officer.name}`,
+                    confidenceScore: person.confidenceScore,
+                    lineType: "cell",
+                  });
+                  enrichmentResults.contacts.push({
+                    name: `${person.firstName} ${person.lastName}`.trim(),
+                    phone: cellPhone,
+                    source: "dataaxle-officer",
+                    officerName: officer.name,
+                  });
+                }
+              }
+
+              // Add regular phones
+              for (const phone of person.phones) {
+                const existing = await storage.getContactsByOwner(owner.id);
+                if (!existing.some((c) => c.value === phone)) {
+                  await storage.createContact({
+                    ownerId: owner.id,
+                    kind: "phone",
+                    value: phone,
+                    source: `dataaxle-officer:${officer.name}`,
+                    confidenceScore: person.confidenceScore,
+                    lineType: "landline",
+                  });
+                }
+              }
+
+              // Add emails
+              for (const email of person.emails) {
+                const existing = await storage.getContactsByOwner(owner.id);
+                if (!existing.some((c) => c.value === email)) {
+                  await storage.createContact({
+                    ownerId: owner.id,
+                    kind: "email",
+                    value: email,
+                    source: `dataaxle-officer:${officer.name}`,
+                    confidenceScore: person.confidenceScore,
+                  });
+                  enrichmentResults.contacts.push({
+                    name: `${person.firstName} ${person.lastName}`.trim(),
+                    email: email,
+                    source: "dataaxle-officer",
+                    officerName: officer.name,
+                  });
+                }
+              }
+            }
+          }
+        }
+
+        // Also search Data Axle Places v3 for business info and UCC filings
+        const places = await dataProviders.searchPlacesV3(owner.name);
+        if (places.length > 0) {
+          const place = places[0];
+          enrichmentResults.businessInfo = {
+            name: place.name,
+            phone: place.phone,
+            email: place.email,
+            employees: place.employees,
+            salesVolume: place.salesVolume,
+            uccFilings: place.uccFilings,
+          };
+
+          // Add business phone/email if found
+          if (place.phone) {
+            const existing = await storage.getContactsByOwner(owner.id);
+            if (!existing.some((c) => c.value === place.phone)) {
+              await storage.createContact({
+                ownerId: owner.id,
+                kind: "phone",
+                value: place.phone,
+                source: "dataaxle-places",
+                confidenceScore: 85,
+              });
+            }
+          }
+          if (place.email) {
+            const existing = await storage.getContactsByOwner(owner.id);
+            if (!existing.some((c) => c.value === place.email)) {
+              await storage.createContact({
+                ownerId: owner.id,
+                kind: "email",
+                value: place.email,
+                source: "dataaxle-places",
+                confidenceScore: 85,
               });
             }
           }
@@ -1180,35 +1289,91 @@ Generated: ${new Date().toISOString()}
         }
       }
 
-      // Get contacts from Data Axle
-      const contacts = await dataProviders.findContactsByName(owner.name);
-      for (const contact of contacts) {
-        if (contact.phone) {
-          const existing = await storage.getContactsByOwner(owner.id);
-          if (!existing.some((c) => c.value === contact.phone)) {
-            await storage.createContact({
-              ownerId: owner.id,
-              kind: "phone",
-              value: contact.phone,
-              source: "dataaxle",
-              confidenceScore: contact.confidenceScore,
-            });
+      // Get contacts from Data Axle People v2 for owner name (for individual owners)
+      if (owner.type === "individual") {
+        const people = await dataProviders.searchPeopleV2(owner.name);
+        for (const person of people) {
+          // Add cell phones first (higher value)
+          for (const cellPhone of person.cellPhones) {
+            const existing = await storage.getContactsByOwner(owner.id);
+            if (!existing.some((c) => c.value === cellPhone)) {
+              await storage.createContact({
+                ownerId: owner.id,
+                kind: "phone",
+                value: cellPhone,
+                source: "dataaxle",
+                confidenceScore: person.confidenceScore,
+                lineType: "cell",
+              });
+            }
+          }
+          // Add regular phones
+          for (const phone of person.phones) {
+            const existing = await storage.getContactsByOwner(owner.id);
+            if (!existing.some((c) => c.value === phone)) {
+              await storage.createContact({
+                ownerId: owner.id,
+                kind: "phone",
+                value: phone,
+                source: "dataaxle",
+                confidenceScore: person.confidenceScore,
+                lineType: "landline",
+              });
+            }
+          }
+          // Add emails
+          for (const email of person.emails) {
+            const existing = await storage.getContactsByOwner(owner.id);
+            if (!existing.some((c) => c.value === email)) {
+              await storage.createContact({
+                ownerId: owner.id,
+                kind: "email",
+                value: email,
+                source: "dataaxle",
+                confidenceScore: person.confidenceScore,
+              });
+            }
+          }
+          enrichmentResults.contacts.push({
+            firstName: person.firstName,
+            lastName: person.lastName,
+            emails: person.emails,
+            cellPhones: person.cellPhones,
+            phones: person.phones,
+            source: "dataaxle",
+          });
+        }
+      } else {
+        // Legacy fallback for entity owners - basic contact search
+        const contacts = await dataProviders.findContactsByName(owner.name);
+        for (const contact of contacts) {
+          if (contact.phone) {
+            const existing = await storage.getContactsByOwner(owner.id);
+            if (!existing.some((c) => c.value === contact.phone)) {
+              await storage.createContact({
+                ownerId: owner.id,
+                kind: "phone",
+                value: contact.phone,
+                source: "dataaxle",
+                confidenceScore: contact.confidenceScore,
+              });
+            }
+          }
+          if (contact.email) {
+            const existing = await storage.getContactsByOwner(owner.id);
+            if (!existing.some((c) => c.value === contact.email)) {
+              await storage.createContact({
+                ownerId: owner.id,
+                kind: "email",
+                value: contact.email,
+                source: "dataaxle",
+                confidenceScore: contact.confidenceScore,
+              });
+            }
           }
         }
-        if (contact.email) {
-          const existing = await storage.getContactsByOwner(owner.id);
-          if (!existing.some((c) => c.value === contact.email)) {
-            await storage.createContact({
-              ownerId: owner.id,
-              kind: "email",
-              value: contact.email,
-              source: "dataaxle",
-              confidenceScore: contact.confidenceScore,
-            });
-          }
-        }
+        enrichmentResults.contacts.push(...contacts);
       }
-      enrichmentResults.contacts.push(...contacts);
 
       res.json({
         success: true,
