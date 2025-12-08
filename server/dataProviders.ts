@@ -101,6 +101,9 @@ interface ALeadsContact {
   email?: string;
   phone?: string;
   address?: string;
+  company?: string;
+  title?: string;
+  linkedinUrl?: string;
   source: string;
   confidence: number;
 }
@@ -552,7 +555,7 @@ export class OpenCorporatesProvider {
 
 export class DataAxleProvider {
   private apiToken: string;
-  private baseUrl = "https://api.data-axle.com/v1";
+  private baseUrl = "https://qa.api.data-axle.com/v1";
 
   constructor(apiToken: string) {
     this.apiToken = apiToken;
@@ -605,7 +608,7 @@ export class DataAxleProvider {
       if (location?.state) params.state = location.state;
       if (location?.zip) params.postal_code = location.zip;
 
-      const data = await this.request<any>("/places/search", params);
+      const data = await this.request<any>("/people/search", params);
       console.log(`Data Axle returned ${data.documents?.length || 0} results`);
 
       return (data.documents || []).map((doc: any) => ({
@@ -926,64 +929,73 @@ export class GoogleAddressValidationProvider {
 
 export class ALeadsProvider {
   private apiKey: string;
-  private baseUrl = "https://api.a-leads.co/v1";
+  private baseUrl = "https://api.a-leads.co/gateway/v1/search";
 
   constructor(apiKey: string) {
     this.apiKey = apiKey;
   }
 
-  private async request<T>(endpoint: string, params: Record<string, string> = {}): Promise<T> {
-    const url = new URL(`${this.baseUrl}${endpoint}`);
-    Object.entries(params).forEach(([key, value]) => {
-      url.searchParams.append(key, value);
-    });
-
-    console.log(`A-Leads request: ${url.toString()}`);
-
-    return limit(() =>
-      pRetry(
-        async () => {
-          const response = await fetch(url.toString(), {
-            headers: {
-              Accept: "application/json",
-              Authorization: `Bearer ${this.apiKey}`,
-            },
-          });
-
-          if (!response.ok) {
-            const errorText = await response.text();
-            console.error(`A-Leads error response (${response.status}):`, errorText.slice(0, 500));
-            if (response.status === 429) {
-              throw new Error("Rate limited");
-            }
-            throw new Error(`A-Leads API error: ${response.status}`);
-          }
-
-          return response.json();
-        },
-        { retries: 3 }
-      )
-    );
-  }
-
   async searchContacts(query: { name?: string; company?: string; location?: string }): Promise<ALeadsContact[]> {
     try {
       console.log(`A-Leads searchContacts:`, query);
-      const params: Record<string, string> = {};
-      if (query.name) params.name = query.name;
-      if (query.company) params.company = query.company;
-      if (query.location) params.location = query.location;
+      
+      const advancedFilters: Record<string, any> = {};
+      
+      if (query.name) {
+        const nameParts = query.name.split(' ');
+        if (nameParts.length >= 2) {
+          advancedFilters.member_name_first = nameParts[0];
+          advancedFilters.member_name_last = nameParts.slice(1).join(' ');
+        } else {
+          advancedFilters.member_full_name = query.name;
+        }
+      }
+      if (query.company) {
+        advancedFilters.company_name = query.company;
+      }
+      if (query.location) {
+        advancedFilters.member_location_raw_address = query.location;
+      }
 
-      const data = await this.request<any>("/contacts/search", params);
-      console.log(`A-Leads returned ${(data.contacts || data.results || []).length} results`);
+      const requestBody = {
+        advanced_filters: advancedFilters,
+        current_page: 1,
+        search_type: "total",
+      };
 
-      return (data.contacts || data.results || []).map((contact: any) => ({
-        name: contact.name || `${contact.first_name || ""} ${contact.last_name || ""}`.trim(),
+      console.log(`A-Leads request: POST ${this.baseUrl}/advanced-search`);
+      console.log(`A-Leads request body:`, JSON.stringify(requestBody));
+
+      const response = await fetch(`${this.baseUrl}/advanced-search`, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${this.apiKey}`,
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`A-Leads error response (${response.status}):`, errorText.slice(0, 500));
+        return [];
+      }
+
+      const data = await response.json();
+      const results = data.data || [];
+      console.log(`A-Leads returned ${results.length} results`);
+
+      return results.map((contact: any) => ({
+        name: contact.member_full_name || `${contact.member_name_first || ""} ${contact.member_name_last || ""}`.trim(),
         email: contact.email,
-        phone: contact.phone || contact.mobile,
-        address: contact.address,
+        phone: contact.phone_number_available ? "Available" : undefined,
+        address: contact.member_location_raw_address || contact.hq_full_address,
+        company: contact.company_name,
+        title: contact.job_title,
+        linkedinUrl: contact.member_linkedin_url,
         source: "a-leads",
-        confidence: contact.confidence || contact.score || 75,
+        confidence: 75,
       }));
     } catch (error: any) {
       console.error("A-Leads search error:", error?.message || error);
@@ -993,30 +1005,66 @@ export class ALeadsProvider {
 
   async skipTrace(input: { name: string; address?: string; city?: string; state?: string; zip?: string }): Promise<ALeadsContact | null> {
     try {
-      const response = await fetch(`${this.baseUrl}/skip-trace`, {
+      const advancedFilters: Record<string, any> = {};
+      
+      const nameParts = input.name.split(' ');
+      if (nameParts.length >= 2) {
+        advancedFilters.member_name_first = nameParts[0];
+        advancedFilters.member_name_last = nameParts.slice(1).join(' ');
+      } else {
+        advancedFilters.member_full_name = input.name;
+      }
+      
+      if (input.address) {
+        advancedFilters.member_location_raw_address = input.address;
+      }
+      if (input.city) {
+        advancedFilters.member_location_city = input.city;
+      }
+      if (input.state) {
+        advancedFilters.member_location_state = input.state;
+      }
+
+      const requestBody = {
+        advanced_filters: advancedFilters,
+        current_page: 1,
+        search_type: "total",
+      };
+
+      console.log(`A-Leads skip trace: POST ${this.baseUrl}/advanced-search`);
+
+      const response = await fetch(`${this.baseUrl}/advanced-search`, {
         method: "POST",
         headers: {
           Accept: "application/json",
           "Content-Type": "application/json",
           Authorization: `Bearer ${this.apiKey}`,
         },
-        body: JSON.stringify(input),
+        body: JSON.stringify(requestBody),
       });
 
-      if (!response.ok) return null;
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`A-Leads skip trace error (${response.status}):`, errorText.slice(0, 500));
+        return null;
+      }
 
       const data = await response.json();
-      const contact = data.contact || data.result;
+      const results = data.data || [];
+      
+      if (results.length === 0) return null;
 
-      if (!contact) return null;
-
+      const contact = results[0];
       return {
-        name: contact.name || input.name,
+        name: contact.member_full_name || input.name,
         email: contact.email,
-        phone: contact.phone || contact.mobile,
-        address: contact.address,
+        phone: contact.phone_number_available ? "Available" : undefined,
+        address: contact.member_location_raw_address,
+        company: contact.company_name,
+        title: contact.job_title,
+        linkedinUrl: contact.member_linkedin_url,
         source: "a-leads-skip-trace",
-        confidence: contact.confidence || 80,
+        confidence: 80,
       };
     } catch (error) {
       console.error("A-Leads skip trace error:", error);
