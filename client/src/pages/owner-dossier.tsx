@@ -15,6 +15,11 @@ import {
   MapPin,
   Calendar,
   Shield,
+  AtSign,
+  PhoneCall,
+  User,
+  Home,
+  Truck,
 } from "lucide-react";
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -60,6 +65,83 @@ interface LlcUnmaskingData {
   lastUpdated: string;
 }
 
+interface ContactEnrichmentData {
+  companyEmails: Array<{
+    email: string;
+    type: "general" | "personal" | "department";
+    confidence: number;
+  }>;
+  directDials: Array<{
+    phone: string;
+    type: "mobile" | "direct" | "office";
+    name?: string;
+    title?: string;
+    confidence: number;
+  }>;
+  employeeProfiles: Array<{
+    name: string;
+    title?: string;
+    email?: string;
+    phone?: string;
+    linkedin?: string;
+    confidence: number;
+  }>;
+  sources: string[];
+  lastUpdated: string;
+}
+
+interface MelissaEnrichmentData {
+  nameMatch: {
+    verified: boolean;
+    standardizedName: {
+      first: string;
+      last: string;
+      full: string;
+    };
+    confidence: number;
+  } | null;
+  addressMatch: {
+    verified: boolean;
+    standardizedAddress: {
+      line1: string;
+      city: string;
+      state: string;
+      zip: string;
+      plus4: string;
+      county: string;
+    };
+    deliverability: string;
+    residenceType: string;
+    confidence: number;
+  } | null;
+  phoneMatches: Array<{
+    phone: string;
+    type: "mobile" | "landline" | "voip";
+    lineType: string;
+    carrier?: string;
+    verified: boolean;
+    confidence: number;
+  }>;
+  occupancy: {
+    currentOccupant: boolean;
+    lengthOfResidence?: number;
+    moveDate?: string;
+    ownerOccupied: boolean;
+  } | null;
+  moveHistory: Array<{
+    address: string;
+    moveInDate?: string;
+    moveOutDate?: string;
+    type: "previous" | "current";
+  }>;
+  demographics: {
+    ageRange?: string;
+    gender?: string;
+    homeownerStatus?: string;
+  } | null;
+  lastUpdated: string;
+}
+
 interface DossierData {
   owner: Owner;
   properties: Property[];
@@ -75,6 +157,8 @@ interface DossierData {
     marketAppreciation: number;
   };
   llcUnmasking?: LlcUnmaskingData | null;
+  contactEnrichment?: ContactEnrichmentData | null;
+  melissaEnrichment?: MelissaEnrichmentData | null;
 }
 
 export default function OwnerDossierPage() {
@@ -198,7 +282,7 @@ export default function OwnerDossierPage() {
     );
   }
 
-  const { owner, properties, contacts, legalEvents, linkedLlcs, aiOutreach, scoreBreakdown, llcUnmasking } =
+  const { owner, properties, contacts, legalEvents, linkedLlcs, aiOutreach, scoreBreakdown, llcUnmasking, contactEnrichment, melissaEnrichment } =
     dossier;
 
   const totalPropertyValue = properties.reduce(
@@ -438,6 +522,276 @@ export default function OwnerDossierPage() {
                     </Button>
                   </div>
                 )}
+              </CardContent>
+            </Card>
+          )}
+
+          {owner.type === "entity" && (
+            <Card data-testid="card-contact-enrichment">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <AtSign className="h-4 w-4" />
+                  Contact Enrichment
+                  {contactEnrichment && (
+                    <Badge variant="secondary" className="text-xs">
+                      {(contactEnrichment.companyEmails?.length || 0) + (contactEnrichment.directDials?.length || 0)} contacts
+                    </Badge>
+                  )}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {contactEnrichment ? (
+                  <>
+                    {contactEnrichment.companyEmails && contactEnrichment.companyEmails.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Mail className="h-4 w-4" />
+                          <span className="font-medium">Company Emails</span>
+                        </div>
+                        <div className="space-y-2">
+                          {contactEnrichment.companyEmails.map((email, idx) => (
+                            <div 
+                              key={idx} 
+                              className="flex items-center justify-between p-2 rounded-md bg-muted/50"
+                              data-testid={`text-email-${idx}`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-sm">{email.email}</span>
+                                <Badge variant="outline" className="text-xs capitalize">{email.type}</Badge>
+                              </div>
+                              <Badge variant="secondary" className="text-xs">{email.confidence}%</Badge>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {contactEnrichment.directDials && contactEnrichment.directDials.length > 0 && (
+                      <>
+                        <Separator />
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <PhoneCall className="h-4 w-4" />
+                            <span className="font-medium">Direct Dials</span>
+                          </div>
+                          <div className="space-y-2">
+                            {contactEnrichment.directDials.map((dial, idx) => (
+                              <div 
+                                key={idx} 
+                                className="flex items-center justify-between p-2 rounded-md bg-muted/50"
+                                data-testid={`text-phone-${idx}`}
+                              >
+                                <div>
+                                  <span className="font-mono text-sm">{dial.phone}</span>
+                                  {dial.name && <span className="text-sm text-muted-foreground ml-2">{dial.name}</span>}
+                                  {dial.title && <span className="text-xs text-muted-foreground ml-1">({dial.title})</span>}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Badge variant="outline" className="text-xs capitalize">{dial.type}</Badge>
+                                  <Badge variant="secondary" className="text-xs">{dial.confidence}%</Badge>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    )}
+
+                    {contactEnrichment.employeeProfiles && contactEnrichment.employeeProfiles.length > 0 && (
+                      <>
+                        <Separator />
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <User className="h-4 w-4" />
+                            <span className="font-medium">Employee Profiles</span>
+                          </div>
+                          <div className="space-y-2">
+                            {contactEnrichment.employeeProfiles.map((profile, idx) => (
+                              <div 
+                                key={idx} 
+                                className="flex items-center justify-between p-2 rounded-md bg-muted/50"
+                                data-testid={`text-employee-${idx}`}
+                              >
+                                <div>
+                                  <div className="font-medium">{profile.name}</div>
+                                  {profile.title && <div className="text-sm text-muted-foreground">{profile.title}</div>}
+                                  <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
+                                    {profile.email && <span>{profile.email}</span>}
+                                    {profile.phone && <span>{profile.phone}</span>}
+                                  </div>
+                                </div>
+                                <Badge variant="secondary" className="text-xs">{profile.confidence}%</Badge>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    )}
+
+                    <div className="text-xs text-muted-foreground pt-2">
+                      Sources: {contactEnrichment.sources?.join(", ") || "N/A"} | Last updated: {new Date(contactEnrichment.lastUpdated).toLocaleString()}
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-center py-4">
+                    <p className="text-muted-foreground text-sm">
+                      No contact enrichment data available
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {melissaEnrichment && (
+            <Card data-testid="card-melissa-enrichment">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Home className="h-4 w-4" />
+                  Address & Identity Verification
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {melissaEnrichment.nameMatch && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <User className="h-4 w-4" />
+                      <span className="font-medium">Name Match</span>
+                      {melissaEnrichment.nameMatch.verified && (
+                        <Badge variant="default" className="text-xs">Verified</Badge>
+                      )}
+                    </div>
+                    <div className="p-2 rounded-md bg-muted/50">
+                      <div className="font-medium">{melissaEnrichment.nameMatch.standardizedName.full}</div>
+                      <div className="text-xs text-muted-foreground mt-1">
+                        Confidence: {melissaEnrichment.nameMatch.confidence}%
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {melissaEnrichment.addressMatch && (
+                  <>
+                    <Separator />
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <MapPin className="h-4 w-4" />
+                        <span className="font-medium">Address Match</span>
+                        {melissaEnrichment.addressMatch.verified && (
+                          <Badge variant="default" className="text-xs">Verified</Badge>
+                        )}
+                      </div>
+                      <div className="p-2 rounded-md bg-muted/50">
+                        <div>{melissaEnrichment.addressMatch.standardizedAddress.line1}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {melissaEnrichment.addressMatch.standardizedAddress.city}, {melissaEnrichment.addressMatch.standardizedAddress.state} {melissaEnrichment.addressMatch.standardizedAddress.zip}
+                        </div>
+                        {melissaEnrichment.addressMatch.standardizedAddress.county && (
+                          <div className="text-xs text-muted-foreground mt-1">
+                            County: {melissaEnrichment.addressMatch.standardizedAddress.county}
+                          </div>
+                        )}
+                        <div className="flex items-center gap-2 mt-2 text-xs">
+                          <Badge variant="outline" className="capitalize">{melissaEnrichment.addressMatch.residenceType}</Badge>
+                          <span className="text-muted-foreground">Deliverability: {melissaEnrichment.addressMatch.deliverability}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {melissaEnrichment.phoneMatches && melissaEnrichment.phoneMatches.length > 0 && (
+                  <>
+                    <Separator />
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Phone className="h-4 w-4" />
+                        <span className="font-medium">Phone Matches</span>
+                      </div>
+                      <div className="space-y-2">
+                        {melissaEnrichment.phoneMatches.map((phone, idx) => (
+                          <div 
+                            key={idx} 
+                            className="flex items-center justify-between p-2 rounded-md bg-muted/50"
+                            data-testid={`text-melissa-phone-${idx}`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-sm">{phone.phone}</span>
+                              {phone.verified && <Badge variant="default" className="text-xs">Verified</Badge>}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="text-xs capitalize">{phone.type}</Badge>
+                              <Badge variant="secondary" className="text-xs">{phone.confidence}%</Badge>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {melissaEnrichment.occupancy && (
+                  <>
+                    <Separator />
+                    <div className="space-y-2">
+                      <div className="font-medium text-sm">Occupancy Status</div>
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Current Occupant</span>
+                          <Badge variant={melissaEnrichment.occupancy.currentOccupant ? "default" : "secondary"}>
+                            {melissaEnrichment.occupancy.currentOccupant ? "Yes" : "No"}
+                          </Badge>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Owner Occupied</span>
+                          <Badge variant={melissaEnrichment.occupancy.ownerOccupied ? "default" : "secondary"}>
+                            {melissaEnrichment.occupancy.ownerOccupied ? "Yes" : "No"}
+                          </Badge>
+                        </div>
+                        {melissaEnrichment.occupancy.lengthOfResidence && (
+                          <div className="col-span-2 flex items-center justify-between">
+                            <span className="text-muted-foreground">Length of Residence</span>
+                            <span>{melissaEnrichment.occupancy.lengthOfResidence} years</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {melissaEnrichment.moveHistory && melissaEnrichment.moveHistory.length > 0 && (
+                  <>
+                    <Separator />
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Truck className="h-4 w-4" />
+                        <span className="font-medium">Move History</span>
+                      </div>
+                      <div className="space-y-2">
+                        {melissaEnrichment.moveHistory.map((move, idx) => (
+                          <div 
+                            key={idx} 
+                            className="flex items-center justify-between p-2 rounded-md bg-muted/50"
+                            data-testid={`text-move-history-${idx}`}
+                          >
+                            <div>
+                              <div className="text-sm">{move.address}</div>
+                              <div className="text-xs text-muted-foreground">
+                                {move.moveInDate && `Moved in: ${move.moveInDate}`}
+                                {move.moveOutDate && ` | Moved out: ${move.moveOutDate}`}
+                              </div>
+                            </div>
+                            <Badge variant="outline" className="text-xs capitalize">{move.type}</Badge>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                <div className="text-xs text-muted-foreground pt-2">
+                  Last updated: {new Date(melissaEnrichment.lastUpdated).toLocaleString()}
+                </div>
               </CardContent>
             </Card>
           )}

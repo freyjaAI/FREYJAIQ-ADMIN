@@ -173,6 +173,48 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
       }
 
+      // Fetch contact enrichment data from Data Axle / A-Leads
+      let contactEnrichment = null;
+      if (owner.type === "entity") {
+        try {
+          const addressParts = owner.primaryAddress?.split(",").map(s => s.trim()) || [];
+          const city = addressParts[1] || undefined;
+          const statePart = addressParts[2]?.split(" ") || [];
+          const state = statePart[0] || undefined;
+          contactEnrichment = await dataProviders.fetchContactEnrichment(owner.name, { city, state });
+        } catch (err) {
+          console.error("Error fetching contact enrichment:", err);
+        }
+      }
+
+      // Fetch Melissa enrichment data for individuals
+      let melissaEnrichment = null;
+      if (owner.type === "individual" || (owner.type === "entity" && llcUnmasking?.officers?.length)) {
+        try {
+          const primaryName = owner.type === "individual" 
+            ? owner.name 
+            : llcUnmasking?.officers?.[0]?.name;
+          const addressParts = owner.primaryAddress?.split(",").map(s => s.trim()) || [];
+          const addressLine = addressParts[0] || undefined;
+          const city = addressParts[1] || undefined;
+          const statePart = addressParts[2]?.split(" ") || [];
+          const state = statePart[0] || undefined;
+          const zip = statePart[1] || undefined;
+          
+          if (primaryName || addressLine) {
+            melissaEnrichment = await dataProviders.fetchMelissaEnrichment({
+              name: primaryName,
+              address: addressLine,
+              city,
+              state,
+              zip,
+            });
+          }
+        } catch (err) {
+          console.error("Error fetching Melissa enrichment:", err);
+        }
+      }
+
       res.json({
         owner: { 
           id: owner.id,
@@ -195,6 +237,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         aiOutreach,
         scoreBreakdown: breakdown,
         llcUnmasking,
+        contactEnrichment,
+        melissaEnrichment,
       });
     } catch (error) {
       console.error("Error fetching dossier:", error);
