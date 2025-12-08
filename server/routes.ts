@@ -1156,4 +1156,72 @@ Generated: ${new Date().toISOString()}
       res.status(500).json({ message: "Owner enrichment failed" });
     }
   });
+
+  // Debug API test endpoint
+  app.get("/api/debug/test-apis", isAuthenticated, async (req: any, res) => {
+    const results: Record<string, any> = {};
+
+    // Test Data Axle
+    try {
+      console.log("Testing Data Axle API...");
+      const dataAxleResult = await dataProviders.findContactsByName("John Smith", { state: "NY" });
+      results.dataAxle = {
+        success: true,
+        resultsCount: dataAxleResult.length,
+        sample: dataAxleResult.slice(0, 2),
+      };
+    } catch (error: any) {
+      results.dataAxle = { success: false, error: error?.message || String(error) };
+    }
+
+    // Test A-Leads (via enrichContact which uses A-Leads internally)
+    try {
+      console.log("Testing A-Leads API...");
+      const aLeadsResult = await dataProviders.enrichContact({ name: "John Smith", address: "123 Main St, New York, NY" });
+      results.aLeads = {
+        success: !!aLeadsResult,
+        data: aLeadsResult,
+      };
+    } catch (error: any) {
+      results.aLeads = { success: false, error: error?.message || String(error) };
+    }
+
+    // Test Melissa
+    try {
+      console.log("Testing Melissa API...");
+      const melissaResult = await dataProviders.fetchMelissaEnrichment({
+        name: "John Smith",
+        address: "123 Main St",
+        city: "New York",
+        state: "NY",
+        zip: "10001",
+      });
+      results.melissa = {
+        success: !!melissaResult,
+        data: melissaResult,
+      };
+    } catch (error: any) {
+      results.melissa = { success: false, error: error?.message || String(error) };
+    }
+
+    // Test OpenCorporates
+    try {
+      console.log("Testing OpenCorporates API...");
+      const llcResult = await dataProviders.lookupLlc("Apple Inc");
+      results.openCorporates = {
+        success: !!llcResult,
+        data: llcResult ? {
+          name: llcResult.name,
+          jurisdictionCode: llcResult.jurisdictionCode,
+          officersCount: llcResult.officers?.length || 0,
+          agentName: llcResult.agentName,
+          agentAddress: llcResult.agentAddress,
+        } : null,
+      };
+    } catch (error: any) {
+      results.openCorporates = { success: false, error: error?.message || String(error) };
+    }
+
+    res.json(results);
+  });
 }

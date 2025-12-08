@@ -555,7 +555,7 @@ export class OpenCorporatesProvider {
 
 export class DataAxleProvider {
   private apiToken: string;
-  private baseUrl = "https://qa.api.data-axle.com/v1";
+  private baseUrl = "https://api.data-axle.com/v1";
 
   constructor(apiToken: string) {
     this.apiToken = apiToken;
@@ -774,27 +774,50 @@ export class MelissaDataProvider {
     gender?: string;
   } | null> {
     try {
-      const params = new URLSearchParams({
-        id: this.apiKey,
-        format: "json",
-        act: "Check,Verify,Append",
-        ...(input.fullName && { full: input.fullName }),
-        ...(input.address && { a1: input.address }),
-        ...(input.city && { city: input.city }),
-        ...(input.state && { state: input.state }),
-        ...(input.zip && { postal: input.zip }),
-        ...(input.email && { email: input.email }),
-        ...(input.phone && { phone: input.phone }),
-      });
+      console.log("Melissa lookupPersonator input:", input);
+      
+      const params = new URLSearchParams();
+      params.append("id", this.apiKey);
+      params.append("format", "json");
+      params.append("act", "Check,Verify,Append");
+      
+      if (input.fullName) params.append("full", input.fullName);
+      if (input.address) params.append("a1", input.address);
+      if (input.city) params.append("city", input.city);
+      if (input.state) params.append("state", input.state);
+      if (input.zip) params.append("postal", input.zip);
+      if (input.email) params.append("email", input.email);
+      if (input.phone) params.append("phone", input.phone);
 
-      const response = await fetch(`https://personator.melissadata.net/v3/WEB/ContactVerify/doContactVerify?${params}`);
+      const url = `https://personator.melissadata.net/v3/WEB/ContactVerify/doContactVerify?${params}`;
+      console.log("Melissa request URL:", url.replace(this.apiKey, "***"));
+      
+      const response = await fetch(url);
 
-      if (!response.ok) return null;
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`Melissa API error (${response.status}):`, errorText.slice(0, 500));
+        return null;
+      }
 
       const data = await response.json();
+      console.log("Melissa response:", JSON.stringify(data).slice(0, 500));
+      
       const record = data.Records?.[0];
 
-      if (!record) return null;
+      if (!record) {
+        console.log("Melissa: No records in response");
+        return null;
+      }
+
+      console.log("Melissa record fields:", {
+        NameFirst: record.NameFirst,
+        NameLast: record.NameLast,
+        AddressLine1: record.AddressLine1,
+        City: record.City,
+        PhoneNumber: record.PhoneNumber,
+        Results: record.Results,
+      });
 
       return {
         name: {
