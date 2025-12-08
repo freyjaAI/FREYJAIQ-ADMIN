@@ -414,7 +414,14 @@ export default function OwnerDossierPage() {
                           <MapPin className="h-4 w-4 text-muted-foreground mt-0.5" />
                           <div>
                             <span className="text-muted-foreground">Registered Address: </span>
-                            <span>{llcUnmasking.registeredAddress}</span>
+                            <span>{typeof llcUnmasking.registeredAddress === 'string' 
+                              ? llcUnmasking.registeredAddress 
+                              : [
+                                  (llcUnmasking.registeredAddress as any).street_address,
+                                  (llcUnmasking.registeredAddress as any).locality,
+                                  (llcUnmasking.registeredAddress as any).region,
+                                  (llcUnmasking.registeredAddress as any).postal_code
+                                ].filter(Boolean).join(', ')}</span>
                           </div>
                         </div>
                       )}
@@ -467,7 +474,14 @@ export default function OwnerDossierPage() {
                             <div className="font-medium">{llcUnmasking.registeredAgent.name}</div>
                             {llcUnmasking.registeredAgent.address && (
                               <div className="text-sm text-muted-foreground">
-                                {llcUnmasking.registeredAgent.address}
+                                {typeof llcUnmasking.registeredAgent.address === 'string' 
+                                  ? llcUnmasking.registeredAgent.address 
+                                  : [
+                                      (llcUnmasking.registeredAgent.address as any).street_address,
+                                      (llcUnmasking.registeredAgent.address as any).locality,
+                                      (llcUnmasking.registeredAgent.address as any).region,
+                                      (llcUnmasking.registeredAgent.address as any).postal_code
+                                    ].filter(Boolean).join(', ')}
                               </div>
                             )}
                           </div>
