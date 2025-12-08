@@ -53,10 +53,13 @@ interface OpenCorporatesCompany {
   companyType: string;
   currentStatus: string;
   registeredAddress?: string;
+  agentName?: string;
+  agentAddress?: string;
   officers: Array<{
     name: string;
     position: string;
     startDate?: string;
+    address?: string;
   }>;
   filings: Array<{
     title: string;
@@ -217,6 +220,7 @@ export interface LlcUnmaskingResult {
     name: string;
     position: string;
     startDate?: string;
+    address?: string;
     role: "officer" | "agent" | "member" | "manager";
     confidenceScore: number;
   }>;
@@ -468,7 +472,29 @@ export class OpenCorporatesProvider {
       const data = await this.request<any>(`/companies/${jurisdictionCode}/${companyNumber}`);
       const company = data.results?.company;
 
-      if (!company) return null;
+      if (!company) {
+        console.log("OpenCorporates: No company data in response");
+        return null;
+      }
+
+      console.log(`OpenCorporates company data: name=${company.name}, status=${company.current_status}, officers=${company.officers?.length || 0}, filings=${company.filings?.length || 0}`);
+      
+      if (company.agent_name) {
+        console.log(`OpenCorporates registered agent: ${company.agent_name}`);
+      }
+
+      const officers = (company.officers || []).map((o: any) => ({
+        name: o.officer?.name || o.name || "",
+        position: o.officer?.position || o.position || "",
+        startDate: o.officer?.start_date || o.start_date,
+        address: o.officer?.address || o.address,
+      }));
+
+      const filings = (company.filings || []).map((f: any) => ({
+        title: f.filing?.title || f.title || "",
+        date: f.filing?.date || f.date || "",
+        url: f.filing?.url || f.url,
+      }));
 
       return {
         companyNumber: company.company_number || "",
@@ -478,16 +504,10 @@ export class OpenCorporatesProvider {
         companyType: company.company_type || "",
         currentStatus: company.current_status || "",
         registeredAddress: company.registered_address_in_full,
-        officers: (company.officers || []).map((o: any) => ({
-          name: o.officer?.name || "",
-          position: o.officer?.position || "",
-          startDate: o.officer?.start_date,
-        })),
-        filings: (company.filings || []).map((f: any) => ({
-          title: f.filing?.title || "",
-          date: f.filing?.date || "",
-          url: f.filing?.url,
-        })),
+        agentName: company.agent_name,
+        agentAddress: company.agent_address,
+        officers,
+        filings,
       };
     } catch (error) {
       console.error("OpenCorporates get company error:", error);
@@ -544,6 +564,8 @@ export class DataAxleProvider {
       url.searchParams.append(key, value);
     });
 
+    console.log(`Data Axle request: ${url.toString()}`);
+
     return limit(() =>
       pRetry(
         async () => {
@@ -555,6 +577,8 @@ export class DataAxleProvider {
           });
 
           if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`Data Axle error response (${response.status}):`, errorText.slice(0, 500));
             if (response.status === 429) {
               throw new Error("Rate limited");
             }
@@ -570,6 +594,7 @@ export class DataAxleProvider {
 
   async searchBusinesses(query: string, location?: { city?: string; state?: string; zip?: string }): Promise<DataAxleContact[]> {
     try {
+      console.log(`Data Axle searchBusinesses: "${query}" location:`, location);
       const params: Record<string, string> = {
         query,
         packages: "standard_v1",
@@ -581,6 +606,7 @@ export class DataAxleProvider {
       if (location?.zip) params.postal_code = location.zip;
 
       const data = await this.request<any>("/places/search", params);
+      console.log(`Data Axle returned ${data.documents?.length || 0} results`);
 
       return (data.documents || []).map((doc: any) => ({
         firstName: doc.first_name || "",
@@ -595,8 +621,8 @@ export class DataAxleProvider {
         zip: doc.postal_code,
         confidenceScore: doc.confidence_score || 80,
       }));
-    } catch (error) {
-      console.error("Data Axle search error:", error);
+    } catch (error: any) {
+      console.error("Data Axle search error:", error?.message || error);
       return [];
     }
   }
@@ -912,6 +938,8 @@ export class ALeadsProvider {
       url.searchParams.append(key, value);
     });
 
+    console.log(`A-Leads request: ${url.toString()}`);
+
     return limit(() =>
       pRetry(
         async () => {
@@ -923,6 +951,8 @@ export class ALeadsProvider {
           });
 
           if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`A-Leads error response (${response.status}):`, errorText.slice(0, 500));
             if (response.status === 429) {
               throw new Error("Rate limited");
             }
@@ -938,12 +968,14 @@ export class ALeadsProvider {
 
   async searchContacts(query: { name?: string; company?: string; location?: string }): Promise<ALeadsContact[]> {
     try {
+      console.log(`A-Leads searchContacts:`, query);
       const params: Record<string, string> = {};
       if (query.name) params.name = query.name;
       if (query.company) params.company = query.company;
       if (query.location) params.location = query.location;
 
       const data = await this.request<any>("/contacts/search", params);
+      console.log(`A-Leads returned ${(data.contacts || data.results || []).length} results`);
 
       return (data.contacts || data.results || []).map((contact: any) => ({
         name: contact.name || `${contact.first_name || ""} ${contact.last_name || ""}`.trim(),
@@ -953,8 +985,8 @@ export class ALeadsProvider {
         source: "a-leads",
         confidence: contact.confidence || contact.score || 75,
       }));
-    } catch (error) {
-      console.error("A-Leads search error:", error);
+    } catch (error: any) {
+      console.error("A-Leads search error:", error?.message || error);
       return [];
     }
   }
@@ -1002,24 +1034,32 @@ export class DataProviderManager {
   private google?: GoogleAddressValidationProvider;
 
   constructor() {
+    console.log("Initializing DataProviderManager...");
     if (process.env.ATTOM_API_KEY) {
       this.attom = new AttomDataProvider(process.env.ATTOM_API_KEY);
+      console.log("✓ ATTOM provider initialized");
     }
     if (process.env.OPENCORPORATES_API_KEY) {
       this.openCorporates = new OpenCorporatesProvider(process.env.OPENCORPORATES_API_KEY);
+      console.log("✓ OpenCorporates provider initialized");
     }
     if (process.env.DATA_AXLE_API_KEY) {
       this.dataAxle = new DataAxleProvider(process.env.DATA_AXLE_API_KEY);
+      console.log("✓ Data Axle provider initialized");
     }
     if (process.env.MELISSA_API_KEY) {
       this.melissa = new MelissaDataProvider(process.env.MELISSA_API_KEY);
+      console.log("✓ Melissa provider initialized");
     }
     if (process.env.ALEADS_API_KEY) {
       this.aLeads = new ALeadsProvider(process.env.ALEADS_API_KEY);
+      console.log("✓ A-Leads provider initialized");
     }
     if (process.env.GOOGLE_MAPS_API_KEY) {
       this.google = new GoogleAddressValidationProvider(process.env.GOOGLE_MAPS_API_KEY);
+      console.log("✓ Google provider initialized");
     }
+    console.log("Available providers:", this.getAvailableProviders());
   }
 
   getAvailableProviders(): string[] {
@@ -1143,25 +1183,72 @@ export class DataProviderManager {
     }
 
     try {
-      const companies = await this.openCorporates.searchCompanies(
-        companyName, 
-        jurisdiction ? `us_${jurisdiction.toLowerCase()}` : undefined
-      );
+      console.log(`Searching OpenCorporates for: "${companyName}" (jurisdiction: ${jurisdiction || "any"})`);
       
-      if (companies.length === 0) return null;
+      const commonJurisdictions = [
+        jurisdiction ? `us_${jurisdiction.toLowerCase()}` : null,
+        "us_de",
+        "us_fl", 
+        "us_ca",
+        "us_ny",
+        "us_tx",
+        "us_nv",
+        "us_wy",
+        null
+      ].filter((v, i, a) => v === null ? a.indexOf(null) === i : true);
+
+      let companies: any[] = [];
+      let searchedJurisdiction: string | undefined;
+      
+      for (const jur of commonJurisdictions) {
+        try {
+          const results = await this.openCorporates.searchCompanies(
+            companyName, 
+            jur || undefined
+          );
+          if (results.length > 0) {
+            companies = results;
+            searchedJurisdiction = jur || undefined;
+            console.log(`Found ${results.length} companies in jurisdiction: ${jur || "all"}`);
+            break;
+          }
+        } catch (err) {
+          console.log(`No results in ${jur || "all"}, trying next...`);
+        }
+      }
+      
+      if (companies.length === 0) {
+        console.log("No companies found in OpenCorporates");
+        return null;
+      }
 
       const company = companies[0];
+      console.log(`Fetching details for: ${company.name} (${company.jurisdictionCode}/${company.companyNumber})`);
+      
       const fullCompany = await this.openCorporates.getCompany(
         company.jurisdictionCode, 
         company.companyNumber
       );
 
-      if (!fullCompany) return null;
+      if (!fullCompany) {
+        console.log("Could not fetch full company details");
+        return null;
+      }
 
-      const officers = await this.openCorporates.getOfficers(
-        company.jurisdictionCode, 
-        company.companyNumber
-      );
+      let officers: any[] = fullCompany.officers || [];
+      console.log(`Found ${officers.length} officers in company data`);
+      
+      if (officers.length === 0) {
+        try {
+          officers = await this.openCorporates.getOfficers(
+            company.jurisdictionCode, 
+            company.companyNumber
+          );
+          console.log(`Fetched ${officers.length} officers from separate endpoint`);
+        } catch (err) {
+          console.log("Officers endpoint not available, using company data");
+        }
+      }
 
       const categorizeRole = (position: string): "officer" | "agent" | "member" | "manager" => {
         const pos = position.toLowerCase();
@@ -1172,18 +1259,29 @@ export class DataProviderManager {
       };
 
       let registeredAgent: { name: string; address?: string } | null = null;
-      const agentOfficer = officers.find(o => 
-        o.position.toLowerCase().includes("agent") || 
-        o.position.toLowerCase().includes("registered")
-      );
-      if (agentOfficer) {
-        registeredAgent = { name: agentOfficer.name };
+      
+      if (fullCompany.agentName) {
+        registeredAgent = { 
+          name: fullCompany.agentName, 
+          address: fullCompany.agentAddress 
+        };
+        console.log(`Found registered agent from company data: ${fullCompany.agentName}`);
+      } else {
+        const agentOfficer = officers.find(o => 
+          o.position.toLowerCase().includes("agent") || 
+          o.position.toLowerCase().includes("registered")
+        );
+        if (agentOfficer) {
+          registeredAgent = { name: agentOfficer.name, address: agentOfficer.address };
+          console.log(`Found registered agent from officers: ${agentOfficer.name}`);
+        }
       }
 
       const normalizedOfficers = officers.map(o => ({
         name: o.name,
         position: o.position,
         startDate: o.startDate,
+        address: o.address,
         role: categorizeRole(o.position),
         confidenceScore: 85,
       }));
