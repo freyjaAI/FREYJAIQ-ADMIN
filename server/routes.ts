@@ -699,6 +699,67 @@ Generated: ${new Date().toISOString()}
     }
   });
 
+  // Google Address Validation
+  app.post("/api/address/validate", isAuthenticated, async (req: any, res) => {
+    try {
+      const { address } = req.body;
+
+      if (!address || typeof address !== "string") {
+        return res.status(400).json({ message: "Address string required" });
+      }
+
+      const result = await dataProviders.validateAddressWithGoogle(address);
+
+      if (!result) {
+        return res.status(404).json({ message: "Address validation failed - Google provider may not be configured" });
+      }
+
+      res.json(result);
+    } catch (error) {
+      console.error("Error validating address with Google:", error);
+      res.status(500).json({ message: "Address validation failed" });
+    }
+  });
+
+  // Google Address Autocomplete
+  app.get("/api/address/autocomplete", isAuthenticated, async (req: any, res) => {
+    try {
+      const { input } = req.query;
+
+      if (!input || typeof input !== "string") {
+        return res.status(400).json({ message: "Input string required" });
+      }
+
+      const results = await dataProviders.getAddressAutocomplete(input);
+      res.json(results);
+    } catch (error) {
+      console.error("Error getting address autocomplete:", error);
+      res.status(500).json({ message: "Autocomplete failed" });
+    }
+  });
+
+  // Google Place Details
+  app.get("/api/address/place/:placeId", isAuthenticated, async (req: any, res) => {
+    try {
+      const { placeId } = req.params;
+
+      if (!placeId) {
+        return res.status(400).json({ message: "Place ID required" });
+      }
+
+      const result = await dataProviders.getPlaceDetails(placeId);
+
+      if (!result) {
+        return res.status(404).json({ message: "Place not found" });
+      }
+
+      res.json(result);
+    } catch (error) {
+      console.error("Error getting place details:", error);
+      res.status(500).json({ message: "Place lookup failed" });
+    }
+  });
+
   // Unified Search with External Data Sources
   app.post("/api/search/external", isAuthenticated, async (req: any, res) => {
     try {

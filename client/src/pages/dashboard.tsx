@@ -195,7 +195,7 @@ export default function Dashboard() {
                       <div className="font-medium truncate">
                         {typeof search.query === "object"
                           ? JSON.stringify(search.query)
-                          : search.query}
+                          : String(search.query || "")}
                       </div>
                       <div className="text-xs text-muted-foreground">
                         {search.searchType} search

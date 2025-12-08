@@ -102,6 +102,32 @@ interface ALeadsContact {
   confidence: number;
 }
 
+interface GoogleAddressValidationResult {
+  isValid: boolean;
+  formattedAddress: string;
+  addressComponents: {
+    streetNumber?: string;
+    route?: string;
+    city?: string;
+    state?: string;
+    postalCode?: string;
+    country?: string;
+  };
+  geocode?: {
+    lat: number;
+    lng: number;
+  };
+  verdict: {
+    inputGranularity: string;
+    validationGranularity: string;
+    geocodeGranularity: string;
+    addressComplete: boolean;
+    hasUnconfirmedComponents: boolean;
+    hasInferredComponents: boolean;
+    hasReplacedComponents: boolean;
+  };
+}
+
 export class AttomDataProvider {
   private apiKey: string;
   private baseUrl = "https://api.gateway.attomdata.com";
@@ -661,6 +687,113 @@ export class MelissaDataProvider {
   }
 }
 
+export class GoogleAddressValidationProvider {
+  private apiKey: string;
+
+  constructor(apiKey: string) {
+    this.apiKey = apiKey;
+  }
+
+  async validateAddress(address: string): Promise<GoogleAddressValidationResult | null> {
+    try {
+      const response = await fetch(
+        `https://addressvalidation.googleapis.com/v1:validateAddress?key=${this.apiKey}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            address: {
+              addressLines: [address],
+            },
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        console.error("Google Address Validation API error:", response.status);
+        return null;
+      }
+
+      const data = await response.json();
+      const result = data.result;
+
+      if (!result) return null;
+
+      const addressComponents: any = {};
+      (result.address?.addressComponents || []).forEach((comp: any) => {
+        const type = comp.componentType;
+        if (type === "street_number") addressComponents.streetNumber = comp.componentName?.text;
+        if (type === "route") addressComponents.route = comp.componentName?.text;
+        if (type === "locality") addressComponents.city = comp.componentName?.text;
+        if (type === "administrative_area_level_1") addressComponents.state = comp.componentName?.text;
+        if (type === "postal_code") addressComponents.postalCode = comp.componentName?.text;
+        if (type === "country") addressComponents.country = comp.componentName?.text;
+      });
+
+      return {
+        isValid: result.verdict?.addressComplete === true,
+        formattedAddress: result.address?.formattedAddress || address,
+        addressComponents,
+        geocode: result.geocode?.location
+          ? {
+              lat: result.geocode.location.latitude,
+              lng: result.geocode.location.longitude,
+            }
+          : undefined,
+        verdict: {
+          inputGranularity: result.verdict?.inputGranularity || "UNKNOWN",
+          validationGranularity: result.verdict?.validationGranularity || "UNKNOWN",
+          geocodeGranularity: result.verdict?.geocodeGranularity || "UNKNOWN",
+          addressComplete: result.verdict?.addressComplete || false,
+          hasUnconfirmedComponents: result.verdict?.hasUnconfirmedComponents || false,
+          hasInferredComponents: result.verdict?.hasInferredComponents || false,
+          hasReplacedComponents: result.verdict?.hasReplacedComponents || false,
+        },
+      };
+    } catch (error) {
+      console.error("Google Address Validation error:", error);
+      return null;
+    }
+  }
+
+  async autocomplete(input: string): Promise<Array<{ description: string; placeId: string }>> {
+    try {
+      const response = await fetch(
+        `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(input)}&types=address&key=${this.apiKey}`
+      );
+
+      if (!response.ok) return [];
+
+      const data = await response.json();
+      return (data.predictions || []).map((pred: any) => ({
+        description: pred.description,
+        placeId: pred.place_id,
+      }));
+    } catch (error) {
+      console.error("Google Places autocomplete error:", error);
+      return [];
+    }
+  }
+
+  async getPlaceDetails(placeId: string): Promise<any | null> {
+    try {
+      const response = await fetch(
+        `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=formatted_address,address_components,geometry&key=${this.apiKey}`
+      );
+
+      if (!response.ok) return null;
+
+      const data = await response.json();
+      return data.result || null;
+    } catch (error) {
+      console.error("Google Places details error:", error);
+      return null;
+    }
+  }
+}
+
 export class ALeadsProvider {
   private apiKey: string;
   private baseUrl = "https://api.a-leads.co/v1";
@@ -762,6 +895,7 @@ export class DataProviderManager {
   private dataAxle?: DataAxleProvider;
   private melissa?: MelissaDataProvider;
   private aLeads?: ALeadsProvider;
+  private google?: GoogleAddressValidationProvider;
 
   constructor() {
     if (process.env.ATTOM_API_KEY) {
@@ -779,6 +913,9 @@ export class DataProviderManager {
     if (process.env.ALEADS_API_KEY) {
       this.aLeads = new ALeadsProvider(process.env.ALEADS_API_KEY);
     }
+    if (process.env.GOOGLE_MAPS_API_KEY) {
+      this.google = new GoogleAddressValidationProvider(process.env.GOOGLE_MAPS_API_KEY);
+    }
   }
 
   getAvailableProviders(): string[] {
@@ -788,6 +925,7 @@ export class DataProviderManager {
     if (this.dataAxle) providers.push("dataaxle");
     if (this.melissa) providers.push("melissa");
     if (this.aLeads) providers.push("aleads");
+    if (this.google) providers.push("google");
     return providers;
   }
 
@@ -922,6 +1060,30 @@ export class DataProviderManager {
       email: input.email,
       phone: input.phone,
     });
+  }
+
+  async validateAddressWithGoogle(address: string): Promise<GoogleAddressValidationResult | null> {
+    if (!this.google) {
+      console.warn("Google Address Validation provider not configured");
+      return null;
+    }
+    return this.google.validateAddress(address);
+  }
+
+  async getAddressAutocomplete(input: string): Promise<Array<{ description: string; placeId: string }>> {
+    if (!this.google) {
+      console.warn("Google Places provider not configured");
+      return [];
+    }
+    return this.google.autocomplete(input);
+  }
+
+  async getPlaceDetails(placeId: string): Promise<any | null> {
+    if (!this.google) {
+      console.warn("Google Places provider not configured");
+      return null;
+    }
+    return this.google.getPlaceDetails(placeId);
   }
 }
 
