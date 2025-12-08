@@ -58,7 +58,7 @@ export default function Landing() {
             <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary">
               <Building2 className="h-4 w-4 text-primary-foreground" />
             </div>
-            <span className="text-lg font-semibold">PropertyIntel</span>
+            <span className="text-lg font-semibold">Freyja IQ</span>
           </div>
           <div className="flex items-center gap-2">
             <ThemeToggle />
@@ -172,7 +172,7 @@ export default function Landing() {
             <div className="flex h-6 w-6 items-center justify-center rounded bg-primary">
               <Building2 className="h-3 w-3 text-primary-foreground" />
             </div>
-            <span className="text-sm font-medium">PropertyIntel</span>
+            <span className="text-sm font-medium">Freyja IQ</span>
           </div>
           <p className="text-xs text-muted-foreground">
             The modern CRE prospecting platform

@@ -79,7 +79,7 @@ export function AppSidebar() {
             <Building2 className="h-4 w-4 text-primary-foreground" />
           </div>
           <div className="flex flex-col">
-            <span className="text-base font-semibold">PropertyIntel</span>
+            <span className="text-base font-semibold">Freyja IQ</span>
             <span className="text-xs text-muted-foreground">CRE Prospecting</span>
           </div>
         </div>

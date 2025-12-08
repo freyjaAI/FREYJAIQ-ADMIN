@@ -60,7 +60,7 @@ export default function SettingsPage() {
             <div>
               <div className="font-medium">Role</div>
               <div className="text-sm text-muted-foreground">
-                Your access level in PropertyIntel
+                Your access level in Freyja IQ
               </div>
             </div>
             <Badge>{user?.role || "Broker"}</Badge>
@@ -74,7 +74,7 @@ export default function SettingsPage() {
             <Palette className="h-4 w-4" />
             Appearance
           </CardTitle>
-          <CardDescription>Customize how PropertyIntel looks</CardDescription>
+          <CardDescription>Customize how Freyja IQ looks</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex items-center justify-between">
