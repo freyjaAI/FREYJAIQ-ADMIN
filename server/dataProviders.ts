@@ -1053,14 +1053,24 @@ export class DataProviderManager {
       .replace(/,?\s*United States$/i, "")
       .trim();
 
-    for (const [fullName, abbr] of Object.entries(stateAbbreviations)) {
-      const regex = new RegExp(`,\\s*${fullName}\\s*,`, "gi");
-      normalized = normalized.replace(regex, `, ${abbr},`);
-      const endRegex = new RegExp(`,\\s*${fullName}\\s*$`, "gi");
-      normalized = normalized.replace(endRegex, `, ${abbr}`);
+    const parts = normalized.split(",").map(p => p.trim());
+    
+    if (parts.length >= 2) {
+      const lastPart = parts[parts.length - 1].toLowerCase();
+      
+      if (stateAbbreviations[lastPart]) {
+        parts[parts.length - 1] = stateAbbreviations[lastPart];
+      }
+      
+      if (parts.length >= 3) {
+        const secondLastPart = parts[parts.length - 2].toLowerCase();
+        if (stateAbbreviations[secondLastPart] && parts[parts.length - 1].length === 2) {
+          parts.splice(parts.length - 2, 1);
+        }
+      }
     }
 
-    return normalized;
+    return parts.join(", ");
   }
 
   async searchPropertyByAddress(address: string): Promise<AttomPropertyData | null> {
