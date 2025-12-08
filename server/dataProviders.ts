@@ -128,6 +128,83 @@ interface GoogleAddressValidationResult {
   };
 }
 
+export interface ContactEnrichmentResult {
+  companyEmails: Array<{
+    email: string;
+    type: "general" | "personal" | "department";
+    confidence: number;
+  }>;
+  directDials: Array<{
+    phone: string;
+    type: "mobile" | "direct" | "office";
+    name?: string;
+    title?: string;
+    confidence: number;
+  }>;
+  employeeProfiles: Array<{
+    name: string;
+    title?: string;
+    email?: string;
+    phone?: string;
+    linkedin?: string;
+    confidence: number;
+  }>;
+  sources: string[];
+  lastUpdated: string;
+}
+
+export interface MelissaEnrichmentResult {
+  nameMatch: {
+    verified: boolean;
+    standardizedName: {
+      first: string;
+      last: string;
+      full: string;
+    };
+    confidence: number;
+  } | null;
+  addressMatch: {
+    verified: boolean;
+    standardizedAddress: {
+      line1: string;
+      city: string;
+      state: string;
+      zip: string;
+      plus4: string;
+      county: string;
+    };
+    deliverability: string;
+    residenceType: "single-family" | "multi-family" | "commercial" | "unknown";
+    confidence: number;
+  } | null;
+  phoneMatches: Array<{
+    phone: string;
+    type: "mobile" | "landline" | "voip";
+    lineType: string;
+    carrier?: string;
+    verified: boolean;
+    confidence: number;
+  }>;
+  occupancy: {
+    currentOccupant: boolean;
+    lengthOfResidence?: number;
+    moveDate?: string;
+    ownerOccupied: boolean;
+  } | null;
+  moveHistory: Array<{
+    address: string;
+    moveInDate?: string;
+    moveOutDate?: string;
+    type: "previous" | "current";
+  }>;
+  demographics: {
+    ageRange?: string;
+    gender?: string;
+    homeownerStatus?: string;
+  } | null;
+  lastUpdated: string;
+}
+
 export interface LlcUnmaskingResult {
   companyNumber: string;
   name: string;
@@ -1182,6 +1259,222 @@ export class DataProviderManager {
       return null;
     }
     return this.google.getPlaceDetails(placeId);
+  }
+
+  async fetchContactEnrichment(
+    companyName: string,
+    location?: { city?: string; state?: string; zip?: string }
+  ): Promise<ContactEnrichmentResult | null> {
+    const sources: string[] = [];
+    const companyEmails: ContactEnrichmentResult["companyEmails"] = [];
+    const directDials: ContactEnrichmentResult["directDials"] = [];
+    const employeeProfiles: ContactEnrichmentResult["employeeProfiles"] = [];
+
+    try {
+      if (this.dataAxle) {
+        sources.push("data-axle");
+        const businessResults = await this.dataAxle.searchBusinesses(companyName, location);
+        
+        for (const contact of businessResults) {
+          if (contact.email) {
+            const isPersonal = contact.firstName && contact.lastName;
+            companyEmails.push({
+              email: contact.email,
+              type: isPersonal ? "personal" : "general",
+              confidence: contact.confidenceScore,
+            });
+          }
+          
+          if (contact.phone) {
+            directDials.push({
+              phone: contact.phone,
+              type: "office",
+              name: `${contact.firstName} ${contact.lastName}`.trim() || undefined,
+              title: contact.title,
+              confidence: contact.confidenceScore,
+            });
+          }
+          
+          if (contact.firstName || contact.lastName) {
+            employeeProfiles.push({
+              name: `${contact.firstName} ${contact.lastName}`.trim(),
+              title: contact.title,
+              email: contact.email,
+              phone: contact.phone,
+              confidence: contact.confidenceScore,
+            });
+          }
+        }
+      }
+
+      if (this.aLeads) {
+        sources.push("a-leads");
+        const locationStr = location ? `${location.city || ""}, ${location.state || ""}`.trim() : undefined;
+        const aLeadsResults = await this.aLeads.searchContacts({ 
+          company: companyName, 
+          location: locationStr 
+        });
+        
+        for (const contact of aLeadsResults) {
+          if (contact.email && !companyEmails.some(e => e.email === contact.email)) {
+            companyEmails.push({
+              email: contact.email,
+              type: "personal",
+              confidence: contact.confidence,
+            });
+          }
+          
+          if (contact.phone && !directDials.some(d => d.phone === contact.phone)) {
+            directDials.push({
+              phone: contact.phone,
+              type: "direct",
+              name: contact.name,
+              confidence: contact.confidence,
+            });
+          }
+          
+          if (contact.name && !employeeProfiles.some(p => p.name === contact.name)) {
+            employeeProfiles.push({
+              name: contact.name,
+              email: contact.email,
+              phone: contact.phone,
+              confidence: contact.confidence,
+            });
+          }
+        }
+      }
+
+      if (sources.length === 0) {
+        console.warn("No contact enrichment providers configured");
+        return null;
+      }
+
+      companyEmails.sort((a, b) => b.confidence - a.confidence);
+      directDials.sort((a, b) => b.confidence - a.confidence);
+      employeeProfiles.sort((a, b) => b.confidence - a.confidence);
+
+      return {
+        companyEmails: companyEmails.slice(0, 10),
+        directDials: directDials.slice(0, 10),
+        employeeProfiles: employeeProfiles.slice(0, 10),
+        sources,
+        lastUpdated: new Date().toISOString(),
+      };
+    } catch (error) {
+      console.error("Error fetching contact enrichment:", error);
+      return null;
+    }
+  }
+
+  async fetchMelissaEnrichment(input: {
+    name?: string;
+    address?: string;
+    city?: string;
+    state?: string;
+    zip?: string;
+    phone?: string;
+    email?: string;
+  }): Promise<MelissaEnrichmentResult | null> {
+    if (!this.melissa) {
+      console.warn("Melissa provider not configured");
+      return null;
+    }
+
+    try {
+      const result: MelissaEnrichmentResult = {
+        nameMatch: null,
+        addressMatch: null,
+        phoneMatches: [],
+        occupancy: null,
+        moveHistory: [],
+        demographics: null,
+        lastUpdated: new Date().toISOString(),
+      };
+
+      const personatorResult = await this.melissa.lookupPersonator({
+        fullName: input.name,
+        address: input.address,
+        city: input.city,
+        state: input.state,
+        zip: input.zip,
+        email: input.email,
+        phone: input.phone,
+      });
+
+      if (personatorResult) {
+        if (personatorResult.name.first || personatorResult.name.last) {
+          result.nameMatch = {
+            verified: true,
+            standardizedName: {
+              first: personatorResult.name.first,
+              last: personatorResult.name.last,
+              full: `${personatorResult.name.first} ${personatorResult.name.last}`.trim(),
+            },
+            confidence: 85,
+          };
+        }
+
+        if (personatorResult.address.line1) {
+          result.addressMatch = {
+            verified: true,
+            standardizedAddress: personatorResult.address,
+            deliverability: "verified",
+            residenceType: "unknown",
+            confidence: 90,
+          };
+        }
+
+        if (personatorResult.phone) {
+          result.phoneMatches.push({
+            phone: personatorResult.phone,
+            type: "landline",
+            lineType: "standard",
+            verified: true,
+            confidence: 85,
+          });
+        }
+
+        if (personatorResult.gender) {
+          result.demographics = {
+            gender: personatorResult.gender,
+          };
+        }
+      }
+
+      if (input.address) {
+        const addressResult = await this.melissa.verifyAddress({
+          line1: input.address,
+          city: input.city,
+          state: input.state,
+          zip: input.zip,
+        });
+
+        if (addressResult && !result.addressMatch) {
+          result.addressMatch = {
+            verified: addressResult.verified,
+            standardizedAddress: addressResult.standardizedAddress,
+            deliverability: addressResult.deliverability,
+            residenceType: "unknown",
+            confidence: addressResult.verified ? 90 : 50,
+          };
+        }
+
+        if (addressResult?.verified && input.address) {
+          result.moveHistory.push({
+            address: addressResult.standardizedAddress.line1 + ", " + 
+                     addressResult.standardizedAddress.city + ", " + 
+                     addressResult.standardizedAddress.state + " " + 
+                     addressResult.standardizedAddress.zip,
+            type: "current",
+          });
+        }
+      }
+
+      return result;
+    } catch (error) {
+      console.error("Error fetching Melissa enrichment:", error);
+      return null;
+    }
   }
 }
 
