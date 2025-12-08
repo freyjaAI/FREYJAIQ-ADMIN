@@ -54,45 +54,43 @@ export function SearchBar({
 
   return (
     <div className={cn("w-full space-y-3", className)}>
-      <form onSubmit={handleSubmit} className="relative">
-        <Search
-          className={cn(
-            "absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground",
-            size === "large" ? "h-5 w-5" : "h-4 w-4"
-          )}
-        />
-        <Input
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={getPlaceholder()}
-          className={cn(
-            "pl-11 pr-20",
-            size === "large" && "h-14 text-lg"
-          )}
-          data-testid="input-search"
-        />
-        {query && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
+      <form onSubmit={handleSubmit} className="flex gap-2">
+        <div className="relative flex-1">
+          <Search
             className={cn(
-              "absolute right-14 top-1/2 -translate-y-1/2",
-              size === "large" && "right-16"
+              "absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground",
+              size === "large" ? "h-5 w-5" : "h-4 w-4"
             )}
-            onClick={() => setQuery("")}
-            data-testid="button-clear-search"
-          >
-            <X className="h-4 w-4" />
-          </Button>
-        )}
+          />
+          <Input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={getPlaceholder()}
+            className={cn(
+              "pl-11 pr-10",
+              size === "large" && "h-14 text-lg"
+            )}
+            data-testid="input-search"
+          />
+          {query && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="absolute right-2 top-1/2 -translate-y-1/2"
+              onClick={() => setQuery("")}
+              data-testid="button-clear-search"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
         <Button
           type="submit"
           disabled={!query.trim() || isLoading}
           className={cn(
-            "absolute right-2 top-1/2 -translate-y-1/2",
-            size === "large" && "h-10 px-6"
+            size === "large" && "h-14 px-6"
           )}
           data-testid="button-search-submit"
         >
