@@ -22,7 +22,7 @@ import {
   Truck,
   AlertCircle,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -161,6 +161,87 @@ interface DossierData {
   melissaEnrichment?: MelissaEnrichmentData | null;
 }
 
+const loadingSteps = [
+  { id: "owner", label: "Loading owner profile" },
+  { id: "properties", label: "Fetching property records" },
+  { id: "llc", label: "Resolving LLC ownership" },
+  { id: "contacts", label: "Enriching contact data" },
+  { id: "ai", label: "Generating AI insights" },
+];
+
+function DossierLoadingProgress() {
+  const [currentStep, setCurrentStep] = useState(0);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  // Cycle through steps continuously
+  useEffect(() => {
+    const stepInterval = setInterval(() => {
+      setCurrentStep(prev => (prev + 1) % loadingSteps.length);
+    }, 3000);
+
+    const secondsInterval = setInterval(() => {
+      setElapsedSeconds(prev => prev + 1);
+    }, 1000);
+
+    return () => {
+      clearInterval(stepInterval);
+      clearInterval(secondsInterval);
+    };
+  }, []);
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+  };
+
+  return (
+    <div className="flex flex-col items-center justify-center py-16 px-4">
+      <Card className="w-full max-w-md" data-testid="card-loading-progress">
+        <CardHeader className="pb-4">
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <RefreshCw className="h-5 w-5 animate-spin text-primary" />
+              Building Owner Dossier
+            </CardTitle>
+            <Badge variant="secondary" className="font-mono text-xs">
+              {formatTime(elapsedSeconds)}
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {loadingSteps.map((step, idx) => {
+            const isCurrent = idx === currentStep;
+
+            return (
+              <div key={step.id} className="flex items-center gap-3" data-testid={`loading-step-${step.id}`}>
+                <div className="shrink-0">
+                  {isCurrent ? (
+                    <div className="h-5 w-5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                  ) : (
+                    <div className="h-5 w-5 rounded-full border-2 border-muted-foreground/30" />
+                  )}
+                </div>
+                <div className={`text-sm ${isCurrent ? "font-medium" : "text-muted-foreground"}`}>
+                  {step.label}
+                  {isCurrent && <span className="animate-pulse">...</span>}
+                </div>
+              </div>
+            );
+          })}
+          <Separator className="my-2" />
+          <div className="text-xs text-muted-foreground text-center space-y-1">
+            <div>Querying OpenCorporates, Data Axle, A-Leads & Melissa</div>
+            <div className="text-muted-foreground/70">
+              This may take 1-2 minutes for comprehensive data
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export default function OwnerDossierPage() {
   const [, params] = useRoute("/owners/:id");
   const ownerId = params?.id;
@@ -245,27 +326,7 @@ export default function OwnerDossierPage() {
   };
 
   if (isLoading) {
-    return (
-      <div className="space-y-6">
-        <div className="flex items-center gap-4">
-          <Skeleton className="h-10 w-10" />
-          <div className="space-y-2">
-            <Skeleton className="h-8 w-64" />
-            <Skeleton className="h-4 w-48" />
-          </div>
-        </div>
-        <div className="grid gap-6 lg:grid-cols-3">
-          <div className="lg:col-span-2 space-y-6">
-            <Skeleton className="h-64 w-full" />
-            <Skeleton className="h-48 w-full" />
-          </div>
-          <div className="space-y-6">
-            <Skeleton className="h-48 w-full" />
-            <Skeleton className="h-32 w-full" />
-          </div>
-        </div>
-      </div>
-    );
+    return <DossierLoadingProgress />;
   }
 
   if (!dossier) {
