@@ -1,3 +1,4 @@
+import { Link } from "wouter";
 import { Building2, Search, Users, FileText, ArrowRight, Shield, Zap, Target } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -63,10 +64,10 @@ export default function Landing() {
           <div className="flex items-center gap-2">
             <ThemeToggle />
             <Button asChild data-testid="button-login">
-              <a href="/api/login">
+              <Link href="/login">
                 Sign In
                 <ArrowRight className="ml-1 h-4 w-4" />
-              </a>
+              </Link>
             </Button>
           </div>
         </div>
@@ -87,10 +88,10 @@ export default function Landing() {
             </p>
             <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
               <Button size="lg" asChild data-testid="button-get-started">
-                <a href="/api/login">
+                <Link href="/register">
                   Get Started Free
                   <ArrowRight className="ml-2 h-4 w-4" />
-                </a>
+                </Link>
               </Button>
               <Button size="lg" variant="outline" data-testid="button-learn-more">
                 See How It Works
@@ -157,10 +158,10 @@ export default function Landing() {
               Join brokers who are closing more deals with less effort.
             </p>
             <Button size="lg" className="mt-8" asChild data-testid="button-cta">
-              <a href="/api/login">
+              <Link href="/register">
                 Start Free Today
                 <ArrowRight className="ml-2 h-4 w-4" />
-              </a>
+              </Link>
             </Button>
           </div>
         </section>

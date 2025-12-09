@@ -63,7 +63,15 @@ const settingsItems = [
 
 export function AppSidebar() {
   const [location] = useLocation();
-  const { user } = useAuth();
+  const { user, logout, isLoggingOut } = useAuth();
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
+  };
 
   const getInitials = (firstName?: string | null, lastName?: string | null) => {
     const first = firstName?.charAt(0) || "";
@@ -154,12 +162,11 @@ export function AppSidebar() {
           <Button
             variant="ghost"
             size="icon"
-            asChild
+            onClick={handleLogout}
+            disabled={isLoggingOut}
             data-testid="button-logout"
           >
-            <a href="/api/logout">
-              <LogOut className="h-4 w-4" />
-            </a>
+            <LogOut className="h-4 w-4" />
           </Button>
         </div>
       </SidebarFooter>

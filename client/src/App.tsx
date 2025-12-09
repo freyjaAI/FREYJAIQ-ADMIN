@@ -15,6 +15,8 @@ import { AppSidebar } from "@/components/app-sidebar";
 
 import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
+import LoginPage from "@/pages/login";
+import RegisterPage from "@/pages/register";
 import Dashboard from "@/pages/dashboard";
 import SearchPage from "@/pages/search";
 import OwnersPage from "@/pages/owners";
@@ -63,6 +65,8 @@ function Router() {
     return (
       <Switch>
         <Route path="/" component={Landing} />
+        <Route path="/login" component={LoginPage} />
+        <Route path="/register" component={RegisterPage} />
         <Route component={Landing} />
       </Switch>
     );
