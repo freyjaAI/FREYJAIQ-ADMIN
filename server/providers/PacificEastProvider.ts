@@ -412,16 +412,26 @@ export async function enrichContactFull(params: {
     // Find the most recent (current) address
     const currentAddr = dataPrimeResult.addresses?.find(a => a.isMostRecent) || dataPrimeResult.addresses?.[0];
     if (currentAddr) {
-      verifiedAddress = currentAddr.address1;
-      verifiedCity = currentAddr.city;
-      verifiedState = currentAddr.state;
-      verifiedZip = currentAddr.postalCode;
-      console.log(`DataPrime corrected address: ${verifiedAddress}, ${verifiedCity}, ${verifiedState} ${verifiedZip}`);
+      // CRITICAL: Validate that DataPrime didn't redirect to a completely different person
+      // If the returned state is different from input state, DataPrime found a different person
+      const inputStateNorm = state?.toUpperCase().trim();
+      const returnedStateNorm = currentAddr.state?.toUpperCase().trim();
+      
+      if (inputStateNorm && returnedStateNorm && inputStateNorm !== returnedStateNorm) {
+        console.log(`DataPrime returned address in different state (${returnedStateNorm} vs input ${inputStateNorm}) - using original address to avoid wrong person`);
+        // Keep the original address - don't use DataPrime's "corrected" address
+      } else {
+        verifiedAddress = currentAddr.address1;
+        verifiedCity = currentAddr.city;
+        verifiedState = currentAddr.state;
+        verifiedZip = currentAddr.postalCode;
+        console.log(`DataPrime corrected address: ${verifiedAddress}, ${verifiedCity}, ${verifiedState} ${verifiedZip}`);
+      }
     }
     
-    // Use verified first name if available
+    // Use verified first name if available (but only if we accepted the address)
     const verifiedName = dataPrimeResult.names?.[0];
-    if (verifiedName?.firstName) {
+    if (verifiedName?.firstName && verifiedState === state) {
       verifiedFirstName = verifiedName.firstName;
       console.log(`DataPrime verified name: ${verifiedFirstName} ${verifiedName.lastName}`);
     }
