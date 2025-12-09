@@ -344,6 +344,7 @@ export interface EnrichedContactData {
     source: string;
     confidence: number;
     matchScore: number;
+    residentName?: string;
   }>;
   emails: Array<{
     address: string;
@@ -391,108 +392,46 @@ export async function enrichContactFull(params: {
     identity: null,
   };
 
-  // Step 1: Verify/correct address with DataPrime first
-  const dataPrimeResult = await searchDataPrime({
-    firstName,
-    lastName,
-    address1: address,
-    city,
-    state,
+  // STRATEGY: Address-first search to find ALL residents at the property
+  // This handles name typos/misspellings from ATTOM data
+  
+  // Step 1: Search by address only (no name filter) to get all residents
+  console.log(`Pacific East: Searching by address only to find all residents at ${address}, ${city}, ${state} ${zip}`);
+  
+  const addressOnlyPhoneResult = await appendPhone({
+    address: address,
+    city: city,
+    state: state,
     postalCode: zip,
+    queryType: "0", // All results
   });
   
-  // Use corrected/verified address from DataPrime if available
-  let verifiedAddress = address;
-  let verifiedCity = city;
-  let verifiedState = state;
-  let verifiedZip = zip;
-  let verifiedFirstName = firstName;
+  // Step 2: Also try with name for email (email API requires lastName)
+  const emailResult = await appendEmail({
+    firstName: firstName,
+    lastName: lastName,
+    address: address,
+    city: city,
+    state: state,
+    postalCode: zip,
+    queryType: "household", // Get household emails
+  });
   
-  if (dataPrimeResult && dataPrimeResult.status === 0 && dataPrimeResult.lookupResult === 1) {
-    // Find the most recent (current) address
-    const currentAddr = dataPrimeResult.addresses?.find(a => a.isMostRecent) || dataPrimeResult.addresses?.[0];
-    if (currentAddr) {
-      // CRITICAL: Validate that DataPrime didn't redirect to a completely different person
-      // If the returned state is different from input state, DataPrime found a different person
-      const inputStateNorm = state?.toUpperCase().trim();
-      const returnedStateNorm = currentAddr.state?.toUpperCase().trim();
-      
-      if (inputStateNorm && returnedStateNorm && inputStateNorm !== returnedStateNorm) {
-        console.log(`DataPrime returned address in different state (${returnedStateNorm} vs input ${inputStateNorm}) - using original address to avoid wrong person`);
-        // Keep the original address - don't use DataPrime's "corrected" address
-      } else {
-        verifiedAddress = currentAddr.address1;
-        verifiedCity = currentAddr.city;
-        verifiedState = currentAddr.state;
-        verifiedZip = currentAddr.postalCode;
-        console.log(`DataPrime corrected address: ${verifiedAddress}, ${verifiedCity}, ${verifiedState} ${verifiedZip}`);
-      }
-    }
-    
-    // Use verified first name if available (but only if we accepted the address)
-    const verifiedName = dataPrimeResult.names?.[0];
-    if (verifiedName?.firstName && verifiedState === state) {
-      verifiedFirstName = verifiedName.firstName;
-      console.log(`DataPrime verified name: ${verifiedFirstName} ${verifiedName.lastName}`);
-    }
-  }
+  // Use address-only results as primary phone source
+  const phoneResult = addressOnlyPhoneResult;
   
-  // Step 2 & 3: Now use verified address for phone and email lookup
-  const [phoneResult, emailResult] = await Promise.all([
-    appendPhone({
-      firstName: verifiedFirstName,
-      lastName,
-      address: verifiedAddress,
-      city: verifiedCity,
-      state: verifiedState,
-      postalCode: verifiedZip,
-    }),
-    appendEmail({
-      firstName: verifiedFirstName,
-      lastName,
-      address: verifiedAddress,
-      city: verifiedCity,
-      state: verifiedState,
-      postalCode: verifiedZip,
-      queryType: "individual",
-    }),
-  ]);
-
-  if (dataPrimeResult && dataPrimeResult.status === 0 && dataPrimeResult.lookupResult === 1) {
-    console.log(`DataPrime found ${dataPrimeResult.addresses?.length || 0} addresses, ${dataPrimeResult.names?.length || 0} names`);
-    
-    for (const addr of dataPrimeResult.addresses || []) {
-      result.addresses.push({
-        address1: addr.address1,
-        address2: addr.address2,
-        city: addr.city,
-        state: addr.state,
-        zip: addr.postalCode,
-        isCurrent: addr.isMostRecent,
-        verifiedDeliverable: addr.deliveryScore <= 3,
-        dwellingType: addr.dwellingType,
-      });
-    }
-
-    const primaryName = dataPrimeResult.names?.[0];
-    if (primaryName) {
-      result.identity = {
-        firstName: primaryName.firstName,
-        lastName: primaryName.lastName,
-        middleName: primaryName.middleName,
-        dob: dataPrimeResult.dob,
-        isDeceased: dataPrimeResult.knownDeceased,
-        verified: dataPrimeResult.verifiedIdentity,
-      };
-    }
+  if (phoneResult && phoneResult.contactsFound > 0) {
+    console.log(`Pacific East address-only search found ${phoneResult.contactsFound} residents at this address`);
+  } else {
+    console.log(`Pacific East address-only search: no results found`);
   }
 
+  // Process phone results - for address-only search, we accept all contacts at the address
   if (phoneResult && phoneResult.status === 0 && phoneResult.lookupResult === 1) {
-    console.log(`Phone Append found ${phoneResult.contactsFound} contacts`);
+    console.log(`Phone Append found ${phoneResult.contactsFound} contacts at address`);
     
     for (const contact of phoneResult.contacts) {
       if (contact.phoneNumber) {
-        const nameScore = contact.matchScore.overallName;
         const locationScore = contact.matchScore.location;
         const addressScore = contact.matchScore.overallAddress;
         
@@ -500,47 +439,45 @@ export async function enrichContactFull(params: {
         const verifiedMonths = contact.monthsSinceVerified || 999;
         const startAge = contact.startAgeYears || 0;
         
-        console.log(`FPA contact ${contact.phoneNumber}: nameScore=${nameScore}, locationScore=${locationScore}, addressScore=${addressScore}, dataQuality=${dataQuality}, verifiedMonths=${verifiedMonths}, startAge=${startAge}y`);
+        // For address-only search, we care about address/location match, not name match
+        console.log(`FPA contact ${contact.phoneNumber} (${contact.firstName} ${contact.lastName}): locationScore=${locationScore}, addressScore=${addressScore}, dataQuality=${dataQuality}, verifiedMonths=${verifiedMonths}, startAge=${startAge}y`);
         
-        // Filter out poor matches:
-        // - Require at least a low name match (score >= 2)
-        // - Require location to match if it was compared (score >= 2 or -1 for not compared)
-        // Score values: -1=not compared, 0=none, 2=low, 8=high, 10=exact
-        const hasAcceptableNameMatch = nameScore >= 2;
+        // Only require good address/location match (not name match since we searched by address)
         const hasAcceptableLocationMatch = locationScore === -1 || locationScore >= 2;
         const hasAcceptableAddressMatch = addressScore === -1 || addressScore >= 2;
-        
-        if (!hasAcceptableNameMatch) {
-          console.log(`FPA rejecting ${contact.phoneNumber}: poor name match (${nameScore})`);
-          continue;
-        }
         
         if (!hasAcceptableLocationMatch && !hasAcceptableAddressMatch) {
           console.log(`FPA rejecting ${contact.phoneNumber}: poor location/address match (loc=${locationScore}, addr=${addressScore})`);
           continue;
         }
         
-        // Calculate match quality from match scores
-        const matchQuality = nameScore >= 8 && (locationScore >= 8 || addressScore >= 8)
-          ? 90 
-          : nameScore >= 8 
-            ? 80
-            : nameScore >= 2 
-              ? 70 
-              : 60;
+        // Calculate confidence based on address match quality and data quality
+        const addressMatchQuality = (locationScore >= 8 || addressScore >= 8) ? 85 : 75;
         
         // Final confidence is the MINIMUM of match quality and data quality
-        // This ensures stale data is properly penalized even if match scores are high
-        const finalConfidence = Math.min(matchQuality, dataQuality);
+        const finalConfidence = Math.min(addressMatchQuality, dataQuality);
         
-        console.log(`FPA accepting ${contact.phoneNumber}: matchQuality=${matchQuality}, dataQuality=${dataQuality}, finalConfidence=${finalConfidence}`);
+        console.log(`FPA accepting ${contact.phoneNumber} (${contact.firstName} ${contact.lastName}): addressQuality=${addressMatchQuality}, dataQuality=${dataQuality}, finalConfidence=${finalConfidence}`);
+        
+        // Add address info to result for display
+        result.addresses.push({
+          address1: contact.address,
+          address2: "",
+          city: contact.city,
+          state: contact.state,
+          zip: contact.postalCode,
+          isCurrent: true,
+          verifiedDeliverable: true,
+          dwellingType: "unknown",
+        });
         
         result.phones.push({
           number: contact.phoneNumber,
           type: contact.contactType === "R" ? "residential" : contact.contactType === "B" ? "business" : "unknown",
           source: contact.source || "pacific_east",
           confidence: finalConfidence,
-          matchScore: nameScore,
+          matchScore: addressScore,
+          residentName: `${contact.firstName} ${contact.lastName}`.trim() || undefined,
         });
       }
     }
