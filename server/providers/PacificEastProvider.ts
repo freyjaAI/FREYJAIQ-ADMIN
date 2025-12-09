@@ -395,18 +395,46 @@ export async function enrichContactFull(params: {
     
     for (const contact of phoneResult.contacts) {
       if (contact.phoneNumber) {
-        const matchQuality = contact.matchScore.overallName >= 8 && contact.matchScore.location >= 8 
+        const nameScore = contact.matchScore.overallName;
+        const locationScore = contact.matchScore.location;
+        const addressScore = contact.matchScore.overallAddress;
+        
+        console.log(`FPA contact ${contact.phoneNumber}: nameScore=${nameScore}, locationScore=${locationScore}, addressScore=${addressScore}, name=${contact.firstName} ${contact.lastName}, addr=${contact.address}, ${contact.city}, ${contact.state}`);
+        
+        // Filter out poor matches:
+        // - Require at least a low name match (score >= 2)
+        // - Require location to match if it was compared (score >= 2 or -1 for not compared)
+        // Score values: -1=not compared, 0=none, 2=low, 8=high, 10=exact
+        const hasAcceptableNameMatch = nameScore >= 2;
+        const hasAcceptableLocationMatch = locationScore === -1 || locationScore >= 2;
+        const hasAcceptableAddressMatch = addressScore === -1 || addressScore >= 2;
+        
+        if (!hasAcceptableNameMatch) {
+          console.log(`FPA rejecting ${contact.phoneNumber}: poor name match (${nameScore})`);
+          continue;
+        }
+        
+        if (!hasAcceptableLocationMatch && !hasAcceptableAddressMatch) {
+          console.log(`FPA rejecting ${contact.phoneNumber}: poor location/address match (loc=${locationScore}, addr=${addressScore})`);
+          continue;
+        }
+        
+        const matchQuality = nameScore >= 8 && (locationScore >= 8 || addressScore >= 8)
           ? 90 
-          : contact.matchScore.overallName >= 2 
-            ? 75 
-            : 60;
+          : nameScore >= 8 
+            ? 80
+            : nameScore >= 2 
+              ? 70 
+              : 60;
+        
+        console.log(`FPA accepting ${contact.phoneNumber} with confidence ${matchQuality}`);
         
         result.phones.push({
           number: contact.phoneNumber,
           type: contact.contactType === "R" ? "residential" : contact.contactType === "B" ? "business" : "unknown",
           source: contact.source || "pacific_east",
           confidence: matchQuality,
-          matchScore: contact.matchScore.overallName,
+          matchScore: nameScore,
         });
       }
     }
