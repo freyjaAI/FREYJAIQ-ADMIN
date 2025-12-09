@@ -449,6 +449,109 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         } catch (err) {
           console.error("Error fetching contact enrichment:", err);
         }
+      } else {
+        // Individual/residential owner - enrich their contact info directly
+        try {
+          const parsed = parseAddress(owner.primaryAddress);
+          const normalizedOwnerName = normalizeName(owner.name);
+          
+          console.log(`Individual owner enrichment for: "${normalizedOwnerName}"`);
+          
+          // Initialize contact enrichment structure for individual
+          contactEnrichment = {
+            directDials: [] as any[],
+            companyEmails: [] as any[],
+            employeeProfiles: [] as any[],
+          };
+          
+          // Search Data Axle People v2 for the individual owner
+          if (normalizedOwnerName) {
+            const people = await dataProviders.searchPeopleV2(normalizedOwnerName);
+            for (const person of (people || []).slice(0, 5)) { // Limit matches
+              const fullName = `${person.firstName || ''} ${person.lastName || ''}`.trim();
+              const cellPhones = person.cellPhones || [];
+              const phones = person.phones || [];
+              const emails = person.emails || [];
+              
+              // Add cell phones
+              for (const cellPhone of cellPhones) {
+                if (!contactEnrichment.directDials.some((d: any) => d.phone === cellPhone)) {
+                  contactEnrichment.directDials.push({
+                    phone: cellPhone,
+                    type: "mobile",
+                    name: fullName,
+                    confidence: person.confidenceScore,
+                  });
+                }
+              }
+              // Add regular phones
+              for (const phone of phones) {
+                if (!contactEnrichment.directDials.some((d: any) => d.phone === phone)) {
+                  contactEnrichment.directDials.push({
+                    phone: phone,
+                    type: "landline",
+                    name: fullName,
+                    confidence: person.confidenceScore,
+                  });
+                }
+              }
+              // Add emails
+              for (const email of emails) {
+                if (!contactEnrichment.companyEmails.some((e: any) => e.email === email)) {
+                  contactEnrichment.companyEmails.push({
+                    email: email,
+                    type: "personal",
+                    confidence: person.confidenceScore,
+                  });
+                }
+              }
+              // Add profile
+              if (fullName && !contactEnrichment.employeeProfiles.some((p: any) => p.name === fullName)) {
+                contactEnrichment.employeeProfiles.push({
+                  name: fullName,
+                  title: "Property Owner",
+                  email: emails[0],
+                  phone: cellPhones[0] || phones[0],
+                  confidence: person.confidenceScore,
+                });
+              }
+            }
+            
+            // Also search A-Leads for individual
+            const aLeadsResults = await dataProviders.searchALeadsByName(normalizedOwnerName);
+            for (const result of (aLeadsResults || []).slice(0, 5)) {
+              if (result.email && !contactEnrichment.companyEmails.some((e: any) => e.email === result.email)) {
+                contactEnrichment.companyEmails.push({
+                  email: result.email,
+                  type: "personal",
+                  confidence: result.confidence || 75,
+                });
+              }
+              if (result.phone && !contactEnrichment.directDials.some((d: any) => d.phone === result.phone)) {
+                contactEnrichment.directDials.push({
+                  phone: result.phone,
+                  type: "direct",
+                  name: result.name,
+                  confidence: result.confidence || 75,
+                });
+              }
+              if (result.name && !contactEnrichment.employeeProfiles.some((p: any) => p.name === result.name)) {
+                contactEnrichment.employeeProfiles.push({
+                  name: result.name,
+                  title: result.title || "Property Owner",
+                  email: result.email,
+                  phone: result.phone,
+                  linkedin: result.linkedinUrl,
+                  confidence: result.confidence || 75,
+                });
+              }
+            }
+            
+            console.log(`Individual enrichment found: ${contactEnrichment.directDials.length} phones, ${contactEnrichment.companyEmails.length} emails`);
+          }
+        } catch (err) {
+          console.error("Error fetching individual contact enrichment:", err);
+        }
       }
 
       // Fetch Melissa enrichment data for individuals (or entity officers)
