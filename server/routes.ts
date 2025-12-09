@@ -707,14 +707,45 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             });
             
             if (pacificEastResult) {
-              // Add Pacific East phones (with strict state matching already done in the provider)
+              // Cross-provider validation: Check if other providers found any phones
+              const otherProviderPhones = contactEnrichment.directDials.filter((d: any) => 
+                d.source !== "pacific_east" && d.phone
+              );
+              const hasOtherProviderData = otherProviderPhones.length > 0;
+              
+              console.log(`Cross-provider validation: ${otherProviderPhones.length} phones from Data Axle/A-Leads`);
+              
+              // Add Pacific East phones with cross-provider validation
               for (const phone of pacificEastResult.phones) {
                 if (phone.number && !contactEnrichment.directDials.some((d: any) => d.phone === phone.number)) {
+                  // Check if this phone is corroborated by another provider
+                  const isCorroborated = otherProviderPhones.some((d: any) => d.phone === phone.number);
+                  
+                  // Check if this is from a verified source (DA = Directory Assistance)
+                  const isVerifiedSource = phone.source === "DA";
+                  
+                  // If NonDA source and NOT corroborated and NO other providers found this person
+                  // This is likely bad data - suppress it entirely
+                  if (!isVerifiedSource && !isCorroborated && !hasOtherProviderData) {
+                    console.log(`Suppressing Pacific East phone ${phone.number}: NonDA source with no corroboration from other providers`);
+                    continue;
+                  }
+                  
+                  // If NonDA but corroborated, boost confidence; if NonDA alone, penalize
+                  let adjustedConfidence = phone.confidence;
+                  if (isCorroborated) {
+                    adjustedConfidence = Math.min(95, phone.confidence + 10);
+                    console.log(`Pacific East phone ${phone.number} corroborated by other provider - confidence boosted to ${adjustedConfidence}`);
+                  } else if (!isVerifiedSource) {
+                    adjustedConfidence = Math.max(40, phone.confidence - 20);
+                    console.log(`Pacific East phone ${phone.number} not corroborated (NonDA) - confidence reduced to ${adjustedConfidence}`);
+                  }
+                  
                   contactEnrichment.directDials.push({
                     phone: phone.number,
                     type: phone.type === "residential" ? "landline" : phone.type === "business" ? "office" : "direct",
                     name: `${firstName || ''} ${lastName}`.trim(),
-                    confidence: phone.confidence,
+                    confidence: adjustedConfidence,
                     source: "pacific_east",
                   });
                 }
