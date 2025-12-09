@@ -387,11 +387,9 @@ export async function enrichContactFull(params: {
     identity: null,
   };
 
-  // STRATEGY: Address-first search to find ALL residents at the property
-  // This handles name typos/misspellings from ATTOM data
+  // STRATEGY: Dual search - by address AND by name to maximize coverage
   
   // Step 1: Search by address only (no name filter) to get all residents
-  // Note: queryType "2" (cell only) not authorized on this account, so we get all and filter
   console.log(`Pacific East: Searching by address only for all phones at ${address}, ${city}, ${state} ${zip}`);
   
   const addressOnlyPhoneResult = await appendPhone({
@@ -399,10 +397,21 @@ export async function enrichContactFull(params: {
     city: city,
     state: state,
     postalCode: zip,
-    queryType: "0", // All phones (will prioritize cells in results)
+    queryType: "0", // All phones
   });
   
-  // Step 2: Also try with name for email (email API requires lastName)
+  // Step 2: Also search by NAME to find phones associated with the person anywhere
+  // This catches cell phones that may be registered to other addresses
+  console.log(`Pacific East: Also searching by name ${firstName} ${lastName} in ${state}`);
+  
+  const nameBasedPhoneResult = await appendPhone({
+    firstName: firstName,
+    lastName: lastName,
+    state: state, // Just state to cast a wide net
+    queryType: "0", // All phones
+  });
+  
+  // Step 3: Try name + address for email (email API requires lastName)
   const emailResult = await appendEmail({
     firstName: firstName,
     lastName: lastName,
@@ -413,8 +422,38 @@ export async function enrichContactFull(params: {
     queryType: "individual", // "household" returns 404
   });
   
-  // Use address-only results as primary phone source
-  const phoneResult = addressOnlyPhoneResult;
+  // Combine results from both searches
+  type ContactType = NonNullable<typeof addressOnlyPhoneResult>['contacts'][number];
+  const allContacts: ContactType[] = [];
+  const seenPhones = new Set<string>();
+  
+  // Add address-based results first (higher priority)
+  if (addressOnlyPhoneResult && addressOnlyPhoneResult.contacts) {
+    for (const c of addressOnlyPhoneResult.contacts) {
+      if (c.phoneNumber && !seenPhones.has(c.phoneNumber)) {
+        seenPhones.add(c.phoneNumber);
+        allContacts.push(c);
+      }
+    }
+  }
+  
+  // Add name-based results (may find cell phones at other addresses)
+  if (nameBasedPhoneResult && nameBasedPhoneResult.contacts) {
+    for (const c of nameBasedPhoneResult.contacts) {
+      if (c.phoneNumber && !seenPhones.has(c.phoneNumber)) {
+        seenPhones.add(c.phoneNumber);
+        allContacts.push(c);
+      }
+    }
+  }
+  
+  console.log(`Pacific East combined search: ${allContacts.length} unique phones from address + name searches`);
+  
+  const phoneResult = {
+    ...addressOnlyPhoneResult,
+    contacts: allContacts,
+    contactsFound: allContacts.length,
+  };
   
   if (phoneResult && phoneResult.contactsFound > 0) {
     console.log(`Pacific East address-only search found ${phoneResult.contactsFound} residents at this address`);
