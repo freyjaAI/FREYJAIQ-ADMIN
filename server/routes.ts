@@ -158,6 +158,44 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         })
       );
 
+      // Check cache first - use cached data if available
+      const existingCache = await storage.getDossierCache(owner.id);
+      const cacheMaxAge = 24 * 60 * 60 * 1000; // 24 hours
+      const isCacheValid = existingCache && existingCache.updatedAt && 
+        (Date.now() - new Date(existingCache.updatedAt).getTime()) < cacheMaxAge;
+
+      if (isCacheValid && existingCache) {
+        console.log(`Using cached dossier data for owner ${owner.id}`);
+        return res.json({
+          owner: { 
+            id: owner.id,
+            type: owner.type,
+            name: owner.name,
+            akaNames: owner.akaNames,
+            primaryAddress: owner.primaryAddress,
+            mailingAddress: owner.mailingAddress,
+            riskFlags: owner.riskFlags,
+            contactConfidenceScore: owner.contactConfidenceScore,
+            metadata: owner.metadata,
+            createdAt: owner.createdAt,
+            updatedAt: owner.updatedAt,
+            sellerIntentScore: existingCache.sellerIntentScore,
+          },
+          properties,
+          contacts,
+          legalEvents,
+          linkedLlcs,
+          aiOutreach: existingCache.aiOutreach,
+          scoreBreakdown: existingCache.scoreBreakdown,
+          llcUnmasking: existingCache.llcUnmasking,
+          contactEnrichment: existingCache.contactEnrichment,
+          melissaEnrichment: existingCache.melissaEnrichment,
+          cached: true,
+        });
+      }
+
+      console.log(`Fetching fresh dossier data for owner ${owner.id} (no valid cache)`);
+
       // Calculate seller intent score
       const { score, breakdown } = calculateSellerIntentScore(owner, properties, legalEvents);
 
@@ -350,6 +388,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
       }
 
+      // Save to cache for future requests
+      try {
+        await storage.upsertDossierCache({
+          ownerId: owner.id,
+          llcUnmasking: llcUnmasking,
+          contactEnrichment: contactEnrichment,
+          melissaEnrichment: melissaEnrichment,
+          aiOutreach: aiOutreach,
+          sellerIntentScore: score,
+          scoreBreakdown: breakdown,
+        });
+        console.log(`Cached dossier data for owner ${owner.id}`);
+      } catch (cacheErr) {
+        console.error("Error caching dossier:", cacheErr);
+      }
+
       res.json({
         owner: { 
           id: owner.id,
@@ -374,6 +428,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         llcUnmasking,
         contactEnrichment,
         melissaEnrichment,
+        cached: false,
       });
     } catch (error) {
       console.error("Error fetching dossier:", error);

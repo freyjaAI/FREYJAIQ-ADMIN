@@ -7,6 +7,7 @@ import {
   ownerLlcLinks,
   searchHistory,
   dossierExports,
+  dossierCache,
   type User,
   type UpsertUser,
   type Owner,
@@ -23,6 +24,8 @@ import {
   type InsertSearchHistory,
   type DossierExport,
   type InsertDossierExport,
+  type DossierCache,
+  type InsertDossierCache,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, ilike, or, desc, sql } from "drizzle-orm";
@@ -70,6 +73,10 @@ export interface IStorage {
   // Dossier exports
   getDossierExports(userId: string): Promise<DossierExport[]>;
   createDossierExport(export_: InsertDossierExport): Promise<DossierExport>;
+
+  // Dossier cache
+  getDossierCache(ownerId: string): Promise<DossierCache | undefined>;
+  upsertDossierCache(cache: InsertDossierCache): Promise<DossierCache>;
 
   // Stats
   getStats(userId: string): Promise<{
@@ -278,6 +285,32 @@ export class DatabaseStorage implements IStorage {
   async createDossierExport(export_: InsertDossierExport): Promise<DossierExport> {
     const [newExport] = await db.insert(dossierExports).values(export_).returning();
     return newExport;
+  }
+
+  // Dossier cache
+  async getDossierCache(ownerId: string): Promise<DossierCache | undefined> {
+    const [cache] = await db.select().from(dossierCache).where(eq(dossierCache.ownerId, ownerId));
+    return cache;
+  }
+
+  async upsertDossierCache(cache: InsertDossierCache): Promise<DossierCache> {
+    const [result] = await db
+      .insert(dossierCache)
+      .values(cache)
+      .onConflictDoUpdate({
+        target: dossierCache.ownerId,
+        set: {
+          llcUnmasking: cache.llcUnmasking,
+          contactEnrichment: cache.contactEnrichment,
+          melissaEnrichment: cache.melissaEnrichment,
+          aiOutreach: cache.aiOutreach,
+          sellerIntentScore: cache.sellerIntentScore,
+          scoreBreakdown: cache.scoreBreakdown,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return result;
   }
 
   // Stats

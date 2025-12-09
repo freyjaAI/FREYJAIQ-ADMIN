@@ -256,3 +256,27 @@ export const insertDossierExportSchema = createInsertSchema(dossierExports).omit
 });
 export type InsertDossierExport = z.infer<typeof insertDossierExportSchema>;
 export type DossierExport = typeof dossierExports.$inferSelect;
+
+// Dossier cache - stores enrichment data to avoid repeated API calls
+export const dossierCache = pgTable("dossier_cache", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ownerId: varchar("owner_id").references(() => owners.id).notNull().unique(),
+  llcUnmasking: jsonb("llc_unmasking"),
+  contactEnrichment: jsonb("contact_enrichment"),
+  melissaEnrichment: jsonb("melissa_enrichment"),
+  aiOutreach: text("ai_outreach"),
+  sellerIntentScore: integer("seller_intent_score"),
+  scoreBreakdown: jsonb("score_breakdown"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const dossierCacheRelations = relations(dossierCache, ({ one }) => ({
+  owner: one(owners, {
+    fields: [dossierCache.ownerId],
+    references: [owners.id],
+  }),
+}));
+
+export type DossierCache = typeof dossierCache.$inferSelect;
+export type InsertDossierCache = typeof dossierCache.$inferInsert;
