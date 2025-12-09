@@ -473,33 +473,104 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         format: "pdf",
       });
 
-      // Generate PDF content (in production would use jspdf)
       const properties = await storage.getPropertiesByOwner(owner.id);
       const contacts = await storage.getContactsByOwner(owner.id);
       
-      // For MVP, return a simple text representation
-      const content = `
-OWNER DOSSIER
-=============
-Name: ${owner.name}
-Type: ${owner.type}
-Address: ${owner.primaryAddress || "N/A"}
-Seller Intent Score: ${owner.sellerIntentScore || "Not calculated"}
-
-PROPERTIES (${properties.length})
------------
-${properties.map(p => `- ${p.address}, ${p.city} ${p.state} | Value: $${p.assessedValue?.toLocaleString() || "N/A"}`).join("\n")}
-
-CONTACTS (${contacts.length})
----------
-${contacts.map(c => `- ${c.kind}: ${c.value} (Confidence: ${c.confidenceScore}%)`).join("\n")}
-
-Generated: ${new Date().toISOString()}
-      `.trim();
-
-      res.setHeader("Content-Type", "text/plain");
-      res.setHeader("Content-Disposition", `attachment; filename="dossier-${owner.name.replace(/[^a-z0-9]/gi, "_")}.txt"`);
-      res.send(content);
+      // Generate actual PDF using jsPDF
+      const { jsPDF } = await import("jspdf");
+      const doc = new jsPDF();
+      
+      let y = 20;
+      const lineHeight = 7;
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const margin = 20;
+      const maxWidth = pageWidth - margin * 2;
+      
+      // Helper to add text and handle page breaks
+      const addText = (text: string, fontSize = 12, isBold = false) => {
+        doc.setFontSize(fontSize);
+        doc.setFont("helvetica", isBold ? "bold" : "normal");
+        const lines = doc.splitTextToSize(text, maxWidth);
+        for (const line of lines) {
+          if (y > 270) {
+            doc.addPage();
+            y = 20;
+          }
+          doc.text(line, margin, y);
+          y += lineHeight;
+        }
+      };
+      
+      // Header
+      doc.setFillColor(30, 58, 138);
+      doc.rect(0, 0, pageWidth, 40, "F");
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(24);
+      doc.setFont("helvetica", "bold");
+      doc.text("OWNER DOSSIER", margin, 25);
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "normal");
+      doc.text(`Generated: ${new Date().toLocaleDateString()}`, margin, 35);
+      
+      y = 55;
+      doc.setTextColor(0, 0, 0);
+      
+      // Owner Info Section
+      addText("OWNER INFORMATION", 14, true);
+      y += 3;
+      addText(`Name: ${owner.name}`, 11);
+      addText(`Type: ${owner.type === "entity" ? "Entity / LLC" : "Individual"}`, 11);
+      addText(`Address: ${owner.primaryAddress || "N/A"}`, 11);
+      if (owner.sellerIntentScore) {
+        addText(`Seller Intent Score: ${owner.sellerIntentScore}/100`, 11);
+      }
+      y += 5;
+      
+      // Properties Section
+      if (properties.length > 0) {
+        addText("PROPERTIES", 14, true);
+        y += 3;
+        for (const p of properties) {
+          addText(`${p.address}, ${p.city}, ${p.state} ${p.zipCode}`, 10);
+          const details = [];
+          if (p.assessedValue) details.push(`Value: $${p.assessedValue.toLocaleString()}`);
+          if (p.sqFt) details.push(`Sq Ft: ${p.sqFt.toLocaleString()}`);
+          if (p.propertyType) details.push(`Type: ${p.propertyType}`);
+          if (details.length > 0) {
+            doc.setTextColor(100, 100, 100);
+            addText(`  ${details.join(" | ")}`, 9);
+            doc.setTextColor(0, 0, 0);
+          }
+          y += 2;
+        }
+        y += 5;
+      }
+      
+      // Contacts Section
+      if (contacts.length > 0) {
+        addText("CONTACT INFORMATION", 14, true);
+        y += 3;
+        for (const c of contacts) {
+          addText(`${c.kind === "phone" ? "Phone" : "Email"}: ${c.value}${c.confidenceScore ? ` (${c.confidenceScore}% confidence)` : ""}`, 10);
+        }
+        y += 5;
+      }
+      
+      // Footer
+      const totalPages = doc.getNumberOfPages();
+      for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i);
+        doc.setFontSize(8);
+        doc.setTextColor(150, 150, 150);
+        doc.text(`Page ${i} of ${totalPages} | Freyja IQ`, margin, 287);
+      }
+      
+      // Output PDF as buffer
+      const pdfOutput = doc.output("arraybuffer");
+      
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="dossier-${owner.name.replace(/[^a-z0-9]/gi, "_")}.pdf"`);
+      res.send(Buffer.from(pdfOutput));
     } catch (error) {
       console.error("Error exporting PDF:", error);
       res.status(500).json({ message: "Failed to export PDF" });

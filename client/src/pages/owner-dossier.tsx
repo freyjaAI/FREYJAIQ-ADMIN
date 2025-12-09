@@ -52,6 +52,7 @@ interface LlcUnmaskingData {
     name: string;
     position: string;
     startDate?: string;
+    address?: string;
     role: "officer" | "agent" | "member" | "manager";
     confidenceScore: number;
   }>;
@@ -983,74 +984,6 @@ export default function OwnerDossierPage() {
               </Card>
             )}
 
-          {/* Business Contact Information */}
-          <Card data-testid="card-contact-info">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Contact Information</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Business Phone from Data Axle Places */}
-              {contactEnrichment?.directDials && contactEnrichment.directDials.length > 0 && (
-                <div className="space-y-2">
-                  <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                    Business Contacts
-                  </div>
-                  {contactEnrichment.directDials.slice(0, 3).map((dial, idx) => (
-                    <div 
-                      key={idx}
-                      className="flex items-center justify-between gap-2 p-2 rounded-md bg-muted/50"
-                      data-testid={`contact-business-${idx}`}
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <Phone className="h-4 w-4 text-muted-foreground shrink-0" />
-                        <div className="min-w-0">
-                          <div className="font-mono text-sm truncate">{dial.phone}</div>
-                          {dial.name && (
-                            <div className="text-xs text-muted-foreground truncate">{dial.name}</div>
-                          )}
-                        </div>
-                      </div>
-                      <Badge variant="outline" className="text-xs capitalize shrink-0">{dial.type}</Badge>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Existing stored contacts */}
-              {contacts.length > 0 && (
-                <div className="space-y-2">
-                  <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                    Saved Contacts
-                  </div>
-                  {contacts.slice(0, 5).map((contact) => (
-                    <div 
-                      key={contact.id}
-                      className="flex items-center justify-between gap-2 p-2 rounded-md bg-muted/50"
-                      data-testid={`contact-saved-${contact.id}`}
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        {contact.kind === "phone" ? (
-                          <Phone className="h-4 w-4 text-muted-foreground shrink-0" />
-                        ) : (
-                          <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
-                        )}
-                        <span className="font-mono text-sm truncate">{contact.value}</span>
-                      </div>
-                      {contact.confidenceScore && (
-                        <Badge variant="secondary" className="text-xs shrink-0">{contact.confidenceScore}%</Badge>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {(!contactEnrichment?.directDials?.length && !contacts.length) && (
-                <div className="text-sm text-muted-foreground text-center py-4">
-                  No contact information available
-                </div>
-              )}
-            </CardContent>
-          </Card>
 
           {aiOutreach && (
             <Card>
