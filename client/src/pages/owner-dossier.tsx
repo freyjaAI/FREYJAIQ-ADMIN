@@ -706,42 +706,141 @@ export default function OwnerDossierPage() {
             </Card>
           )}
 
-          {/* Company Emails Section - only show if there are emails not already shown with officers */}
-          {owner.type === "entity" && contactEnrichment?.companyEmails && contactEnrichment.companyEmails.length > 0 && (
-            <Card data-testid="card-company-emails">
+          {/* Contact Information Section - show for both individual and entity owners */}
+          {contactEnrichment && (
+            (contactEnrichment.companyEmails?.length > 0 || contactEnrichment.directDials?.length > 0 || contactEnrichment.employeeProfiles?.length > 0) ? (
+            <Card data-testid="card-contact-enrichment">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
-                  <Mail className="h-4 w-4" />
-                  Company Emails
+                  <Phone className="h-4 w-4" />
+                  Contact Information
                   <Badge variant="secondary" className="text-xs">
-                    {contactEnrichment.companyEmails.length}
+                    {(contactEnrichment.directDials?.length || 0) + (contactEnrichment.companyEmails?.length || 0)}
                   </Badge>
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  {contactEnrichment.companyEmails.slice(0, 5).map((email, idx) => (
-                    <div 
-                      key={idx} 
-                      className="flex items-center justify-between p-2 rounded-md bg-muted/50"
-                      data-testid={`text-email-${idx}`}
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <AtSign className="h-4 w-4 text-muted-foreground shrink-0" />
-                        <span className="font-mono text-sm truncate">{email.email}</span>
-                      </div>
-                      <Badge variant="secondary" className="text-xs shrink-0">{email.confidence}%</Badge>
+              <CardContent className="space-y-4">
+                {/* Phone Numbers */}
+                {contactEnrichment.directDials && contactEnrichment.directDials.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 text-sm font-medium">
+                      <Phone className="h-4 w-4" />
+                      Phone Numbers
                     </div>
-                  ))}
-                </div>
+                    <div className="space-y-2">
+                      {contactEnrichment.directDials.slice(0, 5).map((dial, idx) => (
+                        <div 
+                          key={idx} 
+                          className="flex items-center justify-between p-2 rounded-md bg-muted/50"
+                          data-testid={`text-phone-${idx}`}
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <Phone className="h-4 w-4 text-muted-foreground shrink-0" />
+                            <span className="font-mono text-sm">{dial.phone}</span>
+                            {dial.type && (
+                              <Badge variant="outline" className="text-xs capitalize">{dial.type}</Badge>
+                            )}
+                          </div>
+                          <Badge variant="secondary" className="text-xs shrink-0">{dial.confidence}%</Badge>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Email Addresses */}
+                {contactEnrichment.companyEmails && contactEnrichment.companyEmails.length > 0 && (
+                  <>
+                    {contactEnrichment.directDials && contactEnrichment.directDials.length > 0 && <Separator />}
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-sm font-medium">
+                        <Mail className="h-4 w-4" />
+                        Email Addresses
+                      </div>
+                      <div className="space-y-2">
+                        {contactEnrichment.companyEmails.slice(0, 5).map((email, idx) => (
+                          <div 
+                            key={idx} 
+                            className="flex items-center justify-between p-2 rounded-md bg-muted/50"
+                            data-testid={`text-email-${idx}`}
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <AtSign className="h-4 w-4 text-muted-foreground shrink-0" />
+                              <span className="font-mono text-sm truncate">{email.email}</span>
+                            </div>
+                            <Badge variant="secondary" className="text-xs shrink-0">{email.confidence}%</Badge>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* Employee/Contact Profiles - only show if we have them */}
+                {contactEnrichment.employeeProfiles && contactEnrichment.employeeProfiles.length > 0 && (
+                  <>
+                    <Separator />
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-sm font-medium">
+                        <User className="h-4 w-4" />
+                        Contact Profiles
+                      </div>
+                      <div className="space-y-2">
+                        {contactEnrichment.employeeProfiles.slice(0, 3).map((profile, idx) => (
+                          <div 
+                            key={idx} 
+                            className="p-2 rounded-md bg-muted/50"
+                            data-testid={`text-profile-${idx}`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="font-medium text-sm">{profile.name}</div>
+                              <Badge variant="secondary" className="text-xs">{profile.confidence}%</Badge>
+                            </div>
+                            {profile.title && (
+                              <div className="text-xs text-muted-foreground">{profile.title}</div>
+                            )}
+                            {(profile.email || profile.phone) && (
+                              <div className="flex flex-wrap items-center gap-2 mt-1 text-xs">
+                                {profile.email && (
+                                  <span className="font-mono">{profile.email}</span>
+                                )}
+                                {profile.phone && (
+                                  <span className="font-mono">{profile.phone}</span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
+
                 {contactEnrichment.sources && (
-                  <div className="text-xs text-muted-foreground pt-3">
+                  <div className="text-xs text-muted-foreground pt-2">
                     Sources: {contactEnrichment.sources.join(", ")}
                   </div>
                 )}
               </CardContent>
             </Card>
-          )}
+          ) : (
+            /* Show empty state when no contact data found */
+            <Card data-testid="card-contact-enrichment-empty">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Phone className="h-4 w-4" />
+                  Contact Information
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-center py-4">
+                  <p className="text-muted-foreground text-sm">
+                    No contact information found for this owner in our data sources.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
 
           {melissaEnrichment && (
             <Card data-testid="card-melissa-enrichment">
