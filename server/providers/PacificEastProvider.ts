@@ -196,6 +196,9 @@ export async function appendPhone(params: {
   
   const response = await makeRequest<any>(url);
   
+  // Log the raw FPA response to debug data quality issues
+  console.log(`FPA raw response:`, JSON.stringify(response, null, 2));
+  
   if (!response || response.status !== 0) {
     return null;
   }
@@ -208,6 +211,9 @@ export async function appendPhone(params: {
       const nameInfo = contact.nameInformation || {};
       const addressInfo = contact.addressInformation || {};
       const matchInfo = response.matchInfo?.[0] || {};
+      
+      // Log each contact's actual data
+      console.log(`FPA contact raw data: phone=${phoneInfo.phoneNumber}, name=${nameInfo.firstName} ${nameInfo.lastName}, addr=${addressInfo.address}, ${addressInfo.city}, ${addressInfo.state}`);
 
       contacts.push({
         phoneNumber: phoneInfo.phoneNumber || "",
