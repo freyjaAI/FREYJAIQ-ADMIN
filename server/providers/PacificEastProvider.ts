@@ -400,14 +400,15 @@ export async function enrichContactFull(params: {
     queryType: "0", // All phones
   });
   
-  // Step 2: Also search by NAME to find phones associated with the person anywhere
+  // Step 2: Also search by NAME + CITY to find phones associated with the person
   // This catches cell phones that may be registered to other addresses
-  console.log(`Pacific East: Also searching by name ${firstName} ${lastName} in ${state}`);
+  console.log(`Pacific East: Also searching by name ${firstName} ${lastName} in ${city}, ${state}`);
   
   const nameBasedPhoneResult = await appendPhone({
     firstName: firstName,
     lastName: lastName,
-    state: state, // Just state to cast a wide net
+    city: city,  // Need city for valid query
+    state: state,
     queryType: "0", // All phones
   });
   

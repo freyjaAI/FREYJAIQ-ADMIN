@@ -605,6 +605,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             
             console.log(`Data Axle returned ${allPeople?.length || 0} results, ${filteredPeople.length} match state ${expectedState}`);
             
+            // Log what Data Axle found
+            for (const p of filteredPeople) {
+              console.log(`Data Axle person: ${p.firstName} ${p.lastName}, cellPhones=[${p.cellPhones?.join(',')}], phones=[${p.phones?.join(',')}], emails=[${p.emails?.join(',')}]`);
+            }
+            
             for (const person of filteredPeople.slice(0, 5)) { // Limit matches
               const fullName = `${person.firstName || ''} ${person.lastName || ''}`.trim();
               const cellPhones = person.cellPhones || [];
