@@ -436,7 +436,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  // Export PDF
+  // Export PDF - Comprehensive dossier with all data
   app.post("/api/owners/:id/export-pdf", isAuthenticated, async (req: any, res) => {
     try {
       const userId = getUserId(req);
@@ -455,103 +455,432 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         format: "pdf",
       });
 
+      // Fetch all dossier data (same as dossier endpoint)
       const properties = await storage.getPropertiesByOwner(owner.id);
       const contacts = await storage.getContactsByOwner(owner.id);
+      const legalEvents = await storage.getLegalEventsByOwner(owner.id);
+      const llcLinks = await storage.getLlcLinks(owner.id);
       
-      // Generate actual PDF using jsPDF
+      // Enrich LLC links with owner data
+      const linkedLlcs = await Promise.all(
+        llcLinks.map(async (link) => ({
+          ...link,
+          llc: await storage.getOwner(link.llcOwnerId),
+        }))
+      );
+
+      // Calculate scores
+      const { score: sellerScore, breakdown: scoreBreakdown } = calculateSellerIntentScore(owner, properties, legalEvents);
+      
+      // Generate AI outreach
+      let aiOutreach = "";
+      try {
+        aiOutreach = await generateOutreachSuggestion(owner, properties);
+      } catch (e) {
+        console.error("Failed to generate AI outreach for PDF:", e);
+      }
+
+      // Fetch LLC unmasking data for entities
+      const isEntity = owner.type === "entity" || isEntityName(owner.name);
+      let llcUnmasking: any = null;
+      if (isEntity) {
+        try {
+          llcUnmasking = await dataProviders.fetchOpenCorporatesData(owner.name);
+        } catch (e) {
+          console.error("Failed to fetch LLC data for PDF:", e);
+        }
+      }
+
+      // Fetch contact enrichment
+      let contactEnrichment: any = null;
+      if (llcUnmasking?.officers?.length) {
+        contactEnrichment = { companyEmails: [], directDials: [], employeeProfiles: [], sources: [] };
+        for (const officer of llcUnmasking.officers) {
+          if (officer.role === "officer" || officer.role === "agent") {
+            const normalizedName = officer.name?.toUpperCase().trim();
+            if (normalizedName && !isEntityName(normalizedName)) {
+              try {
+                const results = await dataProviders.searchALeadsByName(normalizeName(normalizedName) || normalizedName);
+                for (const result of results) {
+                  if (result.email && !contactEnrichment.companyEmails.some((e: any) => e.email === result.email)) {
+                    contactEnrichment.companyEmails.push({ email: result.email, type: "personal", confidence: result.confidence || 75 });
+                  }
+                  if (result.phone && !contactEnrichment.directDials.some((d: any) => d.phone === result.phone)) {
+                    contactEnrichment.directDials.push({ phone: result.phone, type: "direct", name: result.name, confidence: result.confidence || 75 });
+                  }
+                  if (result.name && !contactEnrichment.employeeProfiles.some((p: any) => p.name === result.name)) {
+                    contactEnrichment.employeeProfiles.push({ name: result.name, title: result.title, email: result.email, phone: result.phone, confidence: result.confidence || 75 });
+                  }
+                }
+              } catch (e) {
+                console.error("Contact enrichment error:", e);
+              }
+            }
+          }
+        }
+      }
+
+      // Fetch Melissa enrichment
+      let melissaEnrichment: any = null;
+      if (!isEntity || llcUnmasking?.officers?.length) {
+        try {
+          const rawName = owner.type === "individual" ? owner.name : llcUnmasking?.officers?.[0]?.name;
+          const primaryName = normalizeName(rawName);
+          const parsed = parseAddress(owner.primaryAddress);
+          if (primaryName || parsed.line1) {
+            melissaEnrichment = await dataProviders.fetchMelissaEnrichment({
+              name: primaryName,
+              address: parsed.line1,
+              city: parsed.city,
+              state: parsed.state,
+              zip: parsed.zip,
+            });
+          }
+        } catch (e) {
+          console.error("Melissa enrichment error:", e);
+        }
+      }
+
+      // Generate comprehensive PDF
       const { jsPDF } = await import("jspdf");
       const doc = new jsPDF();
       
       let y = 20;
-      const lineHeight = 7;
+      const lineHeight = 6;
+      const sectionGap = 8;
       const pageWidth = doc.internal.pageSize.getWidth();
-      const margin = 20;
+      const margin = 15;
       const maxWidth = pageWidth - margin * 2;
       
-      // Helper to add text and handle page breaks
-      const addText = (text: string, fontSize = 12, isBold = false) => {
+      const checkPageBreak = (neededSpace = 20) => {
+        if (y > 270 - neededSpace) {
+          doc.addPage();
+          y = 20;
+        }
+      };
+      
+      const addText = (text: string, fontSize = 10, isBold = false, color: [number, number, number] = [0, 0, 0]) => {
         doc.setFontSize(fontSize);
         doc.setFont("helvetica", isBold ? "bold" : "normal");
+        doc.setTextColor(color[0], color[1], color[2]);
         const lines = doc.splitTextToSize(text, maxWidth);
         for (const line of lines) {
-          if (y > 270) {
-            doc.addPage();
-            y = 20;
-          }
+          checkPageBreak();
           doc.text(line, margin, y);
           y += lineHeight;
         }
       };
       
-      // Header
+      const addSectionHeader = (title: string) => {
+        checkPageBreak(15);
+        y += 3;
+        doc.setFillColor(245, 245, 250);
+        doc.rect(margin - 2, y - 5, maxWidth + 4, 8, "F");
+        addText(title, 12, true, [30, 58, 138]);
+        y += 2;
+      };
+      
+      const addSubHeader = (title: string) => {
+        checkPageBreak(10);
+        addText(title, 10, true, [60, 60, 60]);
+      };
+      
+      const addDetail = (label: string, value: string | number | null | undefined, showIfEmpty = false) => {
+        if (value || showIfEmpty) {
+          addText(`${label}: ${value || "N/A"}`, 9, false, [40, 40, 40]);
+        }
+      };
+      
+      // === HEADER ===
       doc.setFillColor(30, 58, 138);
-      doc.rect(0, 0, pageWidth, 40, "F");
+      doc.rect(0, 0, pageWidth, 45, "F");
       doc.setTextColor(255, 255, 255);
-      doc.setFontSize(24);
+      doc.setFontSize(22);
       doc.setFont("helvetica", "bold");
-      doc.text("OWNER DOSSIER", margin, 25);
+      doc.text("OWNER DOSSIER", margin, 22);
       doc.setFontSize(10);
       doc.setFont("helvetica", "normal");
-      doc.text(`Generated: ${new Date().toLocaleDateString()}`, margin, 35);
+      doc.text(owner.name, margin, 32);
+      doc.setFontSize(9);
+      doc.text(`Generated: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`, margin, 40);
       
       y = 55;
       doc.setTextColor(0, 0, 0);
       
-      // Owner Info Section
-      addText("OWNER INFORMATION", 14, true);
-      y += 3;
-      addText(`Name: ${owner.name}`, 11);
-      addText(`Type: ${owner.type === "entity" ? "Entity / LLC" : "Individual"}`, 11);
-      addText(`Address: ${owner.primaryAddress || "N/A"}`, 11);
-      if (owner.sellerIntentScore) {
-        addText(`Seller Intent Score: ${owner.sellerIntentScore}/100`, 11);
+      // === OWNER INFORMATION ===
+      addSectionHeader("OWNER INFORMATION");
+      addDetail("Name", owner.name);
+      addDetail("Type", owner.type === "entity" ? "Entity / LLC" : "Individual");
+      addDetail("Primary Address", owner.primaryAddress);
+      if (owner.mailingAddress && owner.mailingAddress !== owner.primaryAddress) {
+        addDetail("Mailing Address", owner.mailingAddress);
       }
-      y += 5;
+      if (owner.akaNames?.length) {
+        addDetail("Also Known As", owner.akaNames.join(", "));
+      }
+      if (sellerScore) {
+        addDetail("Seller Intent Score", `${sellerScore}/100`);
+      }
+      if (owner.riskFlags?.length) {
+        addDetail("Risk Flags", owner.riskFlags.join(", "));
+      }
+      y += sectionGap;
       
-      // Properties Section
+      // === SELLER INTENT BREAKDOWN ===
+      if (scoreBreakdown) {
+        addSectionHeader("SELLER INTENT ANALYSIS");
+        addDetail("Years Owned", scoreBreakdown.yearsOwned);
+        addDetail("Tax Delinquent", scoreBreakdown.taxDelinquent ? "Yes" : "No");
+        addDetail("Absentee Owner", scoreBreakdown.absenteeOwner ? "Yes" : "No");
+        addDetail("Has Liens", scoreBreakdown.hasLiens ? "Yes" : "No");
+        addDetail("Market Appreciation", `${scoreBreakdown.marketAppreciation}%`);
+        y += sectionGap;
+      }
+      
+      // === PROPERTIES ===
       if (properties.length > 0) {
-        addText("PROPERTIES", 14, true);
-        y += 3;
-        for (const p of properties) {
-          addText(`${p.address}, ${p.city}, ${p.state} ${p.zipCode}`, 10);
+        addSectionHeader(`PROPERTIES (${properties.length})`);
+        for (let i = 0; i < properties.length; i++) {
+          const p = properties[i];
+          checkPageBreak(25);
+          addSubHeader(`${i + 1}. ${p.address}, ${p.city}, ${p.state} ${p.zipCode}`);
           const details = [];
+          if (p.propertyType) details.push(`Type: ${p.propertyType}`);
           if (p.assessedValue) details.push(`Value: $${p.assessedValue.toLocaleString()}`);
           if (p.sqFt) details.push(`Sq Ft: ${p.sqFt.toLocaleString()}`);
-          if (p.propertyType) details.push(`Type: ${p.propertyType}`);
+          if (p.yearBuilt) details.push(`Built: ${p.yearBuilt}`);
+          if (p.lotSize) details.push(`Lot: ${p.lotSize.toLocaleString()} sq ft`);
+          if (p.bedrooms) details.push(`Beds: ${p.bedrooms}`);
+          if (p.bathrooms) details.push(`Baths: ${p.bathrooms}`);
           if (details.length > 0) {
-            doc.setTextColor(100, 100, 100);
-            addText(`  ${details.join(" | ")}`, 9);
-            doc.setTextColor(0, 0, 0);
+            addText(`   ${details.join(" | ")}`, 8, false, [80, 80, 80]);
+          }
+          if (p.lastSaleDate || p.lastSalePrice) {
+            const saleInfo = [];
+            if (p.lastSaleDate) saleInfo.push(`Date: ${new Date(p.lastSaleDate).toLocaleDateString()}`);
+            if (p.lastSalePrice) saleInfo.push(`Price: $${p.lastSalePrice.toLocaleString()}`);
+            addText(`   Last Sale: ${saleInfo.join(", ")}`, 8, false, [80, 80, 80]);
           }
           y += 2;
         }
-        y += 5;
+        y += sectionGap;
       }
       
-      // Contacts Section
-      if (contacts.length > 0) {
-        addText("CONTACT INFORMATION", 14, true);
-        y += 3;
-        for (const c of contacts) {
-          addText(`${c.kind === "phone" ? "Phone" : "Email"}: ${c.value}${c.confidenceScore ? ` (${c.confidenceScore}% confidence)` : ""}`, 10);
+      // === LLC UNMASKING ===
+      if (llcUnmasking) {
+        addSectionHeader("LLC CORPORATE RECORDS");
+        addDetail("Company Number", llcUnmasking.companyNumber);
+        addDetail("Jurisdiction", llcUnmasking.jurisdictionCode?.toUpperCase());
+        addDetail("Status", llcUnmasking.currentStatus);
+        addDetail("Type", llcUnmasking.companyType);
+        if (llcUnmasking.incorporationDate) {
+          addDetail("Incorporated", new Date(llcUnmasking.incorporationDate).toLocaleDateString());
         }
-        y += 5;
+        addDetail("Registered Address", llcUnmasking.registeredAddress);
+        
+        if (llcUnmasking.registeredAgent) {
+          y += 3;
+          addSubHeader("Registered Agent");
+          addDetail("Name", llcUnmasking.registeredAgent.name);
+          addDetail("Address", llcUnmasking.registeredAgent.address);
+        }
+        
+        if (llcUnmasking.officers?.length) {
+          y += 3;
+          addSubHeader(`Officers & Members (${llcUnmasking.officers.length})`);
+          for (const officer of llcUnmasking.officers) {
+            checkPageBreak(12);
+            addText(`- ${officer.name} (${officer.position || officer.role})`, 9, false, [40, 40, 40]);
+            if (officer.address) {
+              addText(`    Address: ${officer.address}`, 8, false, [100, 100, 100]);
+            }
+            if (officer.startDate) {
+              addText(`    Since: ${new Date(officer.startDate).toLocaleDateString()}`, 8, false, [100, 100, 100]);
+            }
+          }
+        }
+        
+        if (llcUnmasking.filings?.length) {
+          y += 3;
+          addSubHeader(`Recent Filings (${llcUnmasking.filings.length})`);
+          for (const filing of llcUnmasking.filings.slice(0, 10)) {
+            checkPageBreak(8);
+            addText(`- ${filing.title} (${new Date(filing.date).toLocaleDateString()})`, 8, false, [60, 60, 60]);
+          }
+        }
+        y += sectionGap;
       }
       
-      // Footer
+      // === CONTACT INFORMATION ===
+      const hasContacts = contacts.length > 0 || contactEnrichment?.directDials?.length || contactEnrichment?.companyEmails?.length;
+      if (hasContacts) {
+        addSectionHeader("CONTACT INFORMATION");
+        
+        // Database contacts
+        if (contacts.length > 0) {
+          addSubHeader("Verified Contacts");
+          for (const c of contacts) {
+            addText(`- ${c.kind === "phone" ? "Phone" : "Email"}: ${c.value}${c.confidenceScore ? ` (${c.confidenceScore}% confidence)` : ""}`, 9, false, [40, 40, 40]);
+          }
+          y += 2;
+        }
+        
+        // Enriched phone numbers
+        if (contactEnrichment?.directDials?.length) {
+          addSubHeader("Direct Dial Numbers");
+          for (const d of contactEnrichment.directDials) {
+            const info = d.name ? `${d.name}${d.title ? ` - ${d.title}` : ""}` : d.type;
+            addText(`- ${d.phone} (${info}, ${d.confidence}% confidence)`, 9, false, [40, 40, 40]);
+          }
+          y += 2;
+        }
+        
+        // Enriched emails
+        if (contactEnrichment?.companyEmails?.length) {
+          addSubHeader("Email Addresses");
+          for (const e of contactEnrichment.companyEmails) {
+            addText(`- ${e.email} (${e.type}, ${e.confidence}% confidence)`, 9, false, [40, 40, 40]);
+          }
+          y += 2;
+        }
+        
+        // Employee profiles
+        if (contactEnrichment?.employeeProfiles?.length) {
+          addSubHeader("Key Contacts");
+          for (const p of contactEnrichment.employeeProfiles) {
+            checkPageBreak(15);
+            addText(`- ${p.name}${p.title ? ` - ${p.title}` : ""}`, 9, true, [40, 40, 40]);
+            if (p.email) addText(`    Email: ${p.email}`, 8, false, [80, 80, 80]);
+            if (p.phone) addText(`    Phone: ${p.phone}`, 8, false, [80, 80, 80]);
+          }
+        }
+        y += sectionGap;
+      }
+      
+      // === MELISSA VERIFICATION ===
+      if (melissaEnrichment) {
+        addSectionHeader("IDENTITY VERIFICATION (Melissa Data)");
+        
+        if (melissaEnrichment.nameMatch) {
+          addSubHeader("Name Verification");
+          addDetail("Verified", melissaEnrichment.nameMatch.verified ? "Yes" : "No");
+          addDetail("Standardized Name", melissaEnrichment.nameMatch.standardizedName?.full);
+          addDetail("Confidence", `${melissaEnrichment.nameMatch.confidence}%`);
+          y += 2;
+        }
+        
+        if (melissaEnrichment.addressMatch) {
+          addSubHeader("Address Verification");
+          addDetail("Verified", melissaEnrichment.addressMatch.verified ? "Yes" : "No");
+          const addr = melissaEnrichment.addressMatch.standardizedAddress;
+          if (addr) {
+            addDetail("Standardized", `${addr.line1}, ${addr.city}, ${addr.state} ${addr.zip}`);
+            addDetail("County", addr.county);
+          }
+          addDetail("Deliverability", melissaEnrichment.addressMatch.deliverability);
+          addDetail("Residence Type", melissaEnrichment.addressMatch.residenceType);
+          addDetail("Confidence", `${melissaEnrichment.addressMatch.confidence}%`);
+          y += 2;
+        }
+        
+        if (melissaEnrichment.phoneMatches?.length) {
+          addSubHeader("Phone Verification");
+          for (const phone of melissaEnrichment.phoneMatches) {
+            addText(`- ${phone.phone}: ${phone.type} (${phone.verified ? "Verified" : "Not Verified"}, ${phone.confidence}%)`, 9, false, [40, 40, 40]);
+            if (phone.carrier) addText(`    Carrier: ${phone.carrier}`, 8, false, [100, 100, 100]);
+          }
+          y += 2;
+        }
+        
+        if (melissaEnrichment.occupancy) {
+          addSubHeader("Occupancy Information");
+          addDetail("Current Occupant", melissaEnrichment.occupancy.currentOccupant ? "Yes" : "No");
+          addDetail("Owner Occupied", melissaEnrichment.occupancy.ownerOccupied ? "Yes" : "No");
+          if (melissaEnrichment.occupancy.lengthOfResidence) {
+            addDetail("Length of Residence", `${melissaEnrichment.occupancy.lengthOfResidence} months`);
+          }
+          if (melissaEnrichment.occupancy.moveDate) {
+            addDetail("Move Date", new Date(melissaEnrichment.occupancy.moveDate).toLocaleDateString());
+          }
+          y += 2;
+        }
+        
+        if (melissaEnrichment.moveHistory?.length) {
+          addSubHeader("Move History");
+          for (const move of melissaEnrichment.moveHistory) {
+            addText(`- ${move.address} (${move.type})`, 9, false, [40, 40, 40]);
+            const dates = [];
+            if (move.moveInDate) dates.push(`In: ${new Date(move.moveInDate).toLocaleDateString()}`);
+            if (move.moveOutDate) dates.push(`Out: ${new Date(move.moveOutDate).toLocaleDateString()}`);
+            if (dates.length) addText(`    ${dates.join(", ")}`, 8, false, [100, 100, 100]);
+          }
+        }
+        
+        if (melissaEnrichment.demographics) {
+          addSubHeader("Demographics");
+          addDetail("Age Range", melissaEnrichment.demographics.ageRange);
+          addDetail("Gender", melissaEnrichment.demographics.gender);
+          addDetail("Homeowner Status", melissaEnrichment.demographics.homeownerStatus);
+        }
+        y += sectionGap;
+      }
+      
+      // === LEGAL EVENTS ===
+      if (legalEvents.length > 0) {
+        addSectionHeader(`LEGAL EVENTS (${legalEvents.length})`);
+        for (const event of legalEvents) {
+          checkPageBreak(15);
+          addText(`- ${event.eventType.toUpperCase()}: ${event.title || event.description}`, 9, true, [40, 40, 40]);
+          if (event.eventDate) {
+            addText(`    Date: ${new Date(event.eventDate).toLocaleDateString()}`, 8, false, [80, 80, 80]);
+          }
+          if (event.amount) {
+            addText(`    Amount: $${event.amount.toLocaleString()}`, 8, false, [80, 80, 80]);
+          }
+          if (event.status) {
+            addText(`    Status: ${event.status}`, 8, false, [80, 80, 80]);
+          }
+        }
+        y += sectionGap;
+      }
+      
+      // === LINKED LLCs ===
+      if (linkedLlcs.length > 0) {
+        addSectionHeader(`LINKED ENTITIES (${linkedLlcs.length})`);
+        for (const link of linkedLlcs) {
+          checkPageBreak(12);
+          addText(`- ${link.llc?.name || "Unknown Entity"}`, 9, true, [40, 40, 40]);
+          addDetail("    Relationship", link.relationship);
+          addDetail("    Confidence", `${link.confidenceScore}%`);
+          if (link.aiRationale) {
+            addText(`    Rationale: ${link.aiRationale}`, 8, false, [100, 100, 100]);
+          }
+        }
+        y += sectionGap;
+      }
+      
+      // === AI OUTREACH SUGGESTION ===
+      if (aiOutreach) {
+        addSectionHeader("AI OUTREACH SUGGESTION");
+        addText(aiOutreach, 9, false, [40, 40, 40]);
+        y += sectionGap;
+      }
+      
+      // === FOOTER ON ALL PAGES ===
       const totalPages = doc.getNumberOfPages();
       for (let i = 1; i <= totalPages; i++) {
         doc.setPage(i);
         doc.setFontSize(8);
         doc.setTextColor(150, 150, 150);
-        doc.text(`Page ${i} of ${totalPages} | Freyja IQ`, margin, 287);
+        doc.text(`Page ${i} of ${totalPages} | Freyja IQ - Confidential`, margin, 287);
+        doc.text(new Date().toISOString(), pageWidth - margin - 40, 287);
       }
       
-      // Output PDF as buffer
+      // Output PDF
       const pdfOutput = doc.output("arraybuffer");
       
       res.setHeader("Content-Type", "application/pdf");
-      res.setHeader("Content-Disposition", `attachment; filename="dossier-${owner.name.replace(/[^a-z0-9]/gi, "_")}.pdf"`);
+      res.setHeader("Content-Disposition", `attachment; filename="dossier-${owner.name.replace(/[^a-z0-9]/gi, "_")}-${Date.now()}.pdf"`);
       res.send(Buffer.from(pdfOutput));
     } catch (error) {
       console.error("Error exporting PDF:", error);
