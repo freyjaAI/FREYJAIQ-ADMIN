@@ -501,6 +501,60 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                 }
               }
               
+              // Search Pacific East for officer contact enrichment
+              const officerNameParts = normalizedOfficerName.split(/\s+/);
+              const officerFirstName = officerNameParts.length > 1 ? officerNameParts[0] : undefined;
+              const officerLastName = officerNameParts.length > 1 ? officerNameParts[officerNameParts.length - 1] : officerNameParts[0];
+              
+              const pacificEastOfficerResult = await dataProviders.enrichContactWithPacificEast({
+                firstName: officerFirstName,
+                lastName: officerLastName,
+              });
+              
+              if (pacificEastOfficerResult) {
+                // Add Pacific East phones
+                for (const phone of pacificEastOfficerResult.phones) {
+                  if (phone.number && !enrichedOfficer.phones.some((p: any) => p.phone === phone.number)) {
+                    enrichedOfficer.phones.push({
+                      phone: phone.number,
+                      type: phone.type === "residential" ? "landline" : "direct",
+                      source: "pacific_east",
+                      confidence: phone.confidence,
+                    });
+                    if (!contactEnrichment.directDials.some((d: any) => d.phone === phone.number)) {
+                      contactEnrichment.directDials.push({
+                        phone: phone.number,
+                        type: phone.type === "residential" ? "landline" : "direct",
+                        name: normalizedOfficerName,
+                        confidence: phone.confidence,
+                        source: "pacific_east",
+                      });
+                    }
+                  }
+                }
+                
+                // Add Pacific East emails
+                for (const email of pacificEastOfficerResult.emails) {
+                  if (email.address && !enrichedOfficer.emails.some((e: any) => e.email === email.address)) {
+                    enrichedOfficer.emails.push({
+                      email: email.address,
+                      source: "pacific_east",
+                      confidence: email.confidence,
+                      validated: email.validated,
+                    });
+                    if (!contactEnrichment.companyEmails.some((e: any) => e.email === email.address)) {
+                      contactEnrichment.companyEmails.push({
+                        email: email.address,
+                        type: "personal",
+                        confidence: email.confidence,
+                        validated: email.validated,
+                        source: "pacific_east",
+                      });
+                    }
+                  }
+                }
+              }
+              
               // Update confidence based on how much data we found
               const hasContact = enrichedOfficer.emails.length > 0 || enrichedOfficer.phones.length > 0;
               enrichedOfficer.confidenceScore = hasContact ? 90 : 70;
@@ -634,6 +688,63 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                   confidence: result.confidence || 75,
                 });
               }
+            }
+            
+            // Search Pacific East for enhanced contact enrichment (phone append, email append, address verification)
+            const nameParts = normalizedOwnerName.split(/\s+/);
+            const firstName = nameParts.length > 1 ? nameParts[0] : undefined;
+            const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : nameParts[0];
+            
+            console.log(`Pacific East enrichment for: ${firstName} ${lastName} at ${parsed?.line1}, ${parsed?.city}, ${parsed?.state} ${parsed?.zip}`);
+            
+            const pacificEastResult = await dataProviders.enrichContactWithPacificEast({
+              firstName,
+              lastName,
+              address: parsed?.line1,
+              city: parsed?.city,
+              state: parsed?.state,
+              zip: parsed?.zip,
+            });
+            
+            if (pacificEastResult) {
+              // Add Pacific East phones (with strict state matching already done in the provider)
+              for (const phone of pacificEastResult.phones) {
+                if (phone.number && !contactEnrichment.directDials.some((d: any) => d.phone === phone.number)) {
+                  contactEnrichment.directDials.push({
+                    phone: phone.number,
+                    type: phone.type === "residential" ? "landline" : phone.type === "business" ? "office" : "direct",
+                    name: `${firstName || ''} ${lastName}`.trim(),
+                    confidence: phone.confidence,
+                    source: "pacific_east",
+                  });
+                }
+              }
+              
+              // Add Pacific East emails
+              for (const email of pacificEastResult.emails) {
+                if (email.address && !contactEnrichment.companyEmails.some((e: any) => e.email === email.address)) {
+                  contactEnrichment.companyEmails.push({
+                    email: email.address,
+                    type: "personal",
+                    confidence: email.confidence,
+                    validated: email.validated,
+                    source: "pacific_east",
+                  });
+                }
+              }
+              
+              // Add verified address information to profile
+              if (pacificEastResult.identity) {
+                const existingProfile = contactEnrichment.employeeProfiles.find((p: any) => 
+                  p.name?.toLowerCase().includes(lastName.toLowerCase())
+                );
+                if (existingProfile && pacificEastResult.identity.verified) {
+                  existingProfile.verified = true;
+                  existingProfile.dob = pacificEastResult.identity.dob;
+                }
+              }
+              
+              console.log(`Pacific East enrichment found: ${pacificEastResult.phones.length} phones, ${pacificEastResult.emails.length} emails, ${pacificEastResult.addresses.length} addresses`);
             }
             
             console.log(`Individual enrichment found: ${contactEnrichment.directDials.length} phones, ${contactEnrichment.companyEmails.length} emails`);

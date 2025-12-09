@@ -1,5 +1,6 @@
 import pLimit from "p-limit";
 import pRetry from "p-retry";
+import * as PacificEast from "./providers/PacificEastProvider";
 
 const limit = pLimit(3);
 
@@ -1236,6 +1237,7 @@ export class DataProviderManager {
   private melissa?: MelissaDataProvider;
   private aLeads?: ALeadsProvider;
   private google?: GoogleAddressValidationProvider;
+  private pacificEastEnabled: boolean = false;
 
   constructor() {
     console.log("Initializing DataProviderManager...");
@@ -1263,6 +1265,9 @@ export class DataProviderManager {
       this.google = new GoogleAddressValidationProvider(process.env.GOOGLE_MAPS_API_KEY);
       console.log("✓ Google provider initialized");
     }
+    // Pacific East is always enabled (uses hardcoded dev key or env var)
+    this.pacificEastEnabled = true;
+    console.log("✓ Pacific East provider initialized (DataPrime, FPA, EMA, EMV)");
     console.log("Available providers:", this.getAvailableProviders());
   }
 
@@ -1274,6 +1279,7 @@ export class DataProviderManager {
     if (this.melissa) providers.push("melissa");
     if (this.aLeads) providers.push("aleads");
     if (this.google) providers.push("google");
+    if (this.pacificEastEnabled) providers.push("pacificeast");
     return providers;
   }
 
@@ -1895,6 +1901,125 @@ export class DataProviderManager {
       return result;
     } catch (error) {
       console.error("Error fetching Melissa enrichment:", error);
+      return null;
+    }
+  }
+
+  async enrichContactWithPacificEast(params: {
+    firstName?: string;
+    lastName: string;
+    address?: string;
+    city?: string;
+    state?: string;
+    zip?: string;
+  }): Promise<PacificEast.EnrichedContactData | null> {
+    if (!this.pacificEastEnabled) {
+      console.warn("Pacific East provider not enabled");
+      return null;
+    }
+
+    try {
+      return await PacificEast.enrichContactFull(params);
+    } catch (error) {
+      console.error("Error with Pacific East enrichment:", error);
+      return null;
+    }
+  }
+
+  async enrichBusinessWithPacificEast(params: {
+    businessName: string;
+    address?: string;
+    city?: string;
+    state?: string;
+    zip?: string;
+  }): Promise<PacificEast.EnrichedContactData | null> {
+    if (!this.pacificEastEnabled) {
+      console.warn("Pacific East provider not enabled");
+      return null;
+    }
+
+    try {
+      return await PacificEast.enrichBusinessContact(params);
+    } catch (error) {
+      console.error("Error with Pacific East business enrichment:", error);
+      return null;
+    }
+  }
+
+  async validateEmailWithPacificEast(email: string): Promise<PacificEast.EmailValidationResult | null> {
+    if (!this.pacificEastEnabled) {
+      console.warn("Pacific East provider not enabled");
+      return null;
+    }
+
+    try {
+      return await PacificEast.validateEmail(email);
+    } catch (error) {
+      console.error("Error with Pacific East email validation:", error);
+      return null;
+    }
+  }
+
+  async searchDataPrime(params: {
+    firstName?: string;
+    lastName: string;
+    address1?: string;
+    city?: string;
+    state?: string;
+    postalCode?: string;
+  }): Promise<PacificEast.DataPrimeResult | null> {
+    if (!this.pacificEastEnabled) {
+      console.warn("Pacific East provider not enabled");
+      return null;
+    }
+
+    try {
+      return await PacificEast.searchDataPrime(params);
+    } catch (error) {
+      console.error("Error with DataPrime search:", error);
+      return null;
+    }
+  }
+
+  async appendPhoneWithPacificEast(params: {
+    firstName?: string;
+    lastName?: string;
+    businessName?: string;
+    address?: string;
+    city?: string;
+    state?: string;
+    postalCode?: string;
+  }): Promise<PacificEast.PhoneAppendResult | null> {
+    if (!this.pacificEastEnabled) {
+      console.warn("Pacific East provider not enabled");
+      return null;
+    }
+
+    try {
+      return await PacificEast.appendPhone(params);
+    } catch (error) {
+      console.error("Error with Pacific East phone append:", error);
+      return null;
+    }
+  }
+
+  async appendEmailWithPacificEast(params: {
+    firstName?: string;
+    lastName: string;
+    address?: string;
+    city?: string;
+    state?: string;
+    postalCode?: string;
+  }): Promise<PacificEast.EmailAppendResult | null> {
+    if (!this.pacificEastEnabled) {
+      console.warn("Pacific East provider not enabled");
+      return null;
+    }
+
+    try {
+      return await PacificEast.appendEmail(params);
+    } catch (error) {
+      console.error("Error with Pacific East email append:", error);
       return null;
     }
   }

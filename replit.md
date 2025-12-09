@@ -162,6 +162,19 @@ Preferred communication style: Simple, everyday language.
 - **p-limit** - Concurrency control for AI requests
 - **p-retry** - Retry logic with exponential backoff
 
+### Contact Enrichment Data Providers
+- **ATTOM** - Property data and ownership information
+- **OpenCorporates** - LLC/entity lookup and officer information
+- **Data Axle** - People search (v2 API) and business contacts (Places v3)
+- **A-Leads** - Skip tracing and professional contact data
+- **Melissa** - Address verification and personator API
+- **Google Address Validation** - Geocoding and address standardization
+- **Pacific East/Idicia** - Enhanced contact enrichment suite:
+  - DataPrime: Name/address verification with identity confirmation
+  - Forward Phone Append (FPA): Phone number lookup with match scoring
+  - Email Append (EMA): Email address discovery with validation status
+  - Email Validation (EMV): Email deliverability verification
+
 ### UI Component Libraries
 - **shadcn/ui** - Component library
 - **Radix UI** - Headless UI primitives (20+ components)
