@@ -793,6 +793,67 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               console.log(`Pacific East enrichment found: ${pacificEastResult.phones.length} phones, ${pacificEastResult.emails.length} emails, ${pacificEastResult.addresses.length} addresses`);
             }
             
+            // Search Apify Skip Trace for additional phone/email data (especially cell phones)
+            const apifySkipTrace = await import("./providers/ApifySkipTraceProvider.js");
+            if (apifySkipTrace.isConfigured()) {
+              console.log(`Apify Skip Trace: Searching for ${normalizedOwnerName} at ${parsed?.line1}`);
+              
+              const skipTraceResult = await apifySkipTrace.skipTraceIndividual(
+                normalizedOwnerName,
+                parsed?.line1,
+                parsed?.city,
+                parsed?.state,
+                parsed?.zip
+              );
+              
+              if (skipTraceResult) {
+                // Add phones from skip trace (prioritize wireless/cell phones)
+                for (const phone of skipTraceResult.phones) {
+                  const normalizedPhone = phone.number.replace(/\D/g, "");
+                  if (normalizedPhone && !contactEnrichment.directDials.some((d: any) => 
+                    d.phone.replace(/\D/g, "") === normalizedPhone
+                  )) {
+                    const isWireless = phone.type?.toLowerCase().includes("wireless");
+                    contactEnrichment.directDials.push({
+                      phone: phone.number,
+                      type: isWireless ? "mobile" : "landline",
+                      name: `${skipTraceResult.firstName || ''} ${skipTraceResult.lastName || ''}`.trim() || normalizedOwnerName,
+                      confidence: isWireless ? 90 : 80, // Higher confidence for cell phones from skip trace
+                      source: "apify_skip_trace",
+                      provider: phone.provider,
+                      firstReported: phone.firstReported,
+                    });
+                    console.log(`Apify Skip Trace: Added ${phone.type} phone ${phone.number} (${phone.provider || 'unknown provider'})`);
+                  }
+                }
+                
+                // Add emails from skip trace
+                for (const email of skipTraceResult.emails) {
+                  if (email.email && !contactEnrichment.companyEmails.some((e: any) => 
+                    e.email.toLowerCase() === email.email.toLowerCase()
+                  )) {
+                    contactEnrichment.companyEmails.push({
+                      email: email.email,
+                      type: "personal",
+                      confidence: 85,
+                      source: "apify_skip_trace",
+                    });
+                    console.log(`Apify Skip Trace: Added email ${email.email}`);
+                  }
+                }
+                
+                // Add current address if not already known
+                if (skipTraceResult.currentAddress) {
+                  const addr = skipTraceResult.currentAddress;
+                  console.log(`Apify Skip Trace: Found address ${addr.streetAddress}, ${addr.city}, ${addr.state} ${addr.postalCode}`);
+                }
+                
+                console.log(`Apify Skip Trace: Found ${skipTraceResult.phones.length} phones, ${skipTraceResult.emails.length} emails, ${skipTraceResult.relatives.length} relatives`);
+              }
+            } else {
+              console.log("Apify Skip Trace: Not configured (no APIFY_API_TOKEN)");
+            }
+            
             console.log(`Individual enrichment found: ${contactEnrichment.directDials.length} phones, ${contactEnrichment.companyEmails.length} emails`);
           }
         } catch (err) {
