@@ -1,13 +1,12 @@
 import { build as esbuild } from "esbuild";
 import { build as viteBuild } from "vite";
-import { rm, readFile } from "fs/promises";
+import { rm, readFile, writeFile } from "fs/promises";
 
 // server deps to bundle to reduce openat(2) syscalls
 // which helps cold start times
 const allowlist = [
   "@google/generative-ai",
   "axios",
-  "connect-pg-simple",
   "cors",
   "date-fns",
   "drizzle-orm",
@@ -17,7 +16,6 @@ const allowlist = [
   "express-session",
   "jsonwebtoken",
   "jspdf",
-  "memorystore",
   "multer",
   "nanoid",
   "nodemailer",
@@ -31,6 +29,17 @@ const allowlist = [
   "xlsx",
   "zod",
   "zod-validation-error",
+];
+
+// ESM-only packages that must be external
+const esmOnlyPackages = [
+  "bcrypt",
+  "memoizee", 
+  "memorystore",
+  "connect-pg-simple",
+  "openid-client",
+  "p-limit",
+  "p-retry",
 ];
 
 async function buildAll() {
@@ -47,19 +56,37 @@ async function buildAll() {
   ];
   const externals = allDeps.filter((dep) => !allowlist.includes(dep));
 
+  // Build as ESM first
   await esbuild({
     entryPoints: ["server/index.ts"],
     platform: "node",
     bundle: true,
-    format: "cjs",
-    outfile: "dist/index.cjs",
+    format: "esm",
+    outfile: "dist/index.mjs",
+    banner: {
+      js: `import { createRequire } from 'module'; import { fileURLToPath } from 'url'; import { dirname } from 'path'; const require = createRequire(import.meta.url); const __filename = fileURLToPath(import.meta.url); const __dirname = dirname(__filename);`,
+    },
     define: {
       "process.env.NODE_ENV": '"production"',
     },
     minify: true,
-    external: externals,
+    external: [...externals, ...esmOnlyPackages],
     logLevel: "info",
   });
+
+  // Create a CJS wrapper that imports the ESM bundle
+  const cjsWrapper = `
+const { pathToFileURL } = require('url');
+const { resolve } = require('path');
+
+const esmPath = resolve(__dirname, 'index.mjs');
+import(pathToFileURL(esmPath).href).catch(err => {
+  console.error('Failed to load ESM module:', err);
+  process.exit(1);
+});
+`;
+  await writeFile("dist/index.cjs", cjsWrapper.trim());
+  console.log("Created CJS wrapper at dist/index.cjs");
 }
 
 buildAll().catch((err) => {
