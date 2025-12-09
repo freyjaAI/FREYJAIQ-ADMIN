@@ -264,12 +264,24 @@ export const dossierCache = pgTable("dossier_cache", {
   llcUnmasking: jsonb("llc_unmasking"),
   contactEnrichment: jsonb("contact_enrichment"),
   melissaEnrichment: jsonb("melissa_enrichment"),
+  enrichedOfficers: jsonb("enriched_officers"), // Officers with matched emails/phones
   aiOutreach: text("ai_outreach"),
   sellerIntentScore: integer("seller_intent_score"),
   scoreBreakdown: jsonb("score_breakdown"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
+
+// Enriched officer type for TypeScript
+export type EnrichedOfficer = {
+  name: string;
+  position: string;
+  role: "officer" | "member" | "agent";
+  address: string | null;
+  emails: Array<{ email: string; source: string; confidence: number }>;
+  phones: Array<{ phone: string; type: string; source: string; confidence: number }>;
+  confidenceScore: number;
+};
 
 export const dossierCacheRelations = relations(dossierCache, ({ one }) => ({
   owner: one(owners, {
