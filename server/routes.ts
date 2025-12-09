@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
-import { setupAuth, isAuthenticated } from "./replitAuth";
+import { setupAuth, isAuthenticated, getUserId } from "./auth";
 import {
   unmaskLlc,
   calculateSellerIntentScore,
@@ -11,10 +11,6 @@ import {
 import { dataProviders } from "./dataProviders";
 import { insertOwnerSchema, insertPropertySchema, insertContactInfoSchema } from "@shared/schema";
 import { z } from "zod";
-
-function getUserId(req: any): string | null {
-  return req.user?.claims?.sub || req.user?.id || null;
-}
 
 // Helper to detect if a name looks like an entity/company rather than an individual
 function isEntityName(name: string): boolean {
@@ -44,20 +40,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Auth middleware
   await setupAuth(app);
 
-  // Auth routes
-  app.get("/api/auth/user", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = getUserId(req);
-      if (!userId) {
-        return res.status(401).json({ message: "User ID not found" });
-      }
-      const user = await storage.getUser(userId);
-      res.json(user);
-    } catch (error) {
-      console.error("Error fetching user:", error);
-      res.status(500).json({ message: "Failed to fetch user" });
-    }
-  });
 
   // Dashboard stats
   app.get("/api/dashboard/stats", isAuthenticated, async (req: any, res) => {
