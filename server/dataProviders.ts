@@ -1761,14 +1761,15 @@ export class DataProviderManager {
     }
   }
 
-  async searchALeadsByName(name: string): Promise<ALeadsContact[]> {
+  async searchALeadsByName(name: string, location?: { city?: string; state?: string }): Promise<ALeadsContact[]> {
     if (!this.aLeads) {
       return [];
     }
     
     try {
-      console.log(`A-Leads search by person name: "${name}"`);
-      return await this.aLeads.searchContacts({ name });
+      const locationStr = location ? `${location.city || ""}, ${location.state || ""}`.trim() : undefined;
+      console.log(`A-Leads search by person name: "${name}" location: "${locationStr}"`);
+      return await this.aLeads.searchContacts({ name, location: locationStr });
     } catch (error) {
       console.error("Error searching A-Leads by name:", error);
       return [];

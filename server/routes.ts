@@ -464,9 +464,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             employeeProfiles: [] as any[],
           };
           
-          // Search Data Axle People v2 for the individual owner
+          // Search Data Axle People v2 for the individual owner with location
           if (normalizedOwnerName) {
-            const people = await dataProviders.searchPeopleV2(normalizedOwnerName);
+            // Include location to narrow search to correct person
+            const location = parsed ? {
+              city: parsed.city,
+              state: parsed.state,
+              zip: parsed.zip,
+            } : undefined;
+            
+            console.log(`Searching Data Axle with location:`, location);
+            const people = await dataProviders.searchPeopleV2(normalizedOwnerName, location);
             for (const person of (people || []).slice(0, 5)) { // Limit matches
               const fullName = `${person.firstName || ''} ${person.lastName || ''}`.trim();
               const cellPhones = person.cellPhones || [];
@@ -521,8 +529,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               }
             }
             
-            // Also search A-Leads for individual
-            const aLeadsResults = await dataProviders.searchALeadsByName(normalizedOwnerName);
+            // Also search A-Leads for individual with location
+            const aLeadsResults = await dataProviders.searchALeadsByName(normalizedOwnerName, location);
             for (const result of (aLeadsResults || []).slice(0, 5)) {
               if (result.email && !contactEnrichment.companyEmails.some((e: any) => e.email === result.email)) {
                 contactEnrichment.companyEmails.push({
