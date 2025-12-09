@@ -215,23 +215,47 @@ export async function appendPhone(params: {
       // Log each contact's actual data including source and dates
       console.log(`FPA contact raw data: phone=${phoneInfo.phoneNumber}, name=${nameInfo.firstName} ${nameInfo.lastName}, addr=${addressInfo.address}, ${addressInfo.city}, ${addressInfo.state}, source=${phoneInfo.source}, startDate=${phoneInfo.startDate}`);
       
-      // Check data quality based on source
-      const isVerifiedSource = phoneInfo.source === "DA"; // Directory Assistance is the only verified source
-      const startDate = phoneInfo.startDate;
+      // Check data quality based on source and recency
+      const isVerifiedSource = phoneInfo.source === "DA"; // Directory Assistance is verified
+      const transactionDate = phoneInfo.transactionDate; // When Pacific East last verified this
+      const startDate = phoneInfo.startDate; // When association first recorded
       
-      // Calculate how old this association is
-      let dataAgeYears = 0;
-      if (startDate && startDate.length === 8) {
-        const year = parseInt(startDate.substring(0, 4));
-        const currentYear = new Date().getFullYear();
-        dataAgeYears = currentYear - year;
+      // Calculate how recently this was verified (using transactionDate)
+      let monthsSinceVerified = 999;
+      if (transactionDate && transactionDate.length === 8) {
+        const txYear = parseInt(transactionDate.substring(0, 4));
+        const txMonth = parseInt(transactionDate.substring(4, 6));
+        const now = new Date();
+        monthsSinceVerified = (now.getFullYear() - txYear) * 12 + (now.getMonth() + 1 - txMonth);
       }
       
-      console.log(`FPA contact data quality: source=${phoneInfo.source} (verified=${isVerifiedSource}), dataAgeYears=${dataAgeYears}`);
+      // Calculate how old the original association is
+      let startAgeYears = 0;
+      if (startDate && startDate.length === 8) {
+        const year = parseInt(startDate.substring(0, 4));
+        startAgeYears = new Date().getFullYear() - year;
+      }
       
-      // Reject data that is too old (over 5 years) or from unverified sources with old data
-      if (!isVerifiedSource && dataAgeYears > 3) {
-        console.log(`FPA rejecting ${phoneInfo.phoneNumber}: unverified source (${phoneInfo.source}) with old data (${dataAgeYears} years old)`);
+      console.log(`FPA contact data quality: source=${phoneInfo.source} (verified=${isVerifiedSource}), startAge=${startAgeYears}y, verifiedMonthsAgo=${monthsSinceVerified}`);
+      
+      // Assign confidence based on data quality
+      // - Recent verification (< 6 months) = higher confidence
+      // - DA source = higher confidence  
+      // - Old start date but recent verification = medium confidence (may have transferred)
+      let dataQualityConfidence = 70;
+      if (isVerifiedSource) {
+        dataQualityConfidence = 90;
+      } else if (monthsSinceVerified <= 6) {
+        dataQualityConfidence = 80; // Recently verified
+      } else if (monthsSinceVerified <= 12) {
+        dataQualityConfidence = 70;
+      } else {
+        dataQualityConfidence = 50; // Stale verification
+      }
+      
+      // Reject if verification is too old (over 24 months)
+      if (monthsSinceVerified > 24) {
+        console.log(`FPA rejecting ${phoneInfo.phoneNumber}: last verified ${monthsSinceVerified} months ago (too stale)`);
         continue;
       }
 
@@ -258,6 +282,10 @@ export async function appendPhone(params: {
           overallAddress: matchInfo.overallAddress ?? -1,
           location: matchInfo.location ?? -1,
         },
+        dataQualityConfidence,
+        isVerifiedSource,
+        monthsSinceVerified,
+        startAgeYears,
       });
     }
   }
@@ -425,7 +453,11 @@ export async function enrichContactFull(params: {
         const locationScore = contact.matchScore.location;
         const addressScore = contact.matchScore.overallAddress;
         
-        console.log(`FPA contact ${contact.phoneNumber}: nameScore=${nameScore}, locationScore=${locationScore}, addressScore=${addressScore}, name=${contact.firstName} ${contact.lastName}, addr=${contact.address}, ${contact.city}, ${contact.state}`);
+        const dataQuality = (contact as any).dataQualityConfidence || 70;
+        const verifiedMonths = (contact as any).monthsSinceVerified || 999;
+        const startAge = (contact as any).startAgeYears || 0;
+        
+        console.log(`FPA contact ${contact.phoneNumber}: nameScore=${nameScore}, locationScore=${locationScore}, addressScore=${addressScore}, dataQuality=${dataQuality}, verifiedMonths=${verifiedMonths}, startAge=${startAge}y`);
         
         // Filter out poor matches:
         // - Require at least a low name match (score >= 2)
@@ -445,6 +477,7 @@ export async function enrichContactFull(params: {
           continue;
         }
         
+        // Calculate match quality from match scores
         const matchQuality = nameScore >= 8 && (locationScore >= 8 || addressScore >= 8)
           ? 90 
           : nameScore >= 8 
@@ -453,13 +486,17 @@ export async function enrichContactFull(params: {
               ? 70 
               : 60;
         
-        console.log(`FPA accepting ${contact.phoneNumber} with confidence ${matchQuality}`);
+        // Final confidence is the MINIMUM of match quality and data quality
+        // This ensures stale data is properly penalized even if match scores are high
+        const finalConfidence = Math.min(matchQuality, dataQuality);
+        
+        console.log(`FPA accepting ${contact.phoneNumber}: matchQuality=${matchQuality}, dataQuality=${dataQuality}, finalConfidence=${finalConfidence}`);
         
         result.phones.push({
           number: contact.phoneNumber,
           type: contact.contactType === "R" ? "residential" : contact.contactType === "B" ? "business" : "unknown",
           source: contact.source || "pacific_east",
-          confidence: matchQuality,
+          confidence: finalConfidence,
           matchScore: nameScore,
         });
       }
