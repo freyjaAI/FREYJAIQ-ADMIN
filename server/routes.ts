@@ -781,6 +781,82 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
       }
 
+      // Persist enriched contacts to database
+      if (contactEnrichment) {
+        try {
+          const existingContacts = await storage.getContactsByOwner(owner.id);
+          let savedCount = 0;
+          
+          // Save phones from all sources (Data Axle, A-Leads, Pacific East)
+          for (const dial of contactEnrichment.directDials || []) {
+            if (dial.phone && !existingContacts.some(c => c.kind === 'phone' && c.value === dial.phone)) {
+              await storage.createContact({
+                ownerId: owner.id,
+                kind: 'phone',
+                value: dial.phone,
+                source: dial.source || 'enrichment',
+                confidenceScore: dial.confidence ? Math.round(dial.confidence * 100) : 75,
+                lineType: dial.type || 'direct',
+              });
+              savedCount++;
+              console.log(`Saved phone ${dial.phone} from ${dial.source || 'enrichment'}`);
+            }
+          }
+          
+          // Save emails from all sources
+          for (const emailData of contactEnrichment.companyEmails || []) {
+            if (emailData.email && !existingContacts.some(c => c.kind === 'email' && c.value === emailData.email)) {
+              await storage.createContact({
+                ownerId: owner.id,
+                kind: 'email',
+                value: emailData.email,
+                source: emailData.source || 'enrichment',
+                confidenceScore: emailData.confidence ? Math.round(emailData.confidence * 100) : 75,
+              });
+              savedCount++;
+              console.log(`Saved email ${emailData.email} from ${emailData.source || 'enrichment'}`);
+            }
+          }
+          
+          // Also save phones/emails from enriched officers (for entity owners)
+          for (const officer of enrichedOfficers) {
+            for (const phone of officer.phones || []) {
+              if (phone.phone && !existingContacts.some(c => c.kind === 'phone' && c.value === phone.phone)) {
+                await storage.createContact({
+                  ownerId: owner.id,
+                  kind: 'phone',
+                  value: phone.phone,
+                  source: phone.source || 'officer_enrichment',
+                  confidenceScore: phone.confidence ? Math.round(phone.confidence * 100) : 75,
+                  lineType: phone.type || 'direct',
+                });
+                savedCount++;
+                console.log(`Saved officer phone ${phone.phone} from ${phone.source || 'officer_enrichment'}`);
+              }
+            }
+            for (const email of officer.emails || []) {
+              if (email.email && !existingContacts.some(c => c.kind === 'email' && c.value === email.email)) {
+                await storage.createContact({
+                  ownerId: owner.id,
+                  kind: 'email',
+                  value: email.email,
+                  source: email.source || 'officer_enrichment',
+                  confidenceScore: email.confidence ? Math.round(email.confidence * 100) : 75,
+                });
+                savedCount++;
+                console.log(`Saved officer email ${email.email} from ${email.source || 'officer_enrichment'}`);
+              }
+            }
+          }
+          
+          // Get updated contacts count
+          const updatedContacts = await storage.getContactsByOwner(owner.id);
+          console.log(`Saved ${savedCount} new contacts. Total contacts: ${updatedContacts.length}`);
+        } catch (contactSaveErr) {
+          console.error("Error saving enriched contacts:", contactSaveErr);
+        }
+      }
+
       // Save to cache for future requests
       try {
         await storage.upsertDossierCache({
