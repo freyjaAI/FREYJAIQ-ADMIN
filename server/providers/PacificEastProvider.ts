@@ -183,8 +183,6 @@ export async function appendPhone(params: {
   const { firstName, lastName, businessName, address, city, state, postalCode, queryType = "0" } = params;
 
   const queryParams = new URLSearchParams();
-  queryParams.set("accountKey", PACIFIC_EAST_ACCOUNT_KEY);
-  queryParams.set("queryType", queryType);
   queryParams.set("purpose", "AD");
   if (firstName) queryParams.set("firstName", firstName);
   if (lastName) queryParams.set("lastName", lastName);
@@ -194,7 +192,7 @@ export async function appendPhone(params: {
   if (state) queryParams.set("state", state);
   if (postalCode) queryParams.set("postalCode", postalCode);
 
-  const url = `${ENDPOINTS.phoneAppend}/REST/GetContacts?${queryParams.toString()}`;
+  const url = `${ENDPOINTS.phoneAppend}/${queryType}?${queryParams.toString()}`;
   
   const response = await makeRequest<any>(url);
   
