@@ -459,7 +459,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const properties = await storage.getPropertiesByOwner(owner.id);
       const contacts = await storage.getContactsByOwner(owner.id);
       const legalEvents = await storage.getLegalEventsByOwner(owner.id);
-      const llcLinks = await storage.getLlcLinks(owner.id);
+      const llcLinks = await storage.getLlcLinksByOwner(owner.id);
       
       // Enrich LLC links with owner data
       const linkedLlcs = await Promise.all(
