@@ -190,6 +190,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           llcUnmasking: existingCache.llcUnmasking,
           contactEnrichment: existingCache.contactEnrichment,
           melissaEnrichment: existingCache.melissaEnrichment,
+          enrichedOfficers: existingCache.enrichedOfficers,
           cached: true,
         });
       }
@@ -250,6 +251,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       // Fetch contact enrichment data from Data Axle / A-Leads
       let contactEnrichment = null;
+      let enrichedOfficers: any[] = [];
+      
       if (isEntity) {
         try {
           const parsed = parseAddress(owner.primaryAddress);
@@ -270,70 +273,149 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             
             console.log(`Searching Data Axle + A-Leads for ${realOfficers.length} real officers (filtered from ${llcUnmasking.officers.length})...`);
             
-            for (const officer of realOfficers.slice(0, 5)) { // Limit to first 5 real officers
+            // De-duplicate officers by name (same person may have multiple positions)
+            const uniqueOfficers = new Map<string, any>();
+            for (const officer of realOfficers) {
+              const normalizedName = officer.name.toUpperCase().trim();
+              if (!uniqueOfficers.has(normalizedName)) {
+                uniqueOfficers.set(normalizedName, {
+                  name: officer.name,
+                  positions: [officer.position || officer.role],
+                  address: officer.address,
+                  role: officer.role,
+                });
+              } else {
+                const existing = uniqueOfficers.get(normalizedName)!;
+                if (officer.position && !existing.positions.includes(officer.position)) {
+                  existing.positions.push(officer.position);
+                }
+                // Use most complete address
+                if (officer.address && (!existing.address || officer.address.length > existing.address.length)) {
+                  existing.address = officer.address;
+                }
+              }
+            }
+            
+            console.log(`Building enriched officer data for ${uniqueOfficers.size} unique officers...`);
+            
+            for (const officer of Array.from(uniqueOfficers.values()).slice(0, 8)) { // Limit to first 8 unique officers
               const normalizedOfficerName = normalizeName(officer.name);
-              if (normalizedOfficerName) {
-                console.log(`Officer search: "${normalizedOfficerName}"`);
+              if (!normalizedOfficerName) continue;
+              
+              console.log(`Officer search: "${normalizedOfficerName}"`);
+              
+              // Build enriched officer record
+              const enrichedOfficer: any = {
+                name: officer.name,
+                position: officer.positions.filter(Boolean).join(", ") || officer.role,
+                role: officer.role || "officer",
+                address: officer.address || null,
+                emails: [] as Array<{ email: string; source: string; confidence: number }>,
+                phones: [] as Array<{ phone: string; type: string; source: string; confidence: number }>,
+                confidenceScore: 85,
+              };
+              
+              // Search Data Axle People v2 for the officer
+              const people = await dataProviders.searchPeopleV2(normalizedOfficerName);
+              for (const person of (people || []).slice(0, 3)) { // Limit matches per officer
+                const fullName = `${person.firstName || ''} ${person.lastName || ''}`.trim();
+                const cellPhones = person.cellPhones || [];
+                const phones = person.phones || [];
+                const emails = person.emails || [];
                 
-                // Search Data Axle People v2 for the officer
-                const people = await dataProviders.searchPeopleV2(normalizedOfficerName);
-                for (const person of people) {
-                  // Add cell phones
-                  for (const cellPhone of person.cellPhones) {
-                    if (!contactEnrichment.directDials.some((d: any) => d.phone === cellPhone)) {
-                      contactEnrichment.directDials.push({
-                        phone: cellPhone,
-                        type: "mobile",
-                        name: `${person.firstName} ${person.lastName}`.trim(),
-                        confidence: person.confidenceScore,
-                      });
-                    }
+                // Add cell phones to enriched officer
+                for (const cellPhone of cellPhones) {
+                  if (!enrichedOfficer.phones.some((p: any) => p.phone === cellPhone)) {
+                    enrichedOfficer.phones.push({
+                      phone: cellPhone,
+                      type: "mobile",
+                      source: "data-axle",
+                      confidence: person.confidenceScore,
+                    });
                   }
-                  // Add regular phones
-                  for (const phone of person.phones) {
-                    if (!contactEnrichment.directDials.some((d: any) => d.phone === phone)) {
-                      contactEnrichment.directDials.push({
-                        phone: phone,
-                        type: "direct",
-                        name: `${person.firstName} ${person.lastName}`.trim(),
-                        confidence: person.confidenceScore,
-                      });
-                    }
-                  }
-                  // Add emails
-                  for (const email of person.emails) {
-                    if (!contactEnrichment.companyEmails.some((e: any) => e.email === email)) {
-                      contactEnrichment.companyEmails.push({
-                        email: email,
-                        type: "personal",
-                        confidence: person.confidenceScore,
-                      });
-                    }
-                  }
-                  // Add employee profile
-                  const fullName = `${person.firstName} ${person.lastName}`.trim();
-                  if (fullName && !contactEnrichment.employeeProfiles.some((p: any) => p.name === fullName)) {
-                    contactEnrichment.employeeProfiles.push({
+                  // Also add to global contact enrichment
+                  if (!contactEnrichment.directDials.some((d: any) => d.phone === cellPhone)) {
+                    contactEnrichment.directDials.push({
+                      phone: cellPhone,
+                      type: "mobile",
                       name: fullName,
-                      title: officer.position || "Officer",
-                      email: person.emails[0],
-                      phone: person.cellPhones[0] || person.phones[0],
                       confidence: person.confidenceScore,
                     });
                   }
                 }
-                
-                // Also search A-Leads
-                const aLeadsResults = await dataProviders.searchALeadsByName(normalizedOfficerName);
-                for (const result of aLeadsResults) {
-                  if (result.email && !contactEnrichment.companyEmails.some((e: any) => e.email === result.email)) {
+                // Add regular phones
+                for (const phone of phones) {
+                  if (!enrichedOfficer.phones.some((p: any) => p.phone === phone)) {
+                    enrichedOfficer.phones.push({
+                      phone: phone,
+                      type: "landline",
+                      source: "data-axle",
+                      confidence: person.confidenceScore,
+                    });
+                  }
+                  if (!contactEnrichment.directDials.some((d: any) => d.phone === phone)) {
+                    contactEnrichment.directDials.push({
+                      phone: phone,
+                      type: "direct",
+                      name: fullName,
+                      confidence: person.confidenceScore,
+                    });
+                  }
+                }
+                // Add emails to enriched officer
+                for (const email of emails) {
+                  if (!enrichedOfficer.emails.some((e: any) => e.email === email)) {
+                    enrichedOfficer.emails.push({
+                      email: email,
+                      source: "data-axle",
+                      confidence: person.confidenceScore,
+                    });
+                  }
+                  if (!contactEnrichment.companyEmails.some((e: any) => e.email === email)) {
+                    contactEnrichment.companyEmails.push({
+                      email: email,
+                      type: "personal",
+                      confidence: person.confidenceScore,
+                    });
+                  }
+                }
+                // Add employee profile
+                if (fullName && !contactEnrichment.employeeProfiles.some((p: any) => p.name === fullName)) {
+                  contactEnrichment.employeeProfiles.push({
+                    name: fullName,
+                    title: enrichedOfficer.position || "Officer",
+                    email: emails[0],
+                    phone: cellPhones[0] || phones[0],
+                    confidence: person.confidenceScore,
+                  });
+                }
+              }
+              
+              // Also search A-Leads
+              const aLeadsResults = await dataProviders.searchALeadsByName(normalizedOfficerName);
+              for (const result of (aLeadsResults || []).slice(0, 3)) {
+                if (result.email && !enrichedOfficer.emails.some((e: any) => e.email === result.email)) {
+                  enrichedOfficer.emails.push({
+                    email: result.email,
+                    source: "a-leads",
+                    confidence: result.confidence || 75,
+                  });
+                  if (!contactEnrichment.companyEmails.some((e: any) => e.email === result.email)) {
                     contactEnrichment.companyEmails.push({
                       email: result.email,
                       type: "personal",
                       confidence: result.confidence || 75,
                     });
                   }
-                  if (result.phone && !contactEnrichment.directDials.some((d: any) => d.phone === result.phone)) {
+                }
+                if (result.phone && !enrichedOfficer.phones.some((p: any) => p.phone === result.phone)) {
+                  enrichedOfficer.phones.push({
+                    phone: result.phone,
+                    type: "direct",
+                    source: "a-leads",
+                    confidence: result.confidence || 75,
+                  });
+                  if (!contactEnrichment.directDials.some((d: any) => d.phone === result.phone)) {
                     contactEnrichment.directDials.push({
                       phone: result.phone,
                       type: "direct",
@@ -342,19 +424,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                       confidence: result.confidence || 75,
                     });
                   }
-                  if (result.name && !contactEnrichment.employeeProfiles.some((p: any) => p.name === result.name)) {
-                    contactEnrichment.employeeProfiles.push({
-                      name: result.name,
-                      title: result.title || result.company,
-                      email: result.email,
-                      phone: result.phone,
-                      linkedin: result.linkedinUrl,
-                      confidence: result.confidence || 75,
-                    });
-                  }
+                }
+                if (result.name && !contactEnrichment.employeeProfiles.some((p: any) => p.name === result.name)) {
+                  contactEnrichment.employeeProfiles.push({
+                    name: result.name,
+                    title: result.title || result.company,
+                    email: result.email,
+                    phone: result.phone,
+                    linkedin: result.linkedinUrl,
+                    confidence: result.confidence || 75,
+                  });
                 }
               }
+              
+              // Update confidence based on how much data we found
+              const hasContact = enrichedOfficer.emails.length > 0 || enrichedOfficer.phones.length > 0;
+              enrichedOfficer.confidenceScore = hasContact ? 90 : 70;
+              
+              enrichedOfficers.push(enrichedOfficer);
             }
+            
+            console.log(`Built ${enrichedOfficers.length} enriched officers with contact data`);
           }
         } catch (err) {
           console.error("Error fetching contact enrichment:", err);
@@ -395,6 +485,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           llcUnmasking: llcUnmasking,
           contactEnrichment: contactEnrichment,
           melissaEnrichment: melissaEnrichment,
+          enrichedOfficers: enrichedOfficers.length > 0 ? enrichedOfficers : null,
           aiOutreach: aiOutreach,
           sellerIntentScore: score,
           scoreBreakdown: breakdown,
@@ -428,6 +519,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         llcUnmasking,
         contactEnrichment,
         melissaEnrichment,
+        enrichedOfficers: enrichedOfficers.length > 0 ? enrichedOfficers : null,
         cached: false,
       });
     } catch (error) {
@@ -533,6 +625,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       let llcUnmasking: any = null;
       let contactEnrichment: any = null;
       let melissaEnrichment: any = null;
+      let enrichedOfficers: any[] = [];
 
       if (dossierCacheData) {
         // Use cached data
@@ -543,6 +636,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         llcUnmasking = dossierCacheData.llcUnmasking;
         contactEnrichment = dossierCacheData.contactEnrichment;
         melissaEnrichment = dossierCacheData.melissaEnrichment;
+        enrichedOfficers = (dossierCacheData.enrichedOfficers as any[]) || [];
       } else {
         // No cache - calculate fresh (but warn that enrichment data may be missing)
         console.log(`No cache for PDF export: owner ${owner.id} - using fresh calculations only`);
@@ -711,7 +805,36 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           addDetail("Address", llcUnmasking.registeredAgent.address);
         }
         
-        if (llcUnmasking.officers?.length) {
+        // Use enriched officers if available, otherwise fall back to basic officer list
+        if (enrichedOfficers.length > 0) {
+          y += 3;
+          addSubHeader(`Officers & Members with Contact Info (${enrichedOfficers.length})`);
+          for (const officer of enrichedOfficers) {
+            checkPageBreak(30);
+            addText(`${officer.name}`, 10, true, [30, 58, 138]);
+            addText(`   Position: ${officer.position || officer.role || "Officer"}`, 9, false, [40, 40, 40]);
+            if (officer.address) {
+              addText(`   Address: ${officer.address}`, 9, false, [60, 60, 60]);
+            }
+            // Show emails
+            if (officer.emails?.length > 0) {
+              const uniqueEmails = Array.from(new Set(officer.emails.map((e: any) => e.email))).slice(0, 3);
+              for (const email of uniqueEmails) {
+                addText(`   Email: ${email}`, 9, false, [60, 60, 60]);
+              }
+            }
+            // Show phones
+            if (officer.phones?.length > 0) {
+              const uniquePhones = Array.from(new Set(officer.phones.map((p: any) => p.phone))).slice(0, 3);
+              for (const phone of uniquePhones) {
+                const phoneEntry = officer.phones.find((p: any) => p.phone === phone);
+                const phoneType = phoneEntry?.type || "direct";
+                addText(`   Phone: ${phone} (${phoneType})`, 9, false, [60, 60, 60]);
+              }
+            }
+            y += 2;
+          }
+        } else if (llcUnmasking.officers?.length) {
           y += 3;
           addSubHeader(`Officers & Members (${llcUnmasking.officers.length})`);
           for (const officer of llcUnmasking.officers) {
