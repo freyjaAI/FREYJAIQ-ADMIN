@@ -28,6 +28,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { ChevronDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
@@ -502,16 +504,43 @@ export default function OwnerDossierPage() {
                         const allCorporateEntities = officers.length > 0 && officers.every(o => corporatePatterns.test(o.name));
                         const isDelawareLLC = llcUnmasking.jurisdictionCode === "us_de";
                         
-                        // Helper to find contact info for an officer from enrichment data
-                        const getOfficerContact = (officerName: string) => {
-                          if (!contactEnrichment?.employeeProfiles) return null;
-                          // Try to find a matching profile
-                          const nameParts = officerName.toLowerCase().split(/\s+/);
-                          return contactEnrichment.employeeProfiles.find(p => {
-                            const profileParts = p.name.toLowerCase().split(/\s+/);
-                            // Match if first and last name match
-                            return nameParts.some(n => profileParts.includes(n));
-                          });
+                        // Helper to find all contact info for an officer from enrichment data
+                        const getOfficerContacts = (officerName: string): { phones: string[], emails: string[] } => {
+                          const phones: string[] = [];
+                          const emails: string[] = [];
+                          
+                          const normName = officerName.toLowerCase().replace(/[^a-z\s]/g, '').trim();
+                          const nameParts = normName.split(/\s+/).filter(p => p.length > 1);
+                          
+                          // Match function - check if at least 2 name parts match
+                          const isMatch = (otherName: string) => {
+                            const otherNorm = otherName.toLowerCase().replace(/[^a-z\s]/g, '').trim();
+                            const otherParts = otherNorm.split(/\s+/).filter(p => p.length > 1);
+                            const matches = nameParts.filter(p => otherParts.includes(p));
+                            return matches.length >= 2 || (nameParts.length === 2 && matches.length >= 1 && otherParts.some(p => nameParts.includes(p)));
+                          };
+                          
+                          // Search directDials
+                          if (contactEnrichment?.directDials) {
+                            contactEnrichment.directDials.forEach(dial => {
+                              if (dial.name && isMatch(dial.name) && !phones.includes(dial.phone)) {
+                                phones.push(dial.phone);
+                              }
+                            });
+                          }
+                          
+                          // Search employeeProfiles  
+                          if (contactEnrichment?.employeeProfiles) {
+                            contactEnrichment.employeeProfiles.forEach(emp => {
+                              if (isMatch(emp.name)) {
+                                if (emp.phone && !phones.includes(emp.phone)) phones.push(emp.phone);
+                                if (emp.email && !emails.includes(emp.email)) emails.push(emp.email);
+                              }
+                            });
+                          }
+                          
+                          // Limit to first 3 of each to keep it clean
+                          return { phones: phones.slice(0, 3), emails: emails.slice(0, 2) };
                         };
                         
                         return (
@@ -534,7 +563,9 @@ export default function OwnerDossierPage() {
                             {officers.length > 0 ? (
                               <div className="space-y-2">
                                 {officers.map((officer, idx) => {
-                                  const contact = getOfficerContact(officer.name);
+                                  const officerContacts = getOfficerContacts(officer.name);
+                                  const hasContacts = officerContacts.phones.length > 0 || officerContacts.emails.length > 0;
+                                  
                                   return (
                                     <div 
                                       key={idx} 
@@ -550,22 +581,42 @@ export default function OwnerDossierPage() {
                                           {officer.role}
                                         </Badge>
                                       </div>
-                                      {/* Contact info for this officer */}
-                                      {contact && (contact.phone || contact.email) && (
-                                        <div className="flex flex-wrap items-center gap-3 mt-2 pt-2 border-t border-border/50 text-sm">
-                                          {contact.phone && (
-                                            <div className="flex items-center gap-1 text-muted-foreground">
-                                              <Phone className="h-3 w-3" />
-                                              <span className="font-mono text-xs">{contact.phone}</span>
-                                            </div>
-                                          )}
-                                          {contact.email && (
-                                            <div className="flex items-center gap-1 text-muted-foreground">
-                                              <Mail className="h-3 w-3" />
-                                              <span className="text-xs">{contact.email}</span>
-                                            </div>
-                                          )}
-                                        </div>
+                                      
+                                      {/* Expandable contact info */}
+                                      {hasContacts && (
+                                        <Collapsible className="mt-2">
+                                          <CollapsibleTrigger asChild>
+                                            <Button 
+                                              variant="ghost" 
+                                              size="sm" 
+                                              className="h-7 px-2 text-xs text-muted-foreground gap-1"
+                                              data-testid={`button-view-contact-${idx}`}
+                                            >
+                                              <ChevronDown className="h-3 w-3 transition-transform duration-200 [[data-state=open]>&]:rotate-180" />
+                                              View contact info
+                                            </Button>
+                                          </CollapsibleTrigger>
+                                          <CollapsibleContent className="pt-2 space-y-1.5">
+                                            {officerContacts.phones.map((phone, pidx) => (
+                                              <div key={pidx} className="flex items-center gap-2 text-sm text-muted-foreground">
+                                                <Phone className="h-3 w-3 shrink-0" />
+                                                <span className="font-mono text-xs">{phone}</span>
+                                              </div>
+                                            ))}
+                                            {officerContacts.emails.map((email, eidx) => (
+                                              <div key={eidx} className="flex items-center gap-2 text-sm text-muted-foreground">
+                                                <Mail className="h-3 w-3 shrink-0" />
+                                                <span className="text-xs">{email}</span>
+                                              </div>
+                                            ))}
+                                            {officer.address && (
+                                              <div className="flex items-start gap-2 text-sm text-muted-foreground">
+                                                <MapPin className="h-3 w-3 shrink-0 mt-0.5" />
+                                                <span className="text-xs">{officer.address}</span>
+                                              </div>
+                                            )}
+                                          </CollapsibleContent>
+                                        </Collapsible>
                                       )}
                                     </div>
                                   );
