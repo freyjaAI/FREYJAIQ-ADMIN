@@ -538,8 +538,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             } : undefined;
             
             console.log(`Searching Data Axle with location:`, location);
-            const people = await dataProviders.searchPeopleV2(normalizedOwnerName, location);
-            for (const person of (people || []).slice(0, 5)) { // Limit matches
+            const allPeople = await dataProviders.searchPeopleV2(normalizedOwnerName, location);
+            
+            // Filter results to only include people from the correct state (Data Axle returns fuzzy matches)
+            const expectedState = location?.state?.toUpperCase();
+            const filteredPeople = expectedState 
+              ? (allPeople || []).filter(p => {
+                  const personState = p.state?.toUpperCase();
+                  return personState === expectedState;
+                })
+              : allPeople || [];
+            
+            console.log(`Data Axle returned ${allPeople?.length || 0} results, ${filteredPeople.length} match state ${expectedState}`);
+            
+            for (const person of filteredPeople.slice(0, 5)) { // Limit matches
               const fullName = `${person.firstName || ''} ${person.lastName || ''}`.trim();
               const cellPhones = person.cellPhones || [];
               const phones = person.phones || [];
