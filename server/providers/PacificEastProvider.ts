@@ -257,12 +257,7 @@ export async function appendPhone(params: {
         dataQualityConfidence = 50; // Stale verification
       }
       
-      // Reject if verification is too old (over 24 months)
-      if (monthsSinceVerified > 24) {
-        console.log(`FPA rejecting ${phoneInfo.phoneNumber}: last verified ${monthsSinceVerified} months ago (too stale)`);
-        continue;
-      }
-
+      // Include ALL phones - no filtering, let the UI show everything
       contacts.push({
         phoneNumber: phoneInfo.phoneNumber || "",
         contactType: phoneInfo.contactType || "",
@@ -396,15 +391,15 @@ export async function enrichContactFull(params: {
   // This handles name typos/misspellings from ATTOM data
   
   // Step 1: Search by address only (no name filter) to get all residents
-  // queryType: 0=all, 1=landline, 2=cell/mobile
-  console.log(`Pacific East: Searching by address only for CELL phones at ${address}, ${city}, ${state} ${zip}`);
+  // Note: queryType "2" (cell only) not authorized on this account, so we get all and filter
+  console.log(`Pacific East: Searching by address only for all phones at ${address}, ${city}, ${state} ${zip}`);
   
   const addressOnlyPhoneResult = await appendPhone({
     address: address,
     city: city,
     state: state,
     postalCode: zip,
-    queryType: "2", // Cell/mobile phones only
+    queryType: "0", // All phones (will prioritize cells in results)
   });
   
   // Step 2: Also try with name for email (email API requires lastName)
@@ -415,7 +410,7 @@ export async function enrichContactFull(params: {
     city: city,
     state: state,
     postalCode: zip,
-    queryType: "household", // Get household emails
+    queryType: "individual", // "household" returns 404
   });
   
   // Use address-only results as primary phone source
@@ -440,41 +435,46 @@ export async function enrichContactFull(params: {
         const verifiedMonths = contact.monthsSinceVerified || 999;
         const startAge = contact.startAgeYears || 0;
         
-        // For address-only search, we care about address/location match, not name match
+        // Include ALL phones - no filtering
         console.log(`FPA contact ${contact.phoneNumber} (${contact.firstName} ${contact.lastName}): locationScore=${locationScore}, addressScore=${addressScore}, dataQuality=${dataQuality}, verifiedMonths=${verifiedMonths}, startAge=${startAge}y`);
         
-        // Only require good address/location match (not name match since we searched by address)
-        const hasAcceptableLocationMatch = locationScore === -1 || locationScore >= 2;
-        const hasAcceptableAddressMatch = addressScore === -1 || addressScore >= 2;
-        
-        if (!hasAcceptableLocationMatch && !hasAcceptableAddressMatch) {
-          console.log(`FPA rejecting ${contact.phoneNumber}: poor location/address match (loc=${locationScore}, addr=${addressScore})`);
-          continue;
-        }
-        
         // Calculate confidence based on address match quality and data quality
-        const addressMatchQuality = (locationScore >= 8 || addressScore >= 8) ? 85 : 75;
+        const addressMatchQuality = (locationScore >= 8 || addressScore >= 8) ? 85 
+          : (locationScore >= 2 || addressScore >= 2) ? 75 
+          : 60;
         
         // Final confidence is the MINIMUM of match quality and data quality
         const finalConfidence = Math.min(addressMatchQuality, dataQuality);
         
-        console.log(`FPA accepting ${contact.phoneNumber} (${contact.firstName} ${contact.lastName}): addressQuality=${addressMatchQuality}, dataQuality=${dataQuality}, finalConfidence=${finalConfidence}`);
+        // Determine phone type - C=Cell, W=Wireless, R=Residential/Landline, B=Business
+        const phoneType = contact.contactType === "C" || contact.contactType === "W" 
+          ? "cell" 
+          : contact.contactType === "R" 
+            ? "landline" 
+            : contact.contactType === "B" 
+              ? "business" 
+              : "unknown";
         
-        // Add address info to result for display
-        result.addresses.push({
-          address1: contact.address,
-          address2: "",
-          city: contact.city,
-          state: contact.state,
-          zip: contact.postalCode,
-          isCurrent: true,
-          verifiedDeliverable: true,
-          dwellingType: "unknown",
-        });
+        console.log(`FPA accepting ${contact.phoneNumber} (${contact.firstName} ${contact.lastName}): type=${contact.contactType}/${phoneType}, addressQuality=${addressMatchQuality}, dataQuality=${dataQuality}, finalConfidence=${finalConfidence}`);
+        
+        // Add address info to result for display (only once per unique address)
+        const addrKey = `${contact.address},${contact.city},${contact.state}`;
+        if (!result.addresses.some(a => `${a.address1},${a.city},${a.state}` === addrKey)) {
+          result.addresses.push({
+            address1: contact.address,
+            address2: "",
+            city: contact.city,
+            state: contact.state,
+            zip: contact.postalCode,
+            isCurrent: true,
+            verifiedDeliverable: true,
+            dwellingType: "unknown",
+          });
+        }
         
         result.phones.push({
           number: contact.phoneNumber,
-          type: contact.contactType === "R" ? "residential" : contact.contactType === "B" ? "business" : "unknown",
+          type: phoneType,
           source: contact.source || "pacific_east",
           confidence: finalConfidence,
           matchScore: addressScore,
