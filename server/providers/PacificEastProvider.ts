@@ -212,8 +212,28 @@ export async function appendPhone(params: {
       const addressInfo = contact.addressInformation || {};
       const matchInfo = response.matchInfo?.[0] || {};
       
-      // Log each contact's actual data
-      console.log(`FPA contact raw data: phone=${phoneInfo.phoneNumber}, name=${nameInfo.firstName} ${nameInfo.lastName}, addr=${addressInfo.address}, ${addressInfo.city}, ${addressInfo.state}`);
+      // Log each contact's actual data including source and dates
+      console.log(`FPA contact raw data: phone=${phoneInfo.phoneNumber}, name=${nameInfo.firstName} ${nameInfo.lastName}, addr=${addressInfo.address}, ${addressInfo.city}, ${addressInfo.state}, source=${phoneInfo.source}, startDate=${phoneInfo.startDate}`);
+      
+      // Check data quality based on source
+      const isVerifiedSource = phoneInfo.source === "DA"; // Directory Assistance is the only verified source
+      const startDate = phoneInfo.startDate;
+      
+      // Calculate how old this association is
+      let dataAgeYears = 0;
+      if (startDate && startDate.length === 8) {
+        const year = parseInt(startDate.substring(0, 4));
+        const currentYear = new Date().getFullYear();
+        dataAgeYears = currentYear - year;
+      }
+      
+      console.log(`FPA contact data quality: source=${phoneInfo.source} (verified=${isVerifiedSource}), dataAgeYears=${dataAgeYears}`);
+      
+      // Reject data that is too old (over 5 years) or from unverified sources with old data
+      if (!isVerifiedSource && dataAgeYears > 3) {
+        console.log(`FPA rejecting ${phoneInfo.phoneNumber}: unverified source (${phoneInfo.source}) with old data (${dataAgeYears} years old)`);
+        continue;
+      }
 
       contacts.push({
         phoneNumber: phoneInfo.phoneNumber || "",
