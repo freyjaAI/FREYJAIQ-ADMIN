@@ -86,6 +86,7 @@ interface ContactEnrichmentData {
     title?: string;
     email?: string;
     phone?: string;
+    address?: string;
     linkedin?: string;
     confidence: number;
   }>;
@@ -799,13 +800,25 @@ export default function OwnerDossierPage() {
                             {profile.title && (
                               <div className="text-xs text-muted-foreground">{profile.title}</div>
                             )}
-                            {(profile.email || profile.phone) && (
-                              <div className="flex flex-wrap items-center gap-2 mt-1 text-xs">
-                                {profile.email && (
-                                  <span className="font-mono">{profile.email}</span>
-                                )}
+                            {(profile.email || profile.phone || profile.address) && (
+                              <div className="flex flex-col gap-1 mt-1 text-xs">
                                 {profile.phone && (
-                                  <span className="font-mono">{profile.phone}</span>
+                                  <div className="flex items-center gap-1 font-mono">
+                                    <Phone className="h-3 w-3 text-muted-foreground" />
+                                    {profile.phone}
+                                  </div>
+                                )}
+                                {profile.email && (
+                                  <div className="flex items-center gap-1 font-mono">
+                                    <Mail className="h-3 w-3 text-muted-foreground" />
+                                    {profile.email}
+                                  </div>
+                                )}
+                                {profile.address && (
+                                  <div className="flex items-center gap-1">
+                                    <MapPin className="h-3 w-3 text-muted-foreground" />
+                                    {profile.address}
+                                  </div>
                                 )}
                               </div>
                             )}

@@ -505,13 +505,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                   });
                 }
               }
-              // Add profile
+              // Add profile with address
               if (fullName && !contactEnrichment.employeeProfiles.some((p: any) => p.name === fullName)) {
+                const personAddress = [person.address, person.city, person.state, person.zip]
+                  .filter(Boolean)
+                  .join(", ");
                 contactEnrichment.employeeProfiles.push({
                   name: fullName,
                   title: "Property Owner",
                   email: emails[0],
                   phone: cellPhones[0] || phones[0],
+                  address: personAddress || undefined,
                   confidence: person.confidenceScore,
                 });
               }
@@ -541,6 +545,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                   title: result.title || "Property Owner",
                   email: result.email,
                   phone: result.phone,
+                  address: result.address || undefined,
                   linkedin: result.linkedinUrl,
                   confidence: result.confidence || 75,
                 });
