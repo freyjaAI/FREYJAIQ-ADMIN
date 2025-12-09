@@ -159,6 +159,7 @@ Preferred communication style: Simple, everyday language.
 
 ### AI Services
 - **OpenAI** - AI completions (via Replit AI Integrations)
+- **Perplexity Sonar** - AI-powered web search for LLC ownership discovery (privacy-protected entity fallback)
 - **p-limit** - Concurrency control for AI requests
 - **p-retry** - Retry logic with exponential backoff
 

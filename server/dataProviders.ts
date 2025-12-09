@@ -1,6 +1,7 @@
 import pLimit from "p-limit";
 import pRetry from "p-retry";
 import * as PacificEast from "./providers/PacificEastProvider";
+import * as Perplexity from "./providers/PerplexityProvider";
 
 const limit = pLimit(3);
 
@@ -238,6 +239,16 @@ export interface LlcUnmaskingResult {
     url?: string;
   }>;
   lastUpdated: string;
+  isPrivacyProtected?: boolean;
+  aiInferredOwners?: Array<{
+    name: string;
+    role: string;
+    confidence: "high" | "medium" | "low";
+    sources: string[];
+    reasoning: string;
+  }>;
+  aiRelatedEntities?: string[];
+  aiCitations?: string[];
 }
 
 export class AttomDataProvider {
@@ -1496,6 +1507,48 @@ export class DataProviderManager {
         confidenceScore: 85,
       }));
 
+      // Detect privacy-protected entities
+      // Common patterns: only registered agents listed, corporate service company names, 
+      // officer names that are clearly service companies
+      const corporateServicePatterns = /\b(REGISTERED AGENT|CORP SERVICE|CORPORATE SERVICE|CT CORPORATION|CSC|NATIONAL REGISTERED|UNITED AGENT|INCORP SERVICES|VCORP|LEGALZOOM|NORTHWEST REGISTERED|HARVARD BUSINESS|COGENCY GLOBAL|CORPORATION SERVICE)\b/i;
+      
+      const realPersonOfficers = normalizedOfficers.filter(o => {
+        const isAgent = o.role === "agent";
+        const isCorporateService = corporateServicePatterns.test(o.name);
+        const looksLikeCorporate = /\b(INC|LLC|CORP|COMPANY|SERVICES|SERVICE|TRUST|NETWORK)\b/i.test(o.name);
+        return !isAgent && !isCorporateService && !looksLikeCorporate;
+      });
+
+      const isPrivacyProtected = realPersonOfficers.length === 0;
+      console.log(`Privacy protection check: ${isPrivacyProtected ? "YES - only agents/service companies found" : "NO - real person officers found"}`);
+
+      let aiInferredOwners: LlcUnmaskingResult["aiInferredOwners"];
+      let aiRelatedEntities: string[] | undefined;
+      let aiCitations: string[] | undefined;
+
+      // If privacy-protected, attempt Perplexity AI discovery
+      if (isPrivacyProtected && Perplexity.isProviderAvailable()) {
+        console.log("Attempting Perplexity AI ownership discovery for privacy-protected entity...");
+        
+        const perplexityResult = await Perplexity.discoverLlcOwnership({
+          entityName: fullCompany.name,
+          registeredAddress: fullCompany.registeredAddress,
+          registeredAgent: registeredAgent?.name,
+          jurisdiction: fullCompany.jurisdictionCode,
+        });
+
+        if (perplexityResult && perplexityResult.discoveredOwners.length > 0) {
+          console.log(`Perplexity found ${perplexityResult.discoveredOwners.length} potential owners`);
+          aiInferredOwners = perplexityResult.discoveredOwners;
+          aiRelatedEntities = perplexityResult.relatedEntities;
+          aiCitations = perplexityResult.citations;
+        } else {
+          console.log("Perplexity did not find additional ownership information");
+        }
+      } else if (isPrivacyProtected) {
+        console.log("Perplexity API not configured - cannot perform AI ownership discovery");
+      }
+
       return {
         companyNumber: fullCompany.companyNumber,
         name: fullCompany.name,
@@ -1508,6 +1561,10 @@ export class DataProviderManager {
         registeredAgent,
         filings: fullCompany.filings || [],
         lastUpdated: new Date().toISOString(),
+        isPrivacyProtected,
+        aiInferredOwners,
+        aiRelatedEntities,
+        aiCitations,
       };
     } catch (error) {
       console.error("Error fetching LLC unmasking data:", error);

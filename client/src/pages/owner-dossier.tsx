@@ -21,6 +21,8 @@ import {
   Home,
   Truck,
   AlertCircle,
+  ExternalLink,
+  Brain,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -66,6 +68,16 @@ interface LlcUnmaskingData {
     url?: string;
   }>;
   lastUpdated: string;
+  isPrivacyProtected?: boolean;
+  aiInferredOwners?: Array<{
+    name: string;
+    role: string;
+    confidence: "high" | "medium" | "low";
+    sources: string[];
+    reasoning: string;
+  }>;
+  aiRelatedEntities?: string[];
+  aiCitations?: string[];
 }
 
 interface ContactEnrichmentData {
@@ -560,6 +572,106 @@ export default function OwnerDossierPage() {
                                     </p>
                                   </div>
                                 </div>
+                              </div>
+                            )}
+                            
+                            {/* AI-Inferred Owners Section */}
+                            {llcUnmasking.aiInferredOwners && llcUnmasking.aiInferredOwners.length > 0 && (
+                              <div className="space-y-3 mt-4" data-testid="section-ai-inferred-owners">
+                                <div className="flex items-center gap-2">
+                                  <Brain className="h-4 w-4 text-violet-500" />
+                                  <span className="font-medium">AI-Discovered Owners</span>
+                                  <Badge variant="secondary" className="text-xs bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20">
+                                    AI-Inferred
+                                  </Badge>
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                  These potential owners were discovered through AI-powered web research. Verify before use.
+                                </p>
+                                <div className="space-y-2">
+                                  {llcUnmasking.aiInferredOwners.map((owner, idx) => (
+                                    <div 
+                                      key={idx} 
+                                      className="p-3 rounded-md bg-violet-500/5 border border-violet-500/20"
+                                      data-testid={`card-ai-owner-${idx}`}
+                                    >
+                                      <div className="flex items-start justify-between gap-2">
+                                        <div className="min-w-0 flex-1">
+                                          <div className="font-medium flex items-center gap-2">
+                                            {owner.name}
+                                            <Badge 
+                                              variant="outline" 
+                                              className={`text-xs capitalize ${
+                                                owner.confidence === 'high' 
+                                                  ? 'border-green-500/50 text-green-600 dark:text-green-400' 
+                                                  : owner.confidence === 'medium' 
+                                                    ? 'border-yellow-500/50 text-yellow-600 dark:text-yellow-400'
+                                                    : 'border-muted-foreground/50 text-muted-foreground'
+                                              }`}
+                                            >
+                                              {owner.confidence} confidence
+                                            </Badge>
+                                          </div>
+                                          <div className="text-sm text-muted-foreground">{owner.role}</div>
+                                          {owner.reasoning && (
+                                            <p className="text-xs text-muted-foreground mt-2 italic">
+                                              {owner.reasoning}
+                                            </p>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                                
+                                {/* Related Entities */}
+                                {llcUnmasking.aiRelatedEntities && llcUnmasking.aiRelatedEntities.length > 0 && (
+                                  <div className="mt-3">
+                                    <div className="text-sm font-medium mb-2">Related Entities</div>
+                                    <div className="flex flex-wrap gap-2">
+                                      {llcUnmasking.aiRelatedEntities.map((entity, idx) => (
+                                        <Badge key={idx} variant="outline" className="text-xs">
+                                          {entity}
+                                        </Badge>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                                
+                                {/* Citations */}
+                                {llcUnmasking.aiCitations && llcUnmasking.aiCitations.length > 0 && (
+                                  <Collapsible className="mt-3">
+                                    <CollapsibleTrigger asChild>
+                                      <Button 
+                                        variant="ghost" 
+                                        size="sm" 
+                                        className="h-7 px-2 text-xs text-muted-foreground gap-1"
+                                        data-testid="button-view-citations"
+                                      >
+                                        <ChevronDown className="h-3 w-3 transition-transform duration-200 [[data-state=open]>&]:rotate-180" />
+                                        View {llcUnmasking.aiCitations.length} source{llcUnmasking.aiCitations.length > 1 ? 's' : ''}
+                                      </Button>
+                                    </CollapsibleTrigger>
+                                    <CollapsibleContent className="pt-2 space-y-1">
+                                      {llcUnmasking.aiCitations.slice(0, 5).map((citation, idx) => {
+                                        const displayUrl = citation.length > 60 ? citation.substring(0, 60) + '...' : citation;
+                                        return (
+                                          <a 
+                                            key={idx}
+                                            href={citation}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                                            data-testid={`link-citation-${idx}`}
+                                          >
+                                            <ExternalLink className="h-3 w-3 shrink-0" />
+                                            <span className="truncate">{displayUrl}</span>
+                                          </a>
+                                        );
+                                      })}
+                                    </CollapsibleContent>
+                                  </Collapsible>
+                                )}
                               </div>
                             )}
                             {officers.length > 0 ? (
