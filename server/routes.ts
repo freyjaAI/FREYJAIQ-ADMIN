@@ -569,6 +569,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
       } else {
         // Individual/residential owner - enrich their contact info directly
+        // Order: 1) Apify Skip Trace, 2) Data Axle, 3) Pacific East, 4) A-Leads
         try {
           const parsed = parseAddress(owner.primaryAddress);
           const normalizedOwnerName = normalizeName(owner.name);
@@ -582,77 +583,140 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             employeeProfiles: [] as any[],
           };
           
-          // Search Data Axle People v2 for the individual owner with location
-          if (normalizedOwnerName) {
-            // Include location to narrow search to correct person
-            const location = parsed ? {
-              city: parsed.city,
-              state: parsed.state,
-              zip: parsed.zip,
-            } : undefined;
+          const nameParts = normalizedOwnerName.split(/\s+/);
+          const firstName = nameParts.length > 1 ? nameParts[0] : undefined;
+          const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : nameParts[0];
+          const location = parsed ? { city: parsed.city, state: parsed.state, zip: parsed.zip } : undefined;
+          
+          // 1. APIFY SKIP TRACE (Primary source - best for cell phones)
+          const apifySkipTrace = await import("./providers/ApifySkipTraceProvider.js");
+          if (apifySkipTrace.isConfigured()) {
+            console.log(`[1/4] Apify Skip Trace: Searching for ${normalizedOwnerName} at ${parsed?.line1}`);
             
-            console.log(`Searching Data Axle with location:`, location);
+            const skipTraceResult = await apifySkipTrace.skipTraceIndividual(
+              normalizedOwnerName,
+              parsed?.line1,
+              parsed?.city,
+              parsed?.state,
+              parsed?.zip
+            );
+            
+            if (skipTraceResult) {
+              // Add phones from skip trace (prioritize wireless/cell phones)
+              for (const phone of skipTraceResult.phones) {
+                const normalizedPhone = phone.number.replace(/\D/g, "");
+                if (normalizedPhone && !contactEnrichment.directDials.some((d: any) => 
+                  d.phone.replace(/\D/g, "") === normalizedPhone
+                )) {
+                  const isWireless = phone.type?.toLowerCase().includes("wireless");
+                  contactEnrichment.directDials.push({
+                    phone: phone.number,
+                    type: isWireless ? "mobile" : "landline",
+                    name: `${skipTraceResult.firstName || ''} ${skipTraceResult.lastName || ''}`.trim() || normalizedOwnerName,
+                    confidence: isWireless ? 95 : 85, // High confidence from skip trace
+                    source: "apify_skip_trace",
+                    provider: phone.provider,
+                    firstReported: phone.firstReported,
+                  });
+                  console.log(`Apify Skip Trace: Added ${phone.type} phone ${phone.number} (${phone.provider || 'unknown provider'})`);
+                }
+              }
+              
+              // Add emails from skip trace
+              for (const email of skipTraceResult.emails) {
+                if (email.email && !contactEnrichment.companyEmails.some((e: any) => 
+                  e.email.toLowerCase() === email.email.toLowerCase()
+                )) {
+                  contactEnrichment.companyEmails.push({
+                    email: email.email,
+                    type: "personal",
+                    confidence: 90,
+                    source: "apify_skip_trace",
+                  });
+                  console.log(`Apify Skip Trace: Added email ${email.email}`);
+                }
+              }
+              
+              // Add profile from skip trace
+              if (skipTraceResult.firstName || skipTraceResult.lastName) {
+                const fullName = `${skipTraceResult.firstName || ''} ${skipTraceResult.lastName || ''}`.trim();
+                if (fullName && !contactEnrichment.employeeProfiles.some((p: any) => p.name === fullName)) {
+                  const addr = skipTraceResult.currentAddress;
+                  contactEnrichment.employeeProfiles.push({
+                    name: fullName,
+                    title: "Property Owner",
+                    email: skipTraceResult.emails[0]?.email,
+                    phone: skipTraceResult.phones[0]?.number,
+                    address: addr ? `${addr.streetAddress}, ${addr.city}, ${addr.state} ${addr.postalCode}` : undefined,
+                    age: skipTraceResult.age,
+                    confidence: 90,
+                    source: "apify_skip_trace",
+                  });
+                }
+              }
+              
+              console.log(`Apify Skip Trace: Found ${skipTraceResult.phones.length} phones, ${skipTraceResult.emails.length} emails, ${skipTraceResult.relatives.length} relatives`);
+            }
+          } else {
+            console.log("[1/4] Apify Skip Trace: Not configured (no APIFY_API_TOKEN)");
+          }
+          
+          // 2. DATA AXLE (Secondary source)
+          if (normalizedOwnerName) {
+            console.log(`[2/4] Searching Data Axle with location:`, location);
             const allPeople = await dataProviders.searchPeopleV2(normalizedOwnerName, location);
             
-            // Filter results to only include people from the correct state (Data Axle returns fuzzy matches)
             const expectedState = location?.state?.toUpperCase();
             const filteredPeople = expectedState 
-              ? (allPeople || []).filter(p => {
-                  const personState = p.state?.toUpperCase();
-                  return personState === expectedState;
-                })
+              ? (allPeople || []).filter(p => p.state?.toUpperCase() === expectedState)
               : allPeople || [];
             
             console.log(`Data Axle returned ${allPeople?.length || 0} results, ${filteredPeople.length} match state ${expectedState}`);
             
-            // Log what Data Axle found
             for (const p of filteredPeople) {
               console.log(`Data Axle person: ${p.firstName} ${p.lastName}, cellPhones=[${p.cellPhones?.join(',')}], phones=[${p.phones?.join(',')}], emails=[${p.emails?.join(',')}]`);
             }
             
-            for (const person of filteredPeople.slice(0, 5)) { // Limit matches
+            for (const person of filteredPeople.slice(0, 5)) {
               const fullName = `${person.firstName || ''} ${person.lastName || ''}`.trim();
               const cellPhones = person.cellPhones || [];
               const phones = person.phones || [];
               const emails = person.emails || [];
               
-              // Add cell phones
               for (const cellPhone of cellPhones) {
-                if (!contactEnrichment.directDials.some((d: any) => d.phone === cellPhone)) {
+                if (!contactEnrichment.directDials.some((d: any) => d.phone.replace(/\D/g, "") === cellPhone.replace(/\D/g, ""))) {
                   contactEnrichment.directDials.push({
                     phone: cellPhone,
                     type: "mobile",
                     name: fullName,
                     confidence: person.confidenceScore,
+                    source: "data_axle",
                   });
                 }
               }
-              // Add regular phones
               for (const phone of phones) {
-                if (!contactEnrichment.directDials.some((d: any) => d.phone === phone)) {
+                if (!contactEnrichment.directDials.some((d: any) => d.phone.replace(/\D/g, "") === phone.replace(/\D/g, ""))) {
                   contactEnrichment.directDials.push({
                     phone: phone,
                     type: "landline",
                     name: fullName,
                     confidence: person.confidenceScore,
+                    source: "data_axle",
                   });
                 }
               }
-              // Add emails
               for (const email of emails) {
-                if (!contactEnrichment.companyEmails.some((e: any) => e.email === email)) {
+                if (!contactEnrichment.companyEmails.some((e: any) => e.email.toLowerCase() === email.toLowerCase())) {
                   contactEnrichment.companyEmails.push({
                     email: email,
                     type: "personal",
                     confidence: person.confidenceScore,
+                    source: "data_axle",
                   });
                 }
               }
-              // Add profile with address
               if (fullName && !contactEnrichment.employeeProfiles.some((p: any) => p.name === fullName)) {
-                const personAddress = [person.address, person.city, person.state, person.zip]
-                  .filter(Boolean)
-                  .join(", ");
+                const personAddress = [person.address, person.city, person.state, person.zip].filter(Boolean).join(", ");
                 contactEnrichment.employeeProfiles.push({
                   name: fullName,
                   title: "Property Owner",
@@ -660,202 +724,118 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                   phone: cellPhones[0] || phones[0],
                   address: personAddress || undefined,
                   confidence: person.confidenceScore,
+                  source: "data_axle",
                 });
               }
             }
-            
-            // Also search A-Leads for individual with location
-            const aLeadsResults = await dataProviders.searchALeadsByName(normalizedOwnerName, location);
-            for (const result of (aLeadsResults || []).slice(0, 5)) {
-              if (result.email && !contactEnrichment.companyEmails.some((e: any) => e.email === result.email)) {
-                contactEnrichment.companyEmails.push({
-                  email: result.email,
-                  type: "personal",
-                  confidence: result.confidence || 75,
-                });
-              }
-              if (result.phone && !contactEnrichment.directDials.some((d: any) => d.phone === result.phone)) {
-                contactEnrichment.directDials.push({
-                  phone: result.phone,
-                  type: "direct",
-                  name: result.name,
-                  confidence: result.confidence || 75,
-                });
-              }
-              if (result.name && !contactEnrichment.employeeProfiles.some((p: any) => p.name === result.name)) {
-                contactEnrichment.employeeProfiles.push({
-                  name: result.name,
-                  title: result.title || "Property Owner",
-                  email: result.email,
-                  phone: result.phone,
-                  address: result.address || undefined,
-                  linkedin: result.linkedinUrl,
-                  confidence: result.confidence || 75,
-                });
-              }
-            }
-            
-            // Search Pacific East for enhanced contact enrichment (phone append, email append, address verification)
-            const nameParts = normalizedOwnerName.split(/\s+/);
-            const firstName = nameParts.length > 1 ? nameParts[0] : undefined;
-            const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : nameParts[0];
-            
-            console.log(`Pacific East enrichment for: ${firstName} ${lastName} at ${parsed?.line1}, ${parsed?.city}, ${parsed?.state} ${parsed?.zip}`);
-            
-            const pacificEastResult = await dataProviders.enrichContactWithPacificEast({
-              firstName,
-              lastName,
-              address: parsed?.line1,
-              city: parsed?.city,
-              state: parsed?.state,
-              zip: parsed?.zip,
-            });
-            
-            if (pacificEastResult) {
-              // Cross-provider validation: Check if other providers found any phones
-              const otherProviderPhones = contactEnrichment.directDials.filter((d: any) => 
-                d.source !== "pacific_east" && d.phone
-              );
-              const hasOtherProviderData = otherProviderPhones.length > 0;
-              
-              console.log(`Cross-provider validation: ${otherProviderPhones.length} phones from Data Axle/A-Leads`);
-              
-              // Add Pacific East phones with cross-provider validation
-              for (const phone of pacificEastResult.phones) {
-                if (phone.number && !contactEnrichment.directDials.some((d: any) => d.phone === phone.number)) {
-                  // Check if this phone is corroborated by another provider
-                  const isCorroborated = otherProviderPhones.some((d: any) => d.phone === phone.number);
-                  
-                  // Check if this is from a verified source (DA = Directory Assistance)
-                  const isVerifiedSource = phone.source === "DA";
-                  
-                  // Calculate confidence based on source verification and corroboration
-                  let adjustedConfidence = phone.confidence;
-                  let verificationNote = "";
-                  
-                  if (isVerifiedSource) {
-                    // DA (Directory Assistance) = verified source - high confidence
-                    adjustedConfidence = Math.min(95, phone.confidence);
-                    verificationNote = "verified";
-                    console.log(`Pacific East phone ${phone.number}: DA verified source - confidence ${adjustedConfidence}`);
-                  } else if (isCorroborated) {
-                    // NonDA but another provider found the same phone - boost confidence
-                    adjustedConfidence = Math.min(90, phone.confidence + 5);
-                    verificationNote = "corroborated";
-                    console.log(`Pacific East phone ${phone.number}: NonDA but corroborated by other provider - confidence ${adjustedConfidence}`);
-                  } else if (hasOtherProviderData) {
-                    // Other providers found phones but NOT this one - lower confidence
-                    adjustedConfidence = Math.max(50, phone.confidence - 25);
-                    verificationNote = "unverified";
-                    console.log(`Pacific East phone ${phone.number}: NonDA, other providers found different phones - confidence reduced to ${adjustedConfidence}`);
-                  } else {
-                    // NonDA and no other provider data - this is the only source
-                    // Show it but with reduced confidence (65%) since it's unverified marketing data
-                    adjustedConfidence = 65;
-                    verificationNote = "unverified-only-source";
-                    console.log(`Pacific East phone ${phone.number}: NonDA, only source available - showing with reduced confidence ${adjustedConfidence}`);
-                  }
-                  
-                  contactEnrichment.directDials.push({
-                    phone: phone.number,
-                    type: phone.type === "residential" ? "landline" : phone.type === "business" ? "office" : "direct",
-                    name: `${firstName || ''} ${lastName}`.trim(),
-                    confidence: adjustedConfidence,
-                    source: "pacific_east",
-                  });
-                }
-              }
-              
-              // Add Pacific East emails
-              for (const email of pacificEastResult.emails) {
-                if (email.address && !contactEnrichment.companyEmails.some((e: any) => e.email === email.address)) {
-                  contactEnrichment.companyEmails.push({
-                    email: email.address,
-                    type: "personal",
-                    confidence: email.confidence,
-                    validated: email.validated,
-                    source: "pacific_east",
-                  });
-                }
-              }
-              
-              // Add verified address information to profile
-              if (pacificEastResult.identity) {
-                const existingProfile = contactEnrichment.employeeProfiles.find((p: any) => 
-                  p.name?.toLowerCase().includes(lastName.toLowerCase())
-                );
-                if (existingProfile && pacificEastResult.identity.verified) {
-                  existingProfile.verified = true;
-                  existingProfile.dob = pacificEastResult.identity.dob;
-                }
-              }
-              
-              console.log(`Pacific East enrichment found: ${pacificEastResult.phones.length} phones, ${pacificEastResult.emails.length} emails, ${pacificEastResult.addresses.length} addresses`);
-            }
-            
-            // Search Apify Skip Trace for additional phone/email data (especially cell phones)
-            const apifySkipTrace = await import("./providers/ApifySkipTraceProvider.js");
-            if (apifySkipTrace.isConfigured()) {
-              console.log(`Apify Skip Trace: Searching for ${normalizedOwnerName} at ${parsed?.line1}`);
-              
-              const skipTraceResult = await apifySkipTrace.skipTraceIndividual(
-                normalizedOwnerName,
-                parsed?.line1,
-                parsed?.city,
-                parsed?.state,
-                parsed?.zip
-              );
-              
-              if (skipTraceResult) {
-                // Add phones from skip trace (prioritize wireless/cell phones)
-                for (const phone of skipTraceResult.phones) {
-                  const normalizedPhone = phone.number.replace(/\D/g, "");
-                  if (normalizedPhone && !contactEnrichment.directDials.some((d: any) => 
-                    d.phone.replace(/\D/g, "") === normalizedPhone
-                  )) {
-                    const isWireless = phone.type?.toLowerCase().includes("wireless");
-                    contactEnrichment.directDials.push({
-                      phone: phone.number,
-                      type: isWireless ? "mobile" : "landline",
-                      name: `${skipTraceResult.firstName || ''} ${skipTraceResult.lastName || ''}`.trim() || normalizedOwnerName,
-                      confidence: isWireless ? 90 : 80, // Higher confidence for cell phones from skip trace
-                      source: "apify_skip_trace",
-                      provider: phone.provider,
-                      firstReported: phone.firstReported,
-                    });
-                    console.log(`Apify Skip Trace: Added ${phone.type} phone ${phone.number} (${phone.provider || 'unknown provider'})`);
-                  }
-                }
-                
-                // Add emails from skip trace
-                for (const email of skipTraceResult.emails) {
-                  if (email.email && !contactEnrichment.companyEmails.some((e: any) => 
-                    e.email.toLowerCase() === email.email.toLowerCase()
-                  )) {
-                    contactEnrichment.companyEmails.push({
-                      email: email.email,
-                      type: "personal",
-                      confidence: 85,
-                      source: "apify_skip_trace",
-                    });
-                    console.log(`Apify Skip Trace: Added email ${email.email}`);
-                  }
-                }
-                
-                // Add current address if not already known
-                if (skipTraceResult.currentAddress) {
-                  const addr = skipTraceResult.currentAddress;
-                  console.log(`Apify Skip Trace: Found address ${addr.streetAddress}, ${addr.city}, ${addr.state} ${addr.postalCode}`);
-                }
-                
-                console.log(`Apify Skip Trace: Found ${skipTraceResult.phones.length} phones, ${skipTraceResult.emails.length} emails, ${skipTraceResult.relatives.length} relatives`);
-              }
-            } else {
-              console.log("Apify Skip Trace: Not configured (no APIFY_API_TOKEN)");
-            }
-            
-            console.log(`Individual enrichment found: ${contactEnrichment.directDials.length} phones, ${contactEnrichment.companyEmails.length} emails`);
           }
+          
+          // 3. PACIFIC EAST (Enhanced phone/email append)
+          console.log(`[3/4] Pacific East enrichment for: ${firstName} ${lastName} at ${parsed?.line1}, ${parsed?.city}, ${parsed?.state} ${parsed?.zip}`);
+          
+          const pacificEastResult = await dataProviders.enrichContactWithPacificEast({
+            firstName,
+            lastName,
+            address: parsed?.line1,
+            city: parsed?.city,
+            state: parsed?.state,
+            zip: parsed?.zip,
+          });
+          
+          if (pacificEastResult) {
+            const otherProviderPhones = contactEnrichment.directDials.filter((d: any) => d.source !== "pacific_east" && d.phone);
+            const hasOtherProviderData = otherProviderPhones.length > 0;
+            
+            console.log(`Cross-provider validation: ${otherProviderPhones.length} phones from Apify/Data Axle`);
+            
+            for (const phone of pacificEastResult.phones) {
+              const normalizedPhone = phone.number.replace(/\D/g, "");
+              if (normalizedPhone && !contactEnrichment.directDials.some((d: any) => d.phone.replace(/\D/g, "") === normalizedPhone)) {
+                const isCorroborated = otherProviderPhones.some((d: any) => d.phone.replace(/\D/g, "") === normalizedPhone);
+                const isVerifiedSource = phone.source === "DA";
+                
+                let adjustedConfidence = phone.confidence;
+                if (isVerifiedSource) {
+                  adjustedConfidence = Math.min(95, phone.confidence);
+                } else if (isCorroborated) {
+                  adjustedConfidence = Math.min(90, phone.confidence + 5);
+                } else if (hasOtherProviderData) {
+                  adjustedConfidence = Math.max(50, phone.confidence - 25);
+                } else {
+                  adjustedConfidence = 65;
+                }
+                
+                contactEnrichment.directDials.push({
+                  phone: phone.number,
+                  type: phone.type === "residential" ? "landline" : phone.type === "business" ? "office" : "direct",
+                  name: `${firstName || ''} ${lastName}`.trim(),
+                  confidence: adjustedConfidence,
+                  source: "pacific_east",
+                });
+              }
+            }
+            
+            for (const email of pacificEastResult.emails) {
+              if (email.address && !contactEnrichment.companyEmails.some((e: any) => e.email.toLowerCase() === email.address.toLowerCase())) {
+                contactEnrichment.companyEmails.push({
+                  email: email.address,
+                  type: "personal",
+                  confidence: email.confidence,
+                  validated: email.validated,
+                  source: "pacific_east",
+                });
+              }
+            }
+            
+            if (pacificEastResult.identity) {
+              const existingProfile = contactEnrichment.employeeProfiles.find((p: any) => 
+                p.name?.toLowerCase().includes(lastName.toLowerCase())
+              );
+              if (existingProfile && pacificEastResult.identity.verified) {
+                existingProfile.verified = true;
+                existingProfile.dob = pacificEastResult.identity.dob;
+              }
+            }
+            
+            console.log(`Pacific East enrichment found: ${pacificEastResult.phones.length} phones, ${pacificEastResult.emails.length} emails`);
+          }
+          
+          // 4. A-LEADS (Final fallback)
+          console.log(`[4/4] A-Leads search for: ${normalizedOwnerName}`);
+          const aLeadsResults = await dataProviders.searchALeadsByName(normalizedOwnerName, location);
+          for (const result of (aLeadsResults || []).slice(0, 5)) {
+            if (result.email && !contactEnrichment.companyEmails.some((e: any) => e.email.toLowerCase() === result.email.toLowerCase())) {
+              contactEnrichment.companyEmails.push({
+                email: result.email,
+                type: "personal",
+                confidence: result.confidence || 75,
+                source: "a_leads",
+              });
+            }
+            if (result.phone && !contactEnrichment.directDials.some((d: any) => d.phone.replace(/\D/g, "") === result.phone.replace(/\D/g, ""))) {
+              contactEnrichment.directDials.push({
+                phone: result.phone,
+                type: "direct",
+                name: result.name,
+                confidence: result.confidence || 75,
+                source: "a_leads",
+              });
+            }
+            if (result.name && !contactEnrichment.employeeProfiles.some((p: any) => p.name === result.name)) {
+              contactEnrichment.employeeProfiles.push({
+                name: result.name,
+                title: result.title || "Property Owner",
+                email: result.email,
+                phone: result.phone,
+                address: result.address || undefined,
+                linkedin: result.linkedinUrl,
+                confidence: result.confidence || 75,
+                source: "a_leads",
+              });
+            }
+          }
+          
+          console.log(`Individual enrichment complete: ${contactEnrichment.directDials.length} phones, ${contactEnrichment.companyEmails.length} emails`);
         } catch (err) {
           console.error("Error fetching individual contact enrichment:", err);
         }
