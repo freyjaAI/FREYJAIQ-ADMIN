@@ -1,0 +1,68 @@
+How the APIs Work Together
+DataPrime is your foundation - it takes name + address and returns verified/corrected addresses, NCOA (moved) information, multiple historical addresses, and identity verification. It tells you if the person actually lives where you think they do.
+Forward Phone Append (FPA) finds phone numbers from name + address. It can return multiple results and includes match scoring so you know how confident the match is.
+Email Append (EMA) finds email addresses from name + address, with Individual or Household match types and validation status.
+Email Validation (EMV) validates any email you already have or get from EMA - tells you deliverability, domain type, and can correct typos.
+Optimal Workflow for Maximum Accuracy
+Step 1: Verify/Correct the Address with DataPrime
+GET https://dev-api.idicia.com/Services/NameAddress/DataPrime/1_1/dataprime.svc/{lastName}
+    ?firstName={firstName}
+    &address1={address}
+    &city={city}
+    &state={state}
+    &accountKey={key}
+
+Header: X-PacificEast-Acct: {your_account_key}
+This gives you:
+
+addressAction: 0=good, 2=person moved (NCOA), check the response
+verifiedIdentity: true means name is confirmed at this address
+addresses[]: current + historical addresses with isMostRecent flag
+knownDeceased: important filter
+
+Step 2: Get Phone Numbers with FPA
+Use the verified/corrected address from DataPrime:
+GET https://dev-api.idicia.com/Services/Forward/Append/1_1/Append.svc/{queryType}
+    ?firstName={firstName}
+    &lastName={lastName}
+    &address={address}
+    &city={city}
+    &state={state}
+    &postalCode={zip}
+
+Header: X-PacificEast-Acct: {your_account_key}
+Query types: 0=standard, 1=prioritize landline, 2=prioritize wireless
+The matchInfo array is critical - look for overallName and overallAddress scores of 8-10 (high/exact match).
+Step 3: Get Email with EMA
+GET https://dev-api.idicia.com/Services/Email/Append/1_3/Append.svc/{queryType}
+    ?lastName={lastName}
+    &firstName={firstName}
+    &address={address}
+    &city={city}
+    &state={state}
+    &purpose=FR
+
+Header: X-PacificEast-Acct: {your_account_key}
+Query types: Individual (stricter) or Household
+Check validationStatus: "Validated" > "Unknown" > "Not validated"
+Step 4: Validate the Email with EMV
+GET https://dev-api.idicia.com/Services/Email/Validation/1_1/emailvalidation.svc/{email}
+    ?purpose=FR
+
+Header: X-PacificEast-Acct: {your_account_key}
+Key fields:
+
+deliverability: 50=Deliverable, 40=Valid, 30=Risky, 20=Undeliverable
+validationStatus: 1=Valid, 70=Mailbox invalid
+correctionCode: 1 means it auto-corrected a typo
+
+Query Tuning Strategy (from FPA docs)
+If initial queries fail, progressively loosen:
+
+Remove first name (household match)
+Remove unit/apt number
+Remove city/state, keep ZIP
+Remove ZIP, keep city/state
+Remove address entirely (name + location only)
+
+Stop when you get a high-confidence match (score 8+).

@@ -70,6 +70,10 @@ export interface PhoneAppendContact {
     overallAddress: number;
     location: number;
   };
+  dataQualityConfidence?: number;
+  isVerifiedSource?: boolean;
+  monthsSinceVerified?: number;
+  startAgeYears?: number;
 }
 
 export interface PhoneAppendResult {
@@ -387,30 +391,59 @@ export async function enrichContactFull(params: {
     identity: null,
   };
 
-  const [dataPrimeResult, phoneResult, emailResult] = await Promise.all([
-    searchDataPrime({
-      firstName,
-      lastName,
-      address1: address,
-      city,
-      state,
-      postalCode: zip,
-    }),
+  // Step 1: Verify/correct address with DataPrime first
+  const dataPrimeResult = await searchDataPrime({
+    firstName,
+    lastName,
+    address1: address,
+    city,
+    state,
+    postalCode: zip,
+  });
+  
+  // Use corrected/verified address from DataPrime if available
+  let verifiedAddress = address;
+  let verifiedCity = city;
+  let verifiedState = state;
+  let verifiedZip = zip;
+  let verifiedFirstName = firstName;
+  
+  if (dataPrimeResult && dataPrimeResult.status === 0 && dataPrimeResult.lookupResult === 1) {
+    // Find the most recent (current) address
+    const currentAddr = dataPrimeResult.addresses?.find(a => a.isMostRecent) || dataPrimeResult.addresses?.[0];
+    if (currentAddr) {
+      verifiedAddress = currentAddr.address1;
+      verifiedCity = currentAddr.city;
+      verifiedState = currentAddr.state;
+      verifiedZip = currentAddr.postalCode;
+      console.log(`DataPrime corrected address: ${verifiedAddress}, ${verifiedCity}, ${verifiedState} ${verifiedZip}`);
+    }
+    
+    // Use verified first name if available
+    const verifiedName = dataPrimeResult.names?.[0];
+    if (verifiedName?.firstName) {
+      verifiedFirstName = verifiedName.firstName;
+      console.log(`DataPrime verified name: ${verifiedFirstName} ${verifiedName.lastName}`);
+    }
+  }
+  
+  // Step 2 & 3: Now use verified address for phone and email lookup
+  const [phoneResult, emailResult] = await Promise.all([
     appendPhone({
-      firstName,
+      firstName: verifiedFirstName,
       lastName,
-      address,
-      city,
-      state,
-      postalCode: zip,
+      address: verifiedAddress,
+      city: verifiedCity,
+      state: verifiedState,
+      postalCode: verifiedZip,
     }),
     appendEmail({
-      firstName,
+      firstName: verifiedFirstName,
       lastName,
-      address,
-      city,
-      state,
-      postalCode: zip,
+      address: verifiedAddress,
+      city: verifiedCity,
+      state: verifiedState,
+      postalCode: verifiedZip,
       queryType: "individual",
     }),
   ]);
@@ -453,9 +486,9 @@ export async function enrichContactFull(params: {
         const locationScore = contact.matchScore.location;
         const addressScore = contact.matchScore.overallAddress;
         
-        const dataQuality = (contact as any).dataQualityConfidence || 70;
-        const verifiedMonths = (contact as any).monthsSinceVerified || 999;
-        const startAge = (contact as any).startAgeYears || 0;
+        const dataQuality = contact.dataQualityConfidence || 70;
+        const verifiedMonths = contact.monthsSinceVerified || 999;
+        const startAge = contact.startAgeYears || 0;
         
         console.log(`FPA contact ${contact.phoneNumber}: nameScore=${nameScore}, locationScore=${locationScore}, addressScore=${addressScore}, dataQuality=${dataQuality}, verifiedMonths=${verifiedMonths}, startAge=${startAge}y`);
         
