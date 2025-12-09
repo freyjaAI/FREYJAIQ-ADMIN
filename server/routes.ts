@@ -12,28 +12,91 @@ import { dataProviders } from "./dataProviders";
 import { insertOwnerSchema, insertPropertySchema, insertContactInfoSchema } from "@shared/schema";
 import { z } from "zod";
 
+// Common first names to help detect person names (subset of most common US names)
+const COMMON_FIRST_NAMES = new Set([
+  'JAMES', 'JOHN', 'ROBERT', 'MICHAEL', 'WILLIAM', 'DAVID', 'RICHARD', 'JOSEPH', 'THOMAS', 'CHARLES',
+  'CHRISTOPHER', 'DANIEL', 'MATTHEW', 'ANTHONY', 'MARK', 'DONALD', 'STEVEN', 'PAUL', 'ANDREW', 'JOSHUA',
+  'KENNETH', 'KEVIN', 'BRIAN', 'GEORGE', 'TIMOTHY', 'RONALD', 'EDWARD', 'JASON', 'JEFFREY', 'RYAN',
+  'MARY', 'PATRICIA', 'JENNIFER', 'LINDA', 'BARBARA', 'ELIZABETH', 'SUSAN', 'JESSICA', 'SARAH', 'KAREN',
+  'NANCY', 'LISA', 'BETTY', 'MARGARET', 'SANDRA', 'ASHLEY', 'KIMBERLY', 'EMILY', 'DONNA', 'MICHELLE',
+  'DOROTHY', 'CAROL', 'AMANDA', 'MELISSA', 'DEBORAH', 'STEPHANIE', 'REBECCA', 'SHARON', 'LAURA', 'CYNTHIA',
+  'KATHLEEN', 'AMY', 'ANGELA', 'SHIRLEY', 'ANNA', 'BRENDA', 'PAMELA', 'EMMA', 'NICOLE', 'HELEN',
+  'SAMANTHA', 'KATHERINE', 'CHRISTINE', 'DEBRA', 'RACHEL', 'CAROLYN', 'JANET', 'CATHERINE', 'MARIA', 'HEATHER',
+  'PETER', 'STEPHEN', 'FRANK', 'SCOTT', 'ERIC', 'GREGORY', 'LARRY', 'JERRY', 'DENNIS', 'TERRY',
+  'RAYMOND', 'BRUCE', 'HAROLD', 'ALBERT', 'CARL', 'EUGENE', 'RALPH', 'ROY', 'LOUIS', 'RUSSELL',
+  'WAYNE', 'BOBBY', 'JOHNNY', 'BILLY', 'JOE', 'JACK', 'HENRY', 'ARTHUR', 'WALTER', 'FRED',
+]);
+
+// Entity keywords that indicate a business/LLC/trust
+const ENTITY_KEYWORDS = [
+  // Common LLC/Corp suffixes
+  'LLC', 'L.L.C.', 'INC', 'CORP', 'CORPORATION', 'LTD', 'LIMITED', 'LP', 'L.P.',
+  'LLP', 'L.L.P.', 'PLLC', 'P.L.L.C.', 'PC', 'P.C.', 'PA', 'P.A.',
+  // Trust indicators
+  'TRUST', 'TRUSTEE', 'ESTATE', 'REVOCABLE', 'IRREVOCABLE',
+  // Investment/Business indicators
+  'HOLDINGS', 'PROPERTIES', 'INVESTMENTS', 'VENTURES', 'CAPITAL', 'PARTNERS',
+  'ASSOCIATES', 'ENTERPRISES', 'GROUP', 'FUND', 'REALTY', 'REAL ESTATE',
+  'DEVELOPMENT', 'MANAGEMENT', 'ACQUISITIONS', 'ASSET', 'EQUITY',
+  // Common business words
+  'COMPANY', 'COMPANIES', 'SERVICES', 'SOLUTIONS', 'NETWORK', 'INTERNATIONAL',
+  // Geographic business names often indicate entities
+  'EAST COAST', 'WEST COAST', 'NATIONWIDE', 'NATIONAL', 'GLOBAL', 'WORLDWIDE',
+  // Other indicators
+  'ASSOCIATION', 'FOUNDATION', 'PARTNERSHIP', 'JOINT VENTURE',
+];
+
 // Helper to detect if a name looks like an entity/company rather than an individual
 function isEntityName(name: string): boolean {
-  const entityKeywords = [
-    // Common LLC/Corp suffixes
-    'LLC', 'L.L.C.', 'INC', 'CORP', 'CORPORATION', 'LTD', 'LIMITED', 'LP', 'L.P.',
-    'LLP', 'L.L.P.', 'PLLC', 'P.L.L.C.', 'PC', 'P.C.', 'PA', 'P.A.',
-    // Trust indicators
-    'TRUST', 'TRUSTEE', 'ESTATE', 'REVOCABLE', 'IRREVOCABLE',
-    // Investment/Business indicators
-    'HOLDINGS', 'PROPERTIES', 'INVESTMENTS', 'VENTURES', 'CAPITAL', 'PARTNERS',
-    'ASSOCIATES', 'ENTERPRISES', 'GROUP', 'FUND', 'REALTY', 'REAL ESTATE',
-    'DEVELOPMENT', 'MANAGEMENT', 'ACQUISITIONS', 'ASSET', 'EQUITY',
-    // Common business words
-    'COMPANY', 'COMPANIES', 'SERVICES', 'SOLUTIONS', 'NETWORK', 'INTERNATIONAL',
-    // Geographic business names often indicate entities
-    'EAST COAST', 'WEST COAST', 'NATIONWIDE', 'NATIONAL', 'GLOBAL', 'WORLDWIDE',
-    // Other indicators
-    'ASSOCIATION', 'FOUNDATION', 'PARTNERSHIP', 'JOINT VENTURE',
-  ];
-  
   const upperName = name.toUpperCase();
-  return entityKeywords.some(keyword => upperName.includes(keyword));
+  return ENTITY_KEYWORDS.some(keyword => upperName.includes(keyword));
+}
+
+// Helper to detect if a name looks like a person (e.g., "NANCY E ROMAN", "JOHN DOE")
+function looksLikePersonName(name: string): boolean {
+  if (!name) return false;
+  const upperName = name.toUpperCase().trim();
+  
+  // If it has entity keywords, it's not a person
+  if (isEntityName(upperName)) return false;
+  
+  // Split into tokens
+  const tokens = upperName.split(/\s+/).filter(t => t.length > 0);
+  
+  // Person names typically have 2-4 tokens (First Last, First M Last, First Middle Last)
+  if (tokens.length < 2 || tokens.length > 4) return false;
+  
+  // Check if first token is a common first name
+  const firstToken = tokens[0];
+  if (COMMON_FIRST_NAMES.has(firstToken)) return true;
+  
+  // Check for middle initial pattern: "FIRSTNAME X LASTNAME" where X is single letter
+  if (tokens.length >= 3) {
+    const middleToken = tokens[1];
+    if (middleToken.length === 1 && /^[A-Z]$/.test(middleToken)) {
+      return true; // Has middle initial, likely a person
+    }
+  }
+  
+  // Check if last token looks like a surname (not a business word)
+  const businessIndicators = ['GROUP', 'PROPERTIES', 'INVESTMENTS', 'CAPITAL', 'PARTNERS', 'SOLUTIONS', 'SERVICES'];
+  const lastToken = tokens[tokens.length - 1];
+  if (businessIndicators.includes(lastToken)) return false;
+  
+  return false; // Default to not a person if we can't determine
+}
+
+// Centralized helper to determine if an owner should be treated as an entity
+// This considers both the ATTOM type and name analysis
+function shouldTreatAsEntity(ownerType: string, ownerName: string): boolean {
+  // If it has entity keywords, definitely treat as entity
+  if (isEntityName(ownerName)) return true;
+  
+  // If ATTOM says entity but name looks like a person, treat as individual
+  if (ownerType === "entity" && looksLikePersonName(ownerName)) return false;
+  
+  // Otherwise trust the ATTOM type
+  return ownerType === "entity";
 }
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<void> {
@@ -208,8 +271,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         console.error("Error generating outreach:", err);
       }
 
-      // Fetch LLC unmasking data for entity owners (also check if name looks like entity)
-      const isEntity = owner.type === "entity" || isEntityName(owner.name);
+      // Fetch LLC unmasking data for entity owners (using centralized entity detection)
+      const isEntity = shouldTreatAsEntity(owner.type, owner.name);
+      console.log(`Owner "${owner.name}" type="${owner.type}" -> isEntity=${isEntity}`);
       let llcUnmasking = null;
       if (isEntity) {
         try {
@@ -659,8 +723,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const { score } = calculateSellerIntentScore(owner, properties, legalEvents);
       await storage.updateOwner(owner.id, { sellerIntentScore: score });
 
-      // If entity, try to unmask (also check if name looks like entity)
-      const isEntityOwner = owner.type === "entity" || isEntityName(owner.name);
+      // If entity, try to unmask (using centralized entity detection)
+      const isEntityOwner = shouldTreatAsEntity(owner.type, owner.name);
       if (isEntityOwner) {
         const unmaskResult = await unmaskLlc(
           owner.name,
@@ -766,8 +830,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           console.error("Failed to generate AI outreach for PDF:", e);
         }
 
-        // Fetch LLC unmasking data for entities
-        const isEntity = owner.type === "entity" || isEntityName(owner.name);
+        // Fetch LLC unmasking data for entities (using centralized entity detection)
+        const isEntity = shouldTreatAsEntity(owner.type, owner.name);
         if (isEntity) {
           try {
             llcUnmasking = await dataProviders.fetchLlcUnmasking(owner.name);
@@ -1873,8 +1937,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
       }
 
-      // Get LLC info from OpenCorporates (also check if name looks like entity)
-      const enrichIsEntity = owner.type === "entity" || isEntityName(owner.name);
+      // Get LLC info from OpenCorporates (using centralized entity detection)
+      const enrichIsEntity = shouldTreatAsEntity(owner.type, owner.name);
       if (enrichIsEntity) {
         const llc = await dataProviders.lookupLlc(owner.name);
         enrichmentResults.llc = llc;
