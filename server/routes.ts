@@ -724,21 +724,31 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                   // Check if this is from a verified source (DA = Directory Assistance)
                   const isVerifiedSource = phone.source === "DA";
                   
-                  // If NonDA source and NOT corroborated and NO other providers found this person
-                  // This is likely bad data - suppress it entirely
-                  if (!isVerifiedSource && !isCorroborated && !hasOtherProviderData) {
-                    console.log(`Suppressing Pacific East phone ${phone.number}: NonDA source with no corroboration from other providers`);
-                    continue;
-                  }
-                  
-                  // If NonDA but corroborated, boost confidence; if NonDA alone, penalize
+                  // Calculate confidence based on source verification and corroboration
                   let adjustedConfidence = phone.confidence;
-                  if (isCorroborated) {
-                    adjustedConfidence = Math.min(95, phone.confidence + 10);
-                    console.log(`Pacific East phone ${phone.number} corroborated by other provider - confidence boosted to ${adjustedConfidence}`);
-                  } else if (!isVerifiedSource) {
-                    adjustedConfidence = Math.max(40, phone.confidence - 20);
-                    console.log(`Pacific East phone ${phone.number} not corroborated (NonDA) - confidence reduced to ${adjustedConfidence}`);
+                  let verificationNote = "";
+                  
+                  if (isVerifiedSource) {
+                    // DA (Directory Assistance) = verified source - high confidence
+                    adjustedConfidence = Math.min(95, phone.confidence);
+                    verificationNote = "verified";
+                    console.log(`Pacific East phone ${phone.number}: DA verified source - confidence ${adjustedConfidence}`);
+                  } else if (isCorroborated) {
+                    // NonDA but another provider found the same phone - boost confidence
+                    adjustedConfidence = Math.min(90, phone.confidence + 5);
+                    verificationNote = "corroborated";
+                    console.log(`Pacific East phone ${phone.number}: NonDA but corroborated by other provider - confidence ${adjustedConfidence}`);
+                  } else if (hasOtherProviderData) {
+                    // Other providers found phones but NOT this one - lower confidence
+                    adjustedConfidence = Math.max(50, phone.confidence - 25);
+                    verificationNote = "unverified";
+                    console.log(`Pacific East phone ${phone.number}: NonDA, other providers found different phones - confidence reduced to ${adjustedConfidence}`);
+                  } else {
+                    // NonDA and no other provider data - this is the only source
+                    // Show it but with reduced confidence (65%) since it's unverified marketing data
+                    adjustedConfidence = 65;
+                    verificationNote = "unverified-only-source";
+                    console.log(`Pacific East phone ${phone.number}: NonDA, only source available - showing with reduced confidence ${adjustedConfidence}`);
                   }
                   
                   contactEnrichment.directDials.push({
