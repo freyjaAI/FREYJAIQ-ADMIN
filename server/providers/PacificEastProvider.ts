@@ -396,14 +396,15 @@ export async function enrichContactFull(params: {
   // This handles name typos/misspellings from ATTOM data
   
   // Step 1: Search by address only (no name filter) to get all residents
-  console.log(`Pacific East: Searching by address only to find all residents at ${address}, ${city}, ${state} ${zip}`);
+  // queryType: 0=all, 1=landline, 2=cell/mobile
+  console.log(`Pacific East: Searching by address only for CELL phones at ${address}, ${city}, ${state} ${zip}`);
   
   const addressOnlyPhoneResult = await appendPhone({
     address: address,
     city: city,
     state: state,
     postalCode: zip,
-    queryType: "0", // All results
+    queryType: "2", // Cell/mobile phones only
   });
   
   // Step 2: Also try with name for email (email API requires lastName)
