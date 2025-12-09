@@ -524,75 +524,46 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }))
       );
 
-      // Calculate scores
-      const { score: sellerScore, breakdown: scoreBreakdown } = calculateSellerIntentScore(owner, properties, legalEvents);
+      // Check cache for enrichment data first
+      const dossierCacheData = await storage.getDossierCache(owner.id);
       
-      // Generate AI outreach
+      let sellerScore: number;
+      let scoreBreakdown: any;
       let aiOutreach = "";
-      try {
-        aiOutreach = await generateOutreachSuggestion(owner, properties);
-      } catch (e) {
-        console.error("Failed to generate AI outreach for PDF:", e);
-      }
-
-      // Fetch LLC unmasking data for entities
-      const isEntity = owner.type === "entity" || isEntityName(owner.name);
       let llcUnmasking: any = null;
-      if (isEntity) {
-        try {
-          llcUnmasking = await dataProviders.fetchOpenCorporatesData(owner.name);
-        } catch (e) {
-          console.error("Failed to fetch LLC data for PDF:", e);
-        }
-      }
-
-      // Fetch contact enrichment
       let contactEnrichment: any = null;
-      if (llcUnmasking?.officers?.length) {
-        contactEnrichment = { companyEmails: [], directDials: [], employeeProfiles: [], sources: [] };
-        for (const officer of llcUnmasking.officers) {
-          if (officer.role === "officer" || officer.role === "agent") {
-            const normalizedName = officer.name?.toUpperCase().trim();
-            if (normalizedName && !isEntityName(normalizedName)) {
-              try {
-                const results = await dataProviders.searchALeadsByName(normalizeName(normalizedName) || normalizedName);
-                for (const result of results) {
-                  if (result.email && !contactEnrichment.companyEmails.some((e: any) => e.email === result.email)) {
-                    contactEnrichment.companyEmails.push({ email: result.email, type: "personal", confidence: result.confidence || 75 });
-                  }
-                  if (result.phone && !contactEnrichment.directDials.some((d: any) => d.phone === result.phone)) {
-                    contactEnrichment.directDials.push({ phone: result.phone, type: "direct", name: result.name, confidence: result.confidence || 75 });
-                  }
-                  if (result.name && !contactEnrichment.employeeProfiles.some((p: any) => p.name === result.name)) {
-                    contactEnrichment.employeeProfiles.push({ name: result.name, title: result.title, email: result.email, phone: result.phone, confidence: result.confidence || 75 });
-                  }
-                }
-              } catch (e) {
-                console.error("Contact enrichment error:", e);
-              }
-            }
-          }
-        }
-      }
-
-      // Fetch Melissa enrichment
       let melissaEnrichment: any = null;
-      if (!isEntity || llcUnmasking?.officers?.length) {
+
+      if (dossierCacheData) {
+        // Use cached data
+        console.log(`Using cached dossier data for PDF export: owner ${owner.id}`);
+        sellerScore = dossierCacheData.sellerIntentScore || 0;
+        scoreBreakdown = dossierCacheData.scoreBreakdown || {};
+        aiOutreach = dossierCacheData.aiOutreach || "";
+        llcUnmasking = dossierCacheData.llcUnmasking;
+        contactEnrichment = dossierCacheData.contactEnrichment;
+        melissaEnrichment = dossierCacheData.melissaEnrichment;
+      } else {
+        // No cache - calculate fresh (but warn that enrichment data may be missing)
+        console.log(`No cache for PDF export: owner ${owner.id} - using fresh calculations only`);
+        const scoreResult = calculateSellerIntentScore(owner, properties, legalEvents);
+        sellerScore = scoreResult.score;
+        scoreBreakdown = scoreResult.breakdown;
+        
         try {
-          const rawName = owner.type === "individual" ? owner.name : llcUnmasking?.officers?.[0]?.name;
-          const primaryName = normalizeName(rawName);
-          const parsed = parseAddress(owner.primaryAddress);
-          if (primaryName || parsed.line1) {
-            melissaEnrichment = await dataProviders.fetchMelissaEnrichment({
-              name: primaryName,
-              address: parsed.line1,
-              city: parsed.city,
-              state: parsed.state,
-              zip: parsed.zip,
-            });
-          }
+          aiOutreach = await generateOutreachSuggestion(owner, properties);
         } catch (e) {
-          console.error("Melissa enrichment error:", e);
+          console.error("Failed to generate AI outreach for PDF:", e);
+        }
+
+        // Fetch LLC unmasking data for entities
+        const isEntity = owner.type === "entity" || isEntityName(owner.name);
+        if (isEntity) {
+          try {
+            llcUnmasking = await dataProviders.fetchLlcUnmasking(owner.name);
+          } catch (e) {
+            console.error("Failed to fetch LLC data for PDF:", e);
+          }
         }
       }
 
