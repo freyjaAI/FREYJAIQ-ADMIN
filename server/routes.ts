@@ -52,7 +52,14 @@ const ENTITY_KEYWORDS = [
 // Helper to detect if a name looks like an entity/company rather than an individual
 function isEntityName(name: string): boolean {
   const upperName = name.toUpperCase();
-  return ENTITY_KEYWORDS.some(keyword => upperName.includes(keyword));
+  // Use word boundary matching to avoid false positives like "PARADOWSKI" matching "PA"
+  return ENTITY_KEYWORDS.some(keyword => {
+    // Create a regex that matches the keyword as a whole word
+    // For keywords with periods (like L.L.C.), escape the periods
+    const escapedKeyword = keyword.replace(/\./g, '\\.');
+    const regex = new RegExp(`\\b${escapedKeyword}\\b`, 'i');
+    return regex.test(upperName);
+  });
 }
 
 // Helper to detect if a name looks like a person (e.g., "NANCY E ROMAN", "JOHN DOE")
