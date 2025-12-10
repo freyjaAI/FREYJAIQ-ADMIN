@@ -83,7 +83,8 @@ function looksLikePersonName(name: string): boolean {
   const lastToken = tokens[tokens.length - 1];
   if (businessIndicators.includes(lastToken)) return false;
   
-  return false; // Default to not a person if we can't determine
+  // If we've passed all entity checks and have 2-4 tokens, treat as a person
+  return true;
 }
 
 // Centralized helper to determine if an owner should be treated as an entity
@@ -2551,12 +2552,79 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
 
       // Check if we already have enrichment data
-      if (llc.enrichmentData && llc.officers) {
+      const cachedEnrichment = llc.enrichmentData as any;
+      if (cachedEnrichment?.enrichedOfficers && llc.officers) {
         console.log(`Using cached LLC dossier for ${llc.name}`);
+        
+        // Migrate/sanitize cached officers to ensure confidence scores are present
+        const sanitizedOfficers = cachedEnrichment.enrichedOfficers.map((officer: any) => {
+          // Ensure arrays exist
+          const phones = officer.phones || [];
+          const emails = officer.emails || [];
+          
+          // Recalculate confidence score if missing or invalid
+          if (typeof officer.confidenceScore !== 'number' || isNaN(officer.confidenceScore)) {
+            const hasPhone = phones.length > 0;
+            const hasEmail = emails.length > 0;
+            const hasVerifiedData = officer.melissaData?.nameMatch?.verified || 
+                                    officer.melissaData?.addressMatch?.verified;
+            
+            let confidenceScore = 35;
+            if (hasPhone) confidenceScore += 25;
+            if (hasEmail) confidenceScore += 20;
+            if (hasVerifiedData) confidenceScore += 20;
+            officer.confidenceScore = Math.min(confidenceScore, 100);
+          }
+          
+          return {
+            ...officer,
+            phones,
+            emails,
+          };
+        });
+        
+        // Recalculate overall confidence if missing
+        let overallConfidence = cachedEnrichment.overallContactConfidence;
+        if (typeof overallConfidence !== 'number' || isNaN(overallConfidence)) {
+          const allPhones = sanitizedOfficers.flatMap((o: any) => o.phones || []);
+          const allEmails = sanitizedOfficers.flatMap((o: any) => o.emails || []);
+          const hasVerified = sanitizedOfficers.some((o: any) => 
+            o.melissaData?.addressMatch?.verified || o.melissaData?.nameMatch?.verified
+          );
+          
+          overallConfidence = 35;
+          if (allPhones.length > 0) overallConfidence += 25;
+          if (allEmails.length > 0) overallConfidence += 20;
+          if (hasVerified) overallConfidence += 20;
+          overallConfidence = Math.min(overallConfidence, 100);
+        }
+        
+        const sanitizedEnrichment = {
+          ...cachedEnrichment,
+          enrichedOfficers: sanitizedOfficers,
+          overallContactConfidence: overallConfidence,
+        };
+        
+        // Persist migrated data back to storage if confidence scores were recalculated
+        const needsMigration = cachedEnrichment.enrichedOfficers.some((o: any) => 
+          typeof o.confidenceScore !== 'number' || isNaN(o.confidenceScore)
+        ) || typeof cachedEnrichment.overallContactConfidence !== 'number';
+        
+        if (needsMigration) {
+          console.log(`Migrating cached enrichment data for ${llc.name}`);
+          await storage.updateLlc(llc.id, {
+            enrichmentData: sanitizedEnrichment,
+          });
+        }
+        
         return res.json({
-          llc,
-          officers: llc.officers,
-          enrichment: llc.enrichmentData,
+          llc: {
+            ...llc,
+            enrichmentData: sanitizedEnrichment,
+          },
+          officers: sanitizedOfficers,
+          rawOfficers: llc.officers,
+          enrichment: sanitizedEnrichment,
           aiOutreach: llc.aiOutreach,
         });
       }
@@ -2574,65 +2642,226 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       // Build officers list
       const officers = detailedInfo?.officers || (llc.officers as any[]) || [];
       
-      // Enrich each officer with contact info
+      // Enrich each officer with contact info using the full enrichment stack
       const enrichedOfficers: any[] = [];
       for (const officer of officers.slice(0, 5)) {
+        // Normalize name: convert "LAST, FIRST" to "FIRST LAST"
+        let officerName = officer.name || officer.officerName || "";
+        if (officerName.includes(",")) {
+          const parts = officerName.split(",").map((p: string) => p.trim());
+          if (parts.length === 2) {
+            officerName = `${parts[1]} ${parts[0]}`;
+          }
+        }
+        
         const officerData: any = {
-          name: officer.name || officer.officerName,
+          name: officerName,
           position: officer.position || officer.role || "Officer",
           role: officer.role || "officer",
           address: officer.address,
           emails: [],
           phones: [],
+          skipTraceData: null,
+          melissaData: null,
         };
 
-        // Skip trace for officer contact info
-        if (officerData.name && looksLikePersonName(officerData.name)) {
-          try {
-            const apifySkipTrace = await import("./providers/ApifySkipTraceProvider.js");
-            if (apifySkipTrace.isConfigured()) {
-              // Normalize name: convert "LAST, FIRST" to "FIRST LAST"
-              let normalizedOfficerName = officerData.name;
-              if (normalizedOfficerName.includes(",")) {
-                const parts = normalizedOfficerName.split(",").map((p: string) => p.trim());
-                if (parts.length === 2) {
-                  normalizedOfficerName = `${parts[1]} ${parts[0]}`;
-                }
-              }
-              const skipResult = await apifySkipTrace.skipTraceIndividual(
-                normalizedOfficerName,
-                undefined,
-                undefined,
-                llc.jurisdiction || undefined,
-                undefined
-              );
-              
-              if (skipResult) {
-                for (const phone of skipResult.phones || []) {
+        // Skip enrichment for non-person names (entities, etc.)
+        if (!officerData.name || !looksLikePersonName(officerData.name)) {
+          officerData.confidenceScore = 30;
+          enrichedOfficers.push(officerData);
+          continue;
+        }
+
+        const nameParts = officerData.name.split(/\s+/);
+        const firstName = nameParts.length > 1 ? nameParts[0] : undefined;
+        const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : nameParts[0];
+        const officerState = llc.jurisdiction || undefined;
+
+        console.log(`Enriching LLC officer: ${officerData.name} (${officerData.position})`);
+
+        // 1. APIFY SKIP TRACE (Primary source - best for cell phones)
+        try {
+          const apifySkipTrace = await import("./providers/ApifySkipTraceProvider.js");
+          if (apifySkipTrace.isConfigured()) {
+            console.log(`[1/3] Apify Skip Trace for officer: ${officerData.name}`);
+            const skipResult = await apifySkipTrace.skipTraceIndividual(
+              officerData.name,
+              undefined,
+              undefined,
+              officerState,
+              undefined
+            );
+            
+            if (skipResult) {
+              // Add phones
+              for (const phone of skipResult.phones || []) {
+                const normalizedPhone = phone.number?.replace(/\D/g, "");
+                if (normalizedPhone && !officerData.phones.some((p: any) => 
+                  p.phone?.replace(/\D/g, "") === normalizedPhone
+                )) {
+                  const isWireless = phone.type?.toLowerCase().includes("wireless");
                   officerData.phones.push({
                     phone: phone.number,
-                    type: phone.type?.toLowerCase().includes("wireless") ? "mobile" : "landline",
+                    type: isWireless ? "mobile" : "landline",
+                    source: "apify_skip_trace",
+                    confidence: isWireless ? 95 : 85,
+                    provider: phone.provider,
+                  });
+                }
+              }
+              
+              // Add emails
+              for (const email of skipResult.emails || []) {
+                if (email.email && !officerData.emails.some((e: any) => 
+                  e.email?.toLowerCase() === email.email.toLowerCase()
+                )) {
+                  officerData.emails.push({
+                    email: email.email,
+                    type: "personal",
                     source: "apify_skip_trace",
                     confidence: 90,
                   });
                 }
-                for (const email of skipResult.emails || []) {
-                  officerData.emails.push({
-                    email: email.email,
-                    source: "apify_skip_trace",
-                    confidence: 90,
+              }
+              
+              // Store extended skip trace data
+              officerData.skipTraceData = {
+                firstName: skipResult.firstName,
+                lastName: skipResult.lastName,
+                age: skipResult.age,
+                born: skipResult.born,
+                currentAddress: skipResult.currentAddress,
+                previousAddresses: skipResult.previousAddresses || [],
+                relatives: skipResult.relatives || [],
+                associates: skipResult.associates || [],
+                personLink: skipResult.personLink,
+              };
+              
+              console.log(`Apify Skip Trace for officer: Found ${skipResult.phones?.length || 0} phones, ${skipResult.emails?.length || 0} emails`);
+            }
+          }
+        } catch (err) {
+          console.error(`Apify Skip Trace failed for officer ${officerData.name}:`, err);
+        }
+
+        // 2. DATA AXLE (Secondary source)
+        try {
+          console.log(`[2/3] Data Axle for officer: ${officerData.name}`);
+          const location = officerState ? { state: officerState } : undefined;
+          const allPeople = await dataProviders.searchPeopleV2(officerData.name, location);
+          
+          const expectedState = officerState?.toUpperCase();
+          const filteredPeople = expectedState 
+            ? (allPeople || []).filter(p => p.state?.toUpperCase() === expectedState)
+            : allPeople || [];
+          
+          for (const person of filteredPeople.slice(0, 3)) {
+            const cellPhones = person.cellPhones || [];
+            const phones = person.phones || [];
+            const emails = person.emails || [];
+            
+            for (const cellPhone of cellPhones) {
+              const normalizedPhone = cellPhone?.replace(/\D/g, "");
+              if (normalizedPhone && !officerData.phones.some((p: any) => 
+                p.phone?.replace(/\D/g, "") === normalizedPhone
+              )) {
+                officerData.phones.push({
+                  phone: cellPhone,
+                  type: "mobile",
+                  source: "data_axle",
+                  confidence: person.confidenceScore || 70,
+                });
+              }
+            }
+            
+            for (const phone of phones) {
+              const normalizedPhone = phone?.replace(/\D/g, "");
+              if (normalizedPhone && !officerData.phones.some((p: any) => 
+                p.phone?.replace(/\D/g, "") === normalizedPhone
+              )) {
+                officerData.phones.push({
+                  phone: phone,
+                  type: "landline",
+                  source: "data_axle",
+                  confidence: person.confidenceScore || 70,
+                });
+              }
+            }
+            
+            for (const email of emails) {
+              if (email && !officerData.emails.some((e: any) => 
+                e.email?.toLowerCase() === email.toLowerCase()
+              )) {
+                officerData.emails.push({
+                  email: email,
+                  type: "personal",
+                  source: "data_axle",
+                  confidence: person.confidenceScore || 70,
+                });
+              }
+            }
+          }
+          
+          console.log(`Data Axle for officer: Found ${filteredPeople.length} matching people`);
+        } catch (err) {
+          console.error(`Data Axle failed for officer ${officerData.name}:`, err);
+        }
+
+        // 3. MELISSA (Address & identity verification)
+        try {
+          console.log(`[3/3] Melissa verification for officer: ${officerData.name}`);
+          const melissaResult = await dataProviders.fetchMelissaEnrichment({
+            fullName: officerData.name,
+            firstName,
+            lastName,
+            address: officerData.skipTraceData?.currentAddress?.streetAddress,
+            city: officerData.skipTraceData?.currentAddress?.city,
+            state: officerState,
+            zip: officerData.skipTraceData?.currentAddress?.postalCode,
+          });
+          
+          if (melissaResult) {
+            officerData.melissaData = melissaResult;
+            
+            // Add verified phones from Melissa
+            if (melissaResult.phoneMatches?.length) {
+              for (const phone of melissaResult.phoneMatches) {
+                const normalizedPhone = phone.phone?.replace(/\D/g, "");
+                if (normalizedPhone && !officerData.phones.some((p: any) => 
+                  p.phone?.replace(/\D/g, "") === normalizedPhone
+                )) {
+                  officerData.phones.push({
+                    phone: phone.phone,
+                    type: phone.lineType?.toLowerCase().includes("wireless") ? "mobile" : "landline",
+                    source: "melissa",
+                    confidence: phone.confidence || 80,
+                    verified: true,
                   });
                 }
               }
             }
-          } catch (err) {
-            console.error(`Skip trace failed for officer ${officerData.name}:`, err);
+            
+            console.log(`Melissa for officer: Name verified=${melissaResult.nameMatch?.verified}, Address verified=${melissaResult.addressMatch?.verified}`);
           }
+        } catch (err) {
+          console.error(`Melissa failed for officer ${officerData.name}:`, err);
         }
 
-        officerData.confidenceScore = 
-          officerData.phones.length > 0 || officerData.emails.length > 0 ? 85 : 50;
+        // Calculate confidence score based on data quality
+        // Uses same criteria as owner enrichment: phone (+25), email (+20), verified (+20), base 35
+        const hasPhone = officerData.phones.length > 0;
+        const hasEmail = officerData.emails.length > 0;
+        const hasVerifiedData = officerData.melissaData?.nameMatch?.verified || 
+                                officerData.melissaData?.addressMatch?.verified;
+        
+        let confidenceScore = 35; // Base score
+        if (hasPhone) confidenceScore += 25;
+        if (hasEmail) confidenceScore += 20;
+        if (hasVerifiedData) confidenceScore += 20;
+        officerData.confidenceScore = Math.min(confidenceScore, 100);
         enrichedOfficers.push(officerData);
+        
+        console.log(`Officer ${officerData.name}: ${officerData.phones.length} phones, ${officerData.emails.length} emails, confidence=${officerData.confidenceScore}%`);
       }
 
       // Generate AI outreach suggestion
@@ -2661,9 +2890,23 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
       }
 
-      // Update LLC with enrichment data
+      // Calculate overall contact confidence based on aggregated officer data
+      const allPhones = enrichedOfficers.flatMap(o => o.phones || []);
+      const allEmails = enrichedOfficers.flatMap(o => o.emails || []);
+      const hasVerifiedOfficer = enrichedOfficers.some(o => o.melissaData?.addressMatch?.verified);
+      
+      let overallContactConfidence = 35; // Base score
+      if (allPhones.length > 0) overallContactConfidence += 25;
+      if (allEmails.length > 0) overallContactConfidence += 20;
+      if (hasVerifiedOfficer) overallContactConfidence += 20;
+      overallContactConfidence = Math.min(overallContactConfidence, 100);
+
+      // Update LLC with enrichment data (store in enrichmentData, NOT in officers column)
+      // Keep original officers in the officers column, enriched data in enrichmentData
+      const rawOfficers = officers; // Original officers from OpenCorporates
       const enrichmentData = {
         enrichedOfficers,
+        overallContactConfidence,
         registeredAgent: detailedInfo?.agentName || llc.registeredAgent,
         registeredAddress: detailedInfo?.agentAddress || llc.registeredAddress,
         status: detailedInfo?.status || llc.status,
@@ -2672,7 +2915,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       };
 
       await storage.updateLlc(llc.id, {
-        officers: enrichedOfficers,
+        // Keep officers as raw data from OpenCorporates
+        officers: rawOfficers,
         enrichmentData,
         aiOutreach,
         registeredAgent: enrichmentData.registeredAgent,
@@ -2684,11 +2928,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json({
         llc: {
           ...llc,
-          officers: enrichedOfficers,
+          officers: rawOfficers, // Original officers
           enrichmentData,
           aiOutreach,
         },
-        officers: enrichedOfficers,
+        officers: enrichedOfficers, // Enriched officers with contact data
+        rawOfficers: rawOfficers, // Original officers list for reference
         enrichment: enrichmentData,
         aiOutreach,
       });
