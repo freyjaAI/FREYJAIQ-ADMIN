@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useSearch, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Loader2, SearchX, Filter, SortAsc, ExternalLink, Database, Globe } from "lucide-react";
+import { Loader2, SearchX, Filter, SortAsc, ExternalLink, Database, Globe, Building, ArrowRight } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -17,6 +17,7 @@ import { SearchBar } from "@/components/search-bar";
 import { OwnerCard } from "@/components/owner-card";
 import { PropertyCard } from "@/components/property-card";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import type { Owner, Property, ContactInfo } from "@shared/schema";
 
 interface SearchResult {
@@ -36,6 +37,7 @@ interface ExternalSearchResult {
 export default function SearchPage() {
   const searchParams = useSearch();
   const [, setLocation] = useLocation();
+  const { toast } = useToast();
   const params = new URLSearchParams(searchParams);
   const initialQuery = params.get("q") || "";
   const initialType = params.get("type") || "address";
@@ -99,6 +101,44 @@ export default function SearchPage() {
     },
     onError: (error: any) => {
       console.error("Import failed:", error);
+    },
+  });
+
+  // Import LLC from external results
+  const importLlcMutation = useMutation({
+    mutationFn: async (llc: any) => {
+      const res = await apiRequest("POST", "/api/llcs/import", {
+        name: llc.name,
+        jurisdiction: llc.jurisdiction || llc.jurisdictionCode,
+        opencorporatesUrl: llc.opencorporatesUrl,
+        registrationNumber: llc.companyNumber,
+        status: llc.status,
+        entityType: llc.entityType,
+      });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/llcs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      
+      // Navigate to LLC dossier page
+      if (data.llc?.id) {
+        toast({
+          title: data.existed ? "LLC Already Exists" : "LLC Imported",
+          description: data.existed 
+            ? `Opening existing dossier for ${data.llc.name}` 
+            : `Successfully imported ${data.llc.name}. Click "Refresh Data" to enrich officers.`,
+        });
+        setLocation(`/llcs/${data.llc.id}`);
+      }
+    },
+    onError: (error: any) => {
+      console.error("LLC import failed:", error);
+      toast({
+        title: "Import Failed",
+        description: "Could not import LLC. Please try again.",
+        variant: "destructive",
+      });
     },
   });
 
@@ -346,25 +386,61 @@ export default function SearchPage() {
           {externalResults && externalResults.llcs.length > 0 && (
             <div className="space-y-4">
               <div className="flex items-center gap-2">
-                <Globe className="h-4 w-4 text-primary" />
+                <Building className="h-4 w-4 text-primary" />
                 <h2 className="text-lg font-semibold">Companies & LLCs</h2>
                 <Badge variant="secondary">{externalResults.llcs.length}</Badge>
               </div>
               <div className="grid gap-4 md:grid-cols-2">
                 {externalResults.llcs.map((llc: any, idx: number) => (
                   <Card key={idx} className="hover-elevate">
-                    <CardContent className="p-4 space-y-2">
-                      <h3 className="font-medium">{llc.name}</h3>
-                      {llc.jurisdiction && (
-                        <p className="text-sm text-muted-foreground">
-                          {llc.jurisdiction}
-                        </p>
+                    <CardContent className="p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <h3 className="font-medium">{llc.name}</h3>
+                          {llc.jurisdiction && (
+                            <p className="text-sm text-muted-foreground">
+                              {llc.jurisdiction}
+                            </p>
+                          )}
+                        </div>
+                        {llc.status && (
+                          <Badge variant={llc.status === "Active" ? "default" : "secondary"}>
+                            {llc.status}
+                          </Badge>
+                        )}
+                      </div>
+                      {llc.entityType && (
+                        <div className="text-sm">
+                          <span className="text-muted-foreground">Type: </span>
+                          <span>{llc.entityType}</span>
+                        </div>
                       )}
-                      {llc.status && (
-                        <Badge variant={llc.status === "Active" ? "default" : "secondary"}>
-                          {llc.status}
-                        </Badge>
+                      {llc.companyNumber && (
+                        <div className="text-sm">
+                          <span className="text-muted-foreground">Reg #: </span>
+                          <span className="font-mono">{llc.companyNumber}</span>
+                        </div>
                       )}
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        className="w-full"
+                        onClick={() => importLlcMutation.mutate(llc)}
+                        disabled={importLlcMutation.isPending}
+                        data-testid={`button-import-llc-${idx}`}
+                      >
+                        {importLlcMutation.isPending ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Importing & Enriching...
+                          </>
+                        ) : (
+                          <>
+                            <ArrowRight className="h-4 w-4 mr-2" />
+                            Import to LLCs
+                          </>
+                        )}
+                      </Button>
                     </CardContent>
                   </Card>
                 ))}
