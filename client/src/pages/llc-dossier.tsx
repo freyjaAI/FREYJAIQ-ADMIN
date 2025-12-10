@@ -87,6 +87,35 @@ interface LlcDossierResponse {
   aiOutreach?: string | null;
 }
 
+// Helper to format address from string or JSON object
+function formatAddress(address: string | null | undefined): string | null {
+  if (!address) return null;
+  
+  // If it's a plain string, return it
+  if (!address.includes("{") && !address.includes('"')) {
+    return address;
+  }
+  
+  // Try to parse as JSON
+  try {
+    const parsed = JSON.parse(address);
+    if (typeof parsed === "object" && parsed !== null) {
+      const parts = [
+        parsed.street_address || parsed.streetAddress || parsed.street,
+        parsed.locality || parsed.city,
+        parsed.region || parsed.state,
+        parsed.postal_code || parsed.postalCode || parsed.zip,
+      ].filter(Boolean);
+      return parts.length > 0 ? parts.join(", ") : null;
+    }
+  } catch {
+    // Not valid JSON, return as-is
+    return address;
+  }
+  
+  return address;
+}
+
 export default function LlcDossierPage() {
   const [, params] = useRoute("/llcs/:id");
   const id = params?.id;
@@ -266,16 +295,16 @@ export default function LlcDossierPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {dossier.registeredAddress && (
+            {formatAddress(dossier.registeredAddress) && (
               <div className="space-y-1">
                 <p className="text-sm text-muted-foreground">Registered Address</p>
-                <p className="text-sm">{dossier.registeredAddress}</p>
+                <p className="text-sm">{formatAddress(dossier.registeredAddress)}</p>
               </div>
             )}
-            {dossier.principalAddress && (
+            {formatAddress(dossier.principalAddress) && (
               <div className="space-y-1">
                 <p className="text-sm text-muted-foreground">Principal Address</p>
-                <p className="text-sm">{dossier.principalAddress}</p>
+                <p className="text-sm">{formatAddress(dossier.principalAddress)}</p>
               </div>
             )}
             {dossier.formationDate && (
