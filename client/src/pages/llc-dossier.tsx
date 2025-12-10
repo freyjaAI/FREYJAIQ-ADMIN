@@ -32,10 +32,9 @@ interface EnrichedOfficer {
   confidence: number;
 }
 
-interface LlcDossier extends Omit<Llc, 'aiOutreach'> {
+interface LlcDossier extends Llc {
   officers: Array<{ name: string; position: string; startDate?: string }>;
   enrichedOfficers: EnrichedOfficer[];
-  aiOutreach?: string | null;
 }
 
 export default function LlcDossierPage() {

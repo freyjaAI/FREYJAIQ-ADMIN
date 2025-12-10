@@ -31,7 +31,7 @@ import {
   type InsertLlc,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, ilike, or, desc, sql } from "drizzle-orm";
+import { eq, ilike, or, and, desc, sql } from "drizzle-orm";
 
 export interface IStorage {
   // User operations
@@ -368,17 +368,23 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async searchLlcs(query: string): Promise<Llc[]> {
+  async searchLlcs(query: string, jurisdiction?: string): Promise<Llc[]> {
+    const conditions = [
+      or(
+        ilike(llcs.name, `%${query}%`),
+        ilike(llcs.registrationNumber, `%${query}%`),
+        ilike(llcs.registeredAgent, `%${query}%`)
+      )
+    ];
+    
+    if (jurisdiction) {
+      conditions.push(ilike(llcs.jurisdiction, jurisdiction));
+    }
+    
     return await db
       .select()
       .from(llcs)
-      .where(
-        or(
-          ilike(llcs.name, `%${query}%`),
-          ilike(llcs.registrationNumber, `%${query}%`),
-          ilike(llcs.registeredAgent, `%${query}%`)
-        )
-      )
+      .where(and(...conditions))
       .orderBy(desc(llcs.createdAt));
   }
 
