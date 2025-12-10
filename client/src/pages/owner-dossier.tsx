@@ -414,8 +414,11 @@ export default function OwnerDossierPage() {
             {owner.primaryAddress && (
               <p className="text-muted-foreground mt-1">{owner.primaryAddress}</p>
             )}
-            {/* Skip Trace Data Dropdown for Individual Owners */}
-            {owner.type === "individual" && contactEnrichment?.skipTraceData && (
+            {/* Person Details for Individual Owners - uses owner record data or skipTraceData fallback */}
+            {owner.type === "individual" && (
+              (owner as any).age || (owner as any).relatives?.length > 0 || (owner as any).associates?.length > 0 || 
+              (owner as any).previousAddresses?.length > 0 || contactEnrichment?.skipTraceData
+            ) && (
               <Collapsible className="mt-3">
                 <CollapsibleTrigger asChild>
                   <Button 
@@ -432,112 +435,132 @@ export default function OwnerDossierPage() {
                 <CollapsibleContent className="pt-3">
                   <Card className="bg-muted/30">
                     <CardContent className="pt-4 space-y-4">
-                      {/* Personal Info */}
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        {contactEnrichment.skipTraceData.age && (
-                          <div className="flex items-center gap-2 text-sm">
-                            <Calendar className="h-4 w-4 text-muted-foreground" />
-                            <span>Age: <span className="font-medium">{contactEnrichment.skipTraceData.age}</span></span>
-                            {contactEnrichment.skipTraceData.born && (
-                              <span className="text-muted-foreground">(Born {contactEnrichment.skipTraceData.born})</span>
+                      {/* Personal Info - prefer owner record, fallback to skipTraceData */}
+                      {(() => {
+                        const age = (owner as any).age || contactEnrichment?.skipTraceData?.age;
+                        const birthDate = (owner as any).birthDate || contactEnrichment?.skipTraceData?.born;
+                        const currentAddress = contactEnrichment?.skipTraceData?.currentAddress;
+                        return (age || currentAddress) ? (
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            {age && (
+                              <div className="flex items-center gap-2 text-sm">
+                                <Calendar className="h-4 w-4 text-muted-foreground" />
+                                <span>Age: <span className="font-medium">{age}</span></span>
+                                {birthDate && (
+                                  <span className="text-muted-foreground">(Born {birthDate})</span>
+                                )}
+                              </div>
                             )}
-                          </div>
-                        )}
-                        {contactEnrichment.skipTraceData.currentAddress && (
-                          <div className="flex items-start gap-2 text-sm">
-                            <Home className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
-                            <span>
-                              {contactEnrichment.skipTraceData.currentAddress.streetAddress}, {contactEnrichment.skipTraceData.currentAddress.city}, {contactEnrichment.skipTraceData.currentAddress.state} {contactEnrichment.skipTraceData.currentAddress.postalCode}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Relatives */}
-                      {contactEnrichment.skipTraceData.relatives.length > 0 && (
-                        <div>
-                          <div className="flex items-center gap-2 mb-2">
-                            <Users className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-sm font-medium">Relatives ({contactEnrichment.skipTraceData.relatives.length})</span>
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            {contactEnrichment.skipTraceData.relatives.slice(0, 10).map((relative, idx) => (
-                              <Badge 
-                                key={idx} 
-                                variant="secondary" 
-                                className="text-xs"
-                                data-testid={`badge-relative-${idx}`}
-                              >
-                                {relative.name}
-                                {relative.age && <span className="text-muted-foreground ml-1">({relative.age})</span>}
-                              </Badge>
-                            ))}
-                            {contactEnrichment.skipTraceData.relatives.length > 10 && (
-                              <Badge variant="outline" className="text-xs">
-                                +{contactEnrichment.skipTraceData.relatives.length - 10} more
-                              </Badge>
-                            )}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Associates */}
-                      {contactEnrichment.skipTraceData.associates.length > 0 && (
-                        <div>
-                          <div className="flex items-center gap-2 mb-2">
-                            <Users className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-sm font-medium">Associates ({contactEnrichment.skipTraceData.associates.length})</span>
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            {contactEnrichment.skipTraceData.associates.slice(0, 10).map((assoc, idx) => (
-                              <Badge 
-                                key={idx} 
-                                variant="outline" 
-                                className="text-xs"
-                                data-testid={`badge-associate-${idx}`}
-                              >
-                                {assoc.name}
-                                {assoc.age && <span className="text-muted-foreground ml-1">({assoc.age})</span>}
-                              </Badge>
-                            ))}
-                            {contactEnrichment.skipTraceData.associates.length > 10 && (
-                              <Badge variant="outline" className="text-xs">
-                                +{contactEnrichment.skipTraceData.associates.length - 10} more
-                              </Badge>
-                            )}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Previous Addresses */}
-                      {contactEnrichment.skipTraceData.previousAddresses.length > 0 && (
-                        <div>
-                          <div className="flex items-center gap-2 mb-2">
-                            <Truck className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-sm font-medium">Previous Addresses ({contactEnrichment.skipTraceData.previousAddresses.length})</span>
-                          </div>
-                          <div className="space-y-2">
-                            {contactEnrichment.skipTraceData.previousAddresses.slice(0, 5).map((addr, idx) => (
-                              <div 
-                                key={idx} 
-                                className="flex items-start gap-2 text-sm text-muted-foreground"
-                                data-testid={`text-previous-address-${idx}`}
-                              >
-                                <MapPin className="h-3 w-3 shrink-0 mt-1" />
+                            {currentAddress && (
+                              <div className="flex items-start gap-2 text-sm">
+                                <Home className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
                                 <span>
-                                  {addr.streetAddress}, {addr.city}, {addr.state} {addr.postalCode}
-                                  {addr.timespan && <span className="italic ml-2">({addr.timespan})</span>}
+                                  {currentAddress.streetAddress}, {currentAddress.city}, {currentAddress.state} {currentAddress.postalCode}
                                 </span>
                               </div>
-                            ))}
-                            {contactEnrichment.skipTraceData.previousAddresses.length > 5 && (
-                              <div className="text-xs text-muted-foreground">
-                                +{contactEnrichment.skipTraceData.previousAddresses.length - 5} more addresses
-                              </div>
                             )}
                           </div>
-                        </div>
-                      )}
+                        ) : null;
+                      })()}
+
+                      {/* Relatives - prefer owner record, fallback to skipTraceData */}
+                      {(() => {
+                        const relatives: Array<{name: string; age?: number | string}> = 
+                          (owner as any).relatives || contactEnrichment?.skipTraceData?.relatives || [];
+                        return relatives.length > 0 ? (
+                          <div>
+                            <div className="flex items-center gap-2 mb-2">
+                              <Users className="h-4 w-4 text-muted-foreground" />
+                              <span className="text-sm font-medium">Relatives ({relatives.length})</span>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {relatives.slice(0, 10).map((relative, idx) => (
+                                <Badge 
+                                  key={idx} 
+                                  variant="secondary" 
+                                  className="text-xs"
+                                  data-testid={`badge-relative-${idx}`}
+                                >
+                                  {relative.name}
+                                  {relative.age && <span className="text-muted-foreground ml-1">({relative.age})</span>}
+                                </Badge>
+                              ))}
+                              {relatives.length > 10 && (
+                                <Badge variant="outline" className="text-xs">
+                                  +{relatives.length - 10} more
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                        ) : null;
+                      })()}
+
+                      {/* Associates - prefer owner record, fallback to skipTraceData */}
+                      {(() => {
+                        const associates: Array<{name: string; age?: number | string}> = 
+                          (owner as any).associates || contactEnrichment?.skipTraceData?.associates || [];
+                        return associates.length > 0 ? (
+                          <div>
+                            <div className="flex items-center gap-2 mb-2">
+                              <Users className="h-4 w-4 text-muted-foreground" />
+                              <span className="text-sm font-medium">Associates ({associates.length})</span>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {associates.slice(0, 10).map((assoc, idx) => (
+                                <Badge 
+                                  key={idx} 
+                                  variant="outline" 
+                                  className="text-xs"
+                                  data-testid={`badge-associate-${idx}`}
+                                >
+                                  {assoc.name}
+                                  {assoc.age && <span className="text-muted-foreground ml-1">({assoc.age})</span>}
+                                </Badge>
+                              ))}
+                              {associates.length > 10 && (
+                                <Badge variant="outline" className="text-xs">
+                                  +{associates.length - 10} more
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                        ) : null;
+                      })()}
+
+                      {/* Previous Addresses - prefer owner record, fallback to skipTraceData */}
+                      {(() => {
+                        const ownerAddresses = (owner as any).previousAddresses || [];
+                        const skipAddresses = contactEnrichment?.skipTraceData?.previousAddresses || [];
+                        const previousAddresses = ownerAddresses.length > 0 ? ownerAddresses : skipAddresses;
+                        return previousAddresses.length > 0 ? (
+                          <div>
+                            <div className="flex items-center gap-2 mb-2">
+                              <Truck className="h-4 w-4 text-muted-foreground" />
+                              <span className="text-sm font-medium">Previous Addresses ({previousAddresses.length})</span>
+                            </div>
+                            <div className="space-y-2">
+                              {previousAddresses.slice(0, 5).map((addr: any, idx: number) => (
+                                <div 
+                                  key={idx} 
+                                  className="flex items-start gap-2 text-sm text-muted-foreground"
+                                  data-testid={`text-previous-address-${idx}`}
+                                >
+                                  <MapPin className="h-3 w-3 shrink-0 mt-1" />
+                                  <span>
+                                    {addr.address || addr.streetAddress}, {addr.city}, {addr.state} {addr.zip || addr.postalCode}
+                                    {addr.timespan && <span className="italic ml-2">({addr.timespan})</span>}
+                                  </span>
+                                </div>
+                              ))}
+                              {previousAddresses.length > 5 && (
+                                <div className="text-xs text-muted-foreground">
+                                  +{previousAddresses.length - 5} more addresses
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ) : null;
+                      })()}
 
                     </CardContent>
                   </Card>

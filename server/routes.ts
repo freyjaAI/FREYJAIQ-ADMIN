@@ -301,6 +301,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             createdAt: owner.createdAt,
             updatedAt: owner.updatedAt,
             sellerIntentScore: existingCache.sellerIntentScore,
+            // Person enrichment data from owner record
+            age: owner.age,
+            birthDate: owner.birthDate,
+            relatives: owner.relatives,
+            associates: owner.associates,
+            previousAddresses: owner.previousAddresses,
+            enrichmentSource: owner.enrichmentSource,
+            enrichmentUpdatedAt: owner.enrichmentUpdatedAt,
           },
           properties,
           contacts,
@@ -1027,6 +1035,62 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         } catch (contactSaveErr) {
           console.error("Error saving enriched contacts:", contactSaveErr);
         }
+        
+        // Persist person enrichment data (age, relatives, associates, previous addresses) to owner record
+        if (!isEntity && contactEnrichment.skipTraceData) {
+          try {
+            const skipData = contactEnrichment.skipTraceData;
+            const ownerUpdate: any = {
+              enrichmentSource: "apify_skip_trace",
+              enrichmentUpdatedAt: new Date(),
+            };
+            
+            // Parse age from string (e.g., "61")
+            if (skipData.age) {
+              const ageNum = parseInt(skipData.age, 10);
+              if (!isNaN(ageNum)) {
+                ownerUpdate.age = ageNum;
+              }
+            }
+            
+            // Store birth date
+            if (skipData.born) {
+              ownerUpdate.birthDate = skipData.born;
+            }
+            
+            // Store relatives as JSON array
+            if (skipData.relatives && skipData.relatives.length > 0) {
+              ownerUpdate.relatives = skipData.relatives.map((r: any) => ({
+                name: r.name,
+                age: r.age ? parseInt(r.age, 10) || r.age : null,
+              }));
+            }
+            
+            // Store associates as JSON array
+            if (skipData.associates && skipData.associates.length > 0) {
+              ownerUpdate.associates = skipData.associates.map((a: any) => ({
+                name: a.name,
+                age: a.age ? parseInt(a.age, 10) || a.age : null,
+              }));
+            }
+            
+            // Store previous addresses as JSON array
+            if (skipData.previousAddresses && skipData.previousAddresses.length > 0) {
+              ownerUpdate.previousAddresses = skipData.previousAddresses.map((addr: any) => ({
+                address: addr.streetAddress,
+                city: addr.city,
+                state: addr.state,
+                zip: addr.postalCode,
+                timespan: addr.timespan,
+              }));
+            }
+            
+            await storage.updateOwner(owner.id, ownerUpdate);
+            console.log(`Updated owner ${owner.id} with enrichment data: age=${ownerUpdate.age}, relatives=${ownerUpdate.relatives?.length || 0}, associates=${ownerUpdate.associates?.length || 0}, previousAddresses=${ownerUpdate.previousAddresses?.length || 0}`);
+          } catch (ownerUpdateErr) {
+            console.error("Error updating owner with enrichment data:", ownerUpdateErr);
+          }
+        }
       }
 
       // Save to cache for future requests
@@ -1046,20 +1110,31 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         console.error("Error caching dossier:", cacheErr);
       }
 
+      // Re-fetch owner to get updated enrichment data
+      const updatedOwner = await storage.getOwner(owner.id);
+      
       res.json({
         owner: { 
-          id: owner.id,
-          type: owner.type,
-          name: owner.name,
-          akaNames: owner.akaNames,
-          primaryAddress: owner.primaryAddress,
-          mailingAddress: owner.mailingAddress,
-          riskFlags: owner.riskFlags,
-          contactConfidenceScore: owner.contactConfidenceScore,
-          metadata: owner.metadata,
-          createdAt: owner.createdAt,
-          updatedAt: owner.updatedAt,
+          id: updatedOwner?.id || owner.id,
+          type: updatedOwner?.type || owner.type,
+          name: updatedOwner?.name || owner.name,
+          akaNames: updatedOwner?.akaNames || owner.akaNames,
+          primaryAddress: updatedOwner?.primaryAddress || owner.primaryAddress,
+          mailingAddress: updatedOwner?.mailingAddress || owner.mailingAddress,
+          riskFlags: updatedOwner?.riskFlags || owner.riskFlags,
+          contactConfidenceScore: updatedOwner?.contactConfidenceScore || owner.contactConfidenceScore,
+          metadata: updatedOwner?.metadata || owner.metadata,
+          createdAt: updatedOwner?.createdAt || owner.createdAt,
+          updatedAt: updatedOwner?.updatedAt || owner.updatedAt,
           sellerIntentScore: score,
+          // Person enrichment data
+          age: updatedOwner?.age,
+          birthDate: updatedOwner?.birthDate,
+          relatives: updatedOwner?.relatives,
+          associates: updatedOwner?.associates,
+          previousAddresses: updatedOwner?.previousAddresses,
+          enrichmentSource: updatedOwner?.enrichmentSource,
+          enrichmentUpdatedAt: updatedOwner?.enrichmentUpdatedAt,
         },
         properties,
         contacts,

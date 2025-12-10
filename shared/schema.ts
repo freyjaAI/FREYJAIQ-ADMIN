@@ -53,6 +53,14 @@ export const owners = pgTable("owners", {
   riskFlags: text("risk_flags").array(),
   sellerIntentScore: integer("seller_intent_score"),
   contactConfidenceScore: integer("contact_confidence_score"),
+  // Person enrichment data from Apify Skip Trace
+  age: integer("age"),
+  birthDate: varchar("birth_date"),
+  relatives: jsonb("relatives"), // Array of { name, age }
+  associates: jsonb("associates"), // Array of { name, age }
+  previousAddresses: jsonb("previous_addresses"), // Array of { address, city, state, zip, timespan }
+  enrichmentSource: varchar("enrichment_source"), // apify_skip_trace | data_axle | pacific_east | a_leads
+  enrichmentUpdatedAt: timestamp("enrichment_updated_at"),
   metadata: jsonb("metadata"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
