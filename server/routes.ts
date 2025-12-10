@@ -2027,10 +2027,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           let ownerId = existingOwner?.id;
 
           if (!existingOwner) {
-            // Detect entity type - override ATTOM if name looks like a company
-            const detectedType = isEntityName(property.ownership.ownerName) 
+            // Detect entity type - use shouldTreatAsEntity which checks if name looks like a person
+            const attomType = property.ownership.ownerType || "individual";
+            const detectedType = shouldTreatAsEntity(attomType, property.ownership.ownerName) 
               ? "entity" 
-              : (property.ownership.ownerType as "individual" | "entity");
+              : "individual";
             const newOwner = await storage.createOwner({
               name: property.ownership.ownerName,
               type: detectedType,
@@ -2146,10 +2147,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       // Create owner first if provided
       let ownerId: string | undefined;
       if (property.ownership?.ownerName) {
-        // Detect entity type - override ATTOM if name looks like a company
-        const ownerType = isEntityName(property.ownership.ownerName) 
+        // Detect entity type - use shouldTreatAsEntity which checks if name looks like a person
+        const attomType = property.ownership.ownerType || "individual";
+        const ownerType = shouldTreatAsEntity(attomType, property.ownership.ownerName) 
           ? "entity" 
-          : (property.ownership.ownerType === "entity" ? "entity" : "individual");
+          : "individual";
         
         // Check if owner exists
         const existingOwners = await storage.searchOwners(property.ownership.ownerName);
