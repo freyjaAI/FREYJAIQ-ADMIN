@@ -137,13 +137,60 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       let owners: any[] = [];
       let foundProperties: any[] = [];
 
-      if (type === "owner" || type === "address") {
+      // Search owners for relevant search types
+      if (type === "owner" || type === "address" || type === "business" || type === "person") {
         owners = await storage.searchOwners(q);
+        
+        // Filter by entity type if specific search type
+        if (type === "business") {
+          owners = owners.filter((o: any) => o.type === "entity");
+        } else if (type === "person") {
+          owners = owners.filter((o: any) => o.type === "individual");
+        }
         
         // Enrich with properties and contacts
         for (const owner of owners) {
           owner.properties = await storage.getPropertiesByOwner(owner.id);
           owner.contacts = await storage.getContactsByOwner(owner.id);
+        }
+      }
+
+      // Search by EIN (search owner metadata)
+      if (type === "ein") {
+        // Normalize EIN query - strip non-digits
+        const normalizedQuery = q.replace(/\D/g, "");
+        
+        // Guard: require at least 2 digits for EIN search
+        if (normalizedQuery.length >= 2) {
+          // EIN search - look in owner metadata for tax ID
+          const allOwners = await storage.getOwners();
+          owners = allOwners.filter((o: any) => {
+            const metadata = o.metadata as any;
+            // Check if EIN is stored in metadata (normalize both sides)
+            if (metadata?.ein) {
+              const normalizedEin = String(metadata.ein).replace(/\D/g, "");
+              // Require exact match or meaningful substring (at least 4 digits)
+              if (normalizedEin === normalizedQuery || 
+                  (normalizedQuery.length >= 4 && normalizedEin.includes(normalizedQuery))) {
+                return true;
+              }
+            }
+            // Check if EIN is stored in taxId field
+            if (metadata?.taxId) {
+              const normalizedTaxId = String(metadata.taxId).replace(/\D/g, "");
+              if (normalizedTaxId === normalizedQuery || 
+                  (normalizedQuery.length >= 4 && normalizedTaxId.includes(normalizedQuery))) {
+                return true;
+              }
+            }
+            return false;
+          });
+          
+          // Enrich with properties and contacts
+          for (const owner of owners) {
+            (owner as any).properties = await storage.getPropertiesByOwner(owner.id);
+            (owner as any).contacts = await storage.getContactsByOwner(owner.id);
+          }
         }
       }
 
@@ -2071,12 +2118,48 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
       }
 
-      // Search LLCs via OpenCorporates
-      if (type === "llc" || type === "owner" || type === "all") {
+      // Search by business name via OpenCorporates and ATTOM
+      if (type === "business" || type === "all") {
+        // Search LLCs via OpenCorporates
         const llc = await dataProviders.lookupLlc(query);
         if (llc) {
           results.llcs.push(llc);
           results.sources.push("opencorporates");
+        }
+        
+        // Also search properties by owner name (business name)
+        const ownerProperties = await dataProviders.searchPropertiesByOwner(query);
+        results.properties.push(...ownerProperties);
+        if (ownerProperties.length > 0 && !results.sources.includes("attom")) {
+          results.sources.push("attom");
+        }
+      }
+
+      // Search by person name via Data Axle / skip trace
+      if (type === "person" || type === "all") {
+        const contacts = await dataProviders.findContactsByName(query);
+        results.contacts.push(...contacts.map((c) => ({ ...c, source: "dataaxle" })));
+        if (contacts.length > 0) {
+          results.sources.push("dataaxle");
+        }
+        
+        // Also search properties owned by person
+        const ownerProperties = await dataProviders.searchPropertiesByOwner(query);
+        results.properties.push(...ownerProperties);
+        if (ownerProperties.length > 0 && !results.sources.includes("attom")) {
+          results.sources.push("attom");
+        }
+      }
+
+      // Search LLCs via OpenCorporates (skip if already searched via business type to avoid duplicates)
+      // Note: "all" type already triggers business search which includes LLC lookup
+      if (type === "llc" || type === "owner") {
+        const llc = await dataProviders.lookupLlc(query);
+        if (llc) {
+          results.llcs.push(llc);
+          if (!results.sources.includes("opencorporates")) {
+            results.sources.push("opencorporates");
+          }
 
           // Get officers
           const officers = await dataProviders.searchLlcOfficers(query);
@@ -2095,9 +2178,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (type === "contact" || type === "owner" || type === "all") {
         const contacts = await dataProviders.findContactsByName(query);
         results.contacts.push(...contacts.map((c) => ({ ...c, source: "dataaxle" })));
-        if (contacts.length > 0) {
+        if (contacts.length > 0 && !results.sources.includes("dataaxle")) {
           results.sources.push("dataaxle");
         }
+      }
+
+      // Search by EIN - limited external search capability
+      if (type === "ein") {
+        // EIN search is primarily local - external providers don't typically support EIN lookup
+        // Could integrate with IRS database or commercial EIN lookup service in the future
+        results.sources.push("local");
       }
 
       // Log search

@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef } from "react";
-import { Search, X, Building2, User, Hash, MapPin, Loader2 } from "lucide-react";
+import { Search, X, Building2, User, Hash, MapPin, Loader2, Briefcase, FileText } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 
-type SearchType = "address" | "owner" | "apn";
+type SearchType = "address" | "owner" | "apn" | "business" | "ein" | "person";
 
 interface AddressSuggestion {
   description: string;
@@ -109,6 +109,12 @@ export function SearchBar({
         return "Search by owner name or LLC...";
       case "apn":
         return "Search by APN / Parcel ID...";
+      case "business":
+        return "Search by business or company name...";
+      case "ein":
+        return "Search by EIN / Tax ID (XX-XXXXXXX)...";
+      case "person":
+        return "Search by person name...";
       default:
         return "Search...";
     }
@@ -118,6 +124,9 @@ export function SearchBar({
     { value: "address", icon: Building2, label: "Address" },
     { value: "owner", icon: User, label: "Owner" },
     { value: "apn", icon: Hash, label: "APN" },
+    { value: "business", icon: Briefcase, label: "Business" },
+    { value: "ein", icon: FileText, label: "EIN" },
+    { value: "person", icon: User, label: "Person" },
   ];
 
   return (
