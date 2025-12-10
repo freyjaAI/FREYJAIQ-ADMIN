@@ -581,6 +581,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             directDials: [] as any[],
             companyEmails: [] as any[],
             employeeProfiles: [] as any[],
+            skipTraceData: null as any, // Will store extended skip trace data (relatives, associates, previous addresses)
           };
           
           const nameParts = normalizedOwnerName.split(/\s+/);
@@ -655,7 +656,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                 }
               }
               
-              console.log(`Apify Skip Trace: Found ${skipTraceResult.phones.length} phones, ${skipTraceResult.emails.length} emails, ${skipTraceResult.relatives.length} relatives`);
+              // Store extended skip trace data for display in dossier
+              contactEnrichment.skipTraceData = {
+                firstName: skipTraceResult.firstName,
+                lastName: skipTraceResult.lastName,
+                age: skipTraceResult.age,
+                born: skipTraceResult.born,
+                currentAddress: skipTraceResult.currentAddress,
+                previousAddresses: skipTraceResult.previousAddresses || [],
+                relatives: skipTraceResult.relatives || [],
+                associates: skipTraceResult.associates || [],
+                personLink: skipTraceResult.personLink,
+              };
+              
+              console.log(`Apify Skip Trace: Found ${skipTraceResult.phones.length} phones, ${skipTraceResult.emails.length} emails, ${skipTraceResult.relatives.length} relatives, ${skipTraceResult.associates?.length || 0} associates`);
             }
           } else {
             console.log("[1/4] Apify Skip Trace: Not configured (no APIFY_API_TOKEN)");
