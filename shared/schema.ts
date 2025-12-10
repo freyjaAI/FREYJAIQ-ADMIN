@@ -292,3 +292,42 @@ export const dossierCacheRelations = relations(dossierCache, ({ one }) => ({
 
 export type DossierCache = typeof dossierCache.$inferSelect;
 export type InsertDossierCache = typeof dossierCache.$inferInsert;
+
+// LLCs table - dedicated storage for company/entity searches
+export const llcs = pgTable("llcs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name").notNull(),
+  jurisdiction: varchar("jurisdiction"), // State code (CA, DE, NY, etc.)
+  entityType: varchar("entity_type"), // LLC, Corporation, LP, etc.
+  status: varchar("status"), // Active, Inactive, Dissolved
+  registrationNumber: varchar("registration_number"),
+  formationDate: timestamp("formation_date"),
+  registeredAgent: varchar("registered_agent"),
+  registeredAddress: text("registered_address"),
+  principalAddress: text("principal_address"),
+  opencorporatesUrl: varchar("opencorporates_url"),
+  officers: jsonb("officers"), // Array of officers/members
+  enrichmentData: jsonb("enrichment_data"), // Contact enrichment results
+  aiOutreach: text("ai_outreach"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type LlcOfficer = {
+  name: string;
+  position: string;
+  role: "officer" | "member" | "agent" | "director";
+  address?: string;
+  startDate?: string;
+  emails?: Array<{ email: string; source: string; confidence: number }>;
+  phones?: Array<{ phone: string; type: string; source: string; confidence: number }>;
+};
+
+export const insertLlcSchema = createInsertSchema(llcs).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertLlc = z.infer<typeof insertLlcSchema>;
+export type Llc = typeof llcs.$inferSelect;

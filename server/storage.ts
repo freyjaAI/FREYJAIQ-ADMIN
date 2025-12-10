@@ -8,6 +8,7 @@ import {
   searchHistory,
   dossierExports,
   dossierCache,
+  llcs,
   type User,
   type UpsertUser,
   type Owner,
@@ -26,6 +27,8 @@ import {
   type InsertDossierExport,
   type DossierCache,
   type InsertDossierCache,
+  type Llc,
+  type InsertLlc,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, ilike, or, desc, sql } from "drizzle-orm";
@@ -77,6 +80,14 @@ export interface IStorage {
   // Dossier cache
   getDossierCache(ownerId: string): Promise<DossierCache | undefined>;
   upsertDossierCache(cache: InsertDossierCache): Promise<DossierCache>;
+
+  // LLC operations
+  getLlc(id: string): Promise<Llc | undefined>;
+  getLlcs(): Promise<Llc[]>;
+  createLlc(llc: InsertLlc): Promise<Llc>;
+  updateLlc(id: string, llc: Partial<InsertLlc>): Promise<Llc | undefined>;
+  searchLlcs(query: string): Promise<Llc[]>;
+  getLlcByName(name: string, jurisdiction?: string): Promise<Llc | undefined>;
 
   // Stats
   getStats(userId: string): Promise<{
@@ -331,6 +342,57 @@ export class DatabaseStorage implements IStorage {
       totalProperties: Number(propertyCount?.count || 0),
       dossiersGenerated: Number(dossierCount?.count || 0),
     };
+  }
+
+  // LLC operations
+  async getLlc(id: string): Promise<Llc | undefined> {
+    const [llc] = await db.select().from(llcs).where(eq(llcs.id, id));
+    return llc;
+  }
+
+  async getLlcs(): Promise<Llc[]> {
+    return await db.select().from(llcs).orderBy(desc(llcs.createdAt));
+  }
+
+  async createLlc(llc: InsertLlc): Promise<Llc> {
+    const [newLlc] = await db.insert(llcs).values(llc).returning();
+    return newLlc;
+  }
+
+  async updateLlc(id: string, llc: Partial<InsertLlc>): Promise<Llc | undefined> {
+    const [updated] = await db
+      .update(llcs)
+      .set({ ...llc, updatedAt: new Date() })
+      .where(eq(llcs.id, id))
+      .returning();
+    return updated;
+  }
+
+  async searchLlcs(query: string): Promise<Llc[]> {
+    return await db
+      .select()
+      .from(llcs)
+      .where(
+        or(
+          ilike(llcs.name, `%${query}%`),
+          ilike(llcs.registrationNumber, `%${query}%`),
+          ilike(llcs.registeredAgent, `%${query}%`)
+        )
+      )
+      .orderBy(desc(llcs.createdAt));
+  }
+
+  async getLlcByName(name: string, jurisdiction?: string): Promise<Llc | undefined> {
+    const normalizedName = name.toUpperCase().trim();
+    const results = await db
+      .select()
+      .from(llcs)
+      .where(ilike(llcs.name, normalizedName));
+    
+    if (jurisdiction && results.length > 1) {
+      return results.find(l => l.jurisdiction?.toUpperCase() === jurisdiction.toUpperCase()) || results[0];
+    }
+    return results[0];
   }
 }
 
