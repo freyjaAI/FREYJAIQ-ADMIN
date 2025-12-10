@@ -625,11 +625,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           console.log(`Individual owner enrichment for: "${normalizedOwnerName}"`);
           
           // Initialize contact enrichment structure for individual
+          const sources: string[] = [];
           contactEnrichment = {
             directDials: [] as any[],
             companyEmails: [] as any[],
             employeeProfiles: [] as any[],
             skipTraceData: null as any, // Will store extended skip trace data (relatives, associates, previous addresses)
+            sources: sources,
+            lastUpdated: new Date().toISOString(),
           };
           
           const nameParts = normalizedOwnerName.split(/\s+/);
@@ -718,6 +721,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               };
               
               console.log(`Apify Skip Trace: Found ${skipTraceResult.phones.length} phones, ${skipTraceResult.emails.length} emails, ${skipTraceResult.relatives.length} relatives, ${skipTraceResult.associates?.length || 0} associates`);
+              sources.push("apify_skip_trace");
             }
           } else {
             console.log("[1/4] Apify Skip Trace: Not configured (no APIFY_API_TOKEN)");
@@ -790,6 +794,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                 });
               }
             }
+            if (filteredPeople.length > 0 && !sources.includes("data_axle")) {
+              sources.push("data_axle");
+            }
           }
           
           // 3. PACIFIC EAST (Enhanced phone/email append)
@@ -860,6 +867,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             }
             
             console.log(`Pacific East enrichment found: ${pacificEastResult.phones.length} phones, ${pacificEastResult.emails.length} emails`);
+            if ((pacificEastResult.phones.length > 0 || pacificEastResult.emails.length > 0) && !sources.includes("pacific_east")) {
+              sources.push("pacific_east");
+            }
           }
           
           // 4. A-LEADS (Final fallback)
@@ -896,8 +906,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               });
             }
           }
+          if ((aLeadsResults || []).length > 0 && !sources.includes("a_leads")) {
+            sources.push("a_leads");
+          }
           
-          console.log(`Individual enrichment complete: ${contactEnrichment.directDials.length} phones, ${contactEnrichment.companyEmails.length} emails`);
+          console.log(`Individual enrichment complete: ${contactEnrichment.directDials.length} phones, ${contactEnrichment.companyEmails.length} emails, sources: ${sources.join(", ")}`);
         } catch (err) {
           console.error("Error fetching individual contact enrichment:", err);
         }
