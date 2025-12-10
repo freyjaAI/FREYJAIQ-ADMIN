@@ -3,6 +3,7 @@ import {
   Search,
   Users,
   Building2,
+  Building,
   FileText,
   Settings,
   LayoutDashboard,
@@ -45,6 +46,11 @@ const menuItems = [
     title: "Properties",
     url: "/properties",
     icon: Building2,
+  },
+  {
+    title: "LLCs",
+    url: "/llcs",
+    icon: Building,
   },
   {
     title: "Dossiers",
