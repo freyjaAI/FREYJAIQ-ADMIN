@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { Building, Search, Filter, ExternalLink, ChevronRight, Loader2 } from "lucide-react";
+import { Building, Search, Filter, ChevronRight, Loader2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -180,23 +180,6 @@ export default function LLCsPage() {
                         <span>{result.entityType}</span>
                         <span className="font-mono text-xs">{result.registrationNumber}</span>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        asChild
-                      >
-                        <a
-                          href={result.opencorporatesUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          data-testid={`link-opencorporates-${idx}`}
-                        >
-                          <ExternalLink className="h-4 w-4 mr-1" />
-                          View on OpenCorporates
-                        </a>
-                      </Button>
                     </div>
                   </div>
                 </CardContent>

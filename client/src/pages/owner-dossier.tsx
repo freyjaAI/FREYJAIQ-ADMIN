@@ -539,21 +539,6 @@ export default function OwnerDossierPage() {
                         </div>
                       )}
 
-                      {/* Person Link */}
-                      {contactEnrichment.skipTraceData.personLink && (
-                        <div className="pt-2 border-t">
-                          <a 
-                            href={contactEnrichment.skipTraceData.personLink}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                            data-testid="link-person-profile"
-                          >
-                            <ExternalLink className="h-3 w-3" />
-                            View full profile
-                          </a>
-                        </div>
-                      )}
                     </CardContent>
                   </Card>
                 </CollapsibleContent>

@@ -3,7 +3,6 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   Building,
   ArrowLeft,
-  ExternalLink,
   Phone,
   Mail,
   MapPin,
@@ -270,19 +269,6 @@ export default function LlcDossierPage() {
             )}
             Refresh
           </Button>
-          {dossier.opencorporatesUrl && (
-            <Button variant="outline" asChild>
-              <a
-                href={dossier.opencorporatesUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                data-testid="link-opencorporates-external"
-              >
-                <ExternalLink className="h-4 w-4 mr-2" />
-                OpenCorporates
-              </a>
-            </Button>
-          )}
         </div>
       </div>
 
