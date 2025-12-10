@@ -107,16 +107,6 @@ export default function Login() {
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             </form>
-            <div className="mt-6 text-center text-sm text-muted-foreground">
-              Don't have an account?{" "}
-              <Link 
-                href="/register" 
-                className="font-medium text-primary hover:underline"
-                data-testid="link-register"
-              >
-                Create one
-              </Link>
-            </div>
           </CardContent>
         </Card>
       </main>

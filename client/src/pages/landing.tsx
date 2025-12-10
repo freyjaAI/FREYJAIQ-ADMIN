@@ -88,8 +88,8 @@ export default function Landing() {
             </p>
             <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
               <Button size="lg" asChild data-testid="button-get-started">
-                <Link href="/register">
-                  Get Started Free
+                <Link href="/login">
+                  Sign In
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Link>
               </Button>
@@ -158,8 +158,8 @@ export default function Landing() {
               Join brokers who are closing more deals with less effort.
             </p>
             <Button size="lg" className="mt-8" asChild data-testid="button-cta">
-              <Link href="/register">
-                Start Free Today
+              <Link href="/login">
+                Sign In
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Link>
             </Button>
