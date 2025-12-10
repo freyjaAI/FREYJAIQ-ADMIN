@@ -57,6 +57,10 @@ interface OpenCorporatesCompany {
   registeredAddress?: string;
   agentName?: string;
   agentAddress?: string;
+  principalAddress?: string;
+  opencorporatesUrl?: string;
+  status?: string;
+  entityType?: string;
   officers: Array<{
     name: string;
     position: string;
@@ -1371,7 +1375,44 @@ export class DataProviderManager {
     if (results.length === 0) return null;
 
     const bestMatch = results[0];
-    return this.openCorporates.getCompany(bestMatch.jurisdictionCode, bestMatch.companyNumber);
+    const company = await this.openCorporates.getCompany(bestMatch.jurisdictionCode, bestMatch.companyNumber);
+    if (company) {
+      company.status = company.currentStatus;
+      company.entityType = company.companyType;
+      company.opencorporatesUrl = `https://opencorporates.com/companies/${company.jurisdictionCode}/${company.companyNumber}`;
+    }
+    return company;
+  }
+
+  async searchOpenCorporates(query: string, jurisdiction?: string): Promise<Array<{
+    name: string;
+    jurisdiction: string;
+    registrationNumber: string;
+    status: string;
+    entityType: string;
+    opencorporatesUrl: string;
+  }>> {
+    if (!this.openCorporates) {
+      console.warn("OpenCorporates provider not configured");
+      return [];
+    }
+
+    try {
+      const jCode = jurisdiction ? `us_${jurisdiction.toLowerCase()}` : undefined;
+      const results = await this.openCorporates.searchCompanies(query, jCode);
+      
+      return results.map(r => ({
+        name: r.name,
+        jurisdiction: r.jurisdictionCode?.replace("us_", "").toUpperCase() || "",
+        registrationNumber: r.companyNumber,
+        status: r.currentStatus || "Unknown",
+        entityType: r.companyType || "Entity",
+        opencorporatesUrl: `https://opencorporates.com/companies/${r.jurisdictionCode}/${r.companyNumber}`,
+      }));
+    } catch (error) {
+      console.error("OpenCorporates search error:", error);
+      return [];
+    }
   }
 
   async searchLlcOfficers(companyName: string): Promise<Array<{ name: string; position: string; companyName: string }>> {

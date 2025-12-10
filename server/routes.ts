@@ -2488,6 +2488,260 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ============================================================
+  // LLC API Routes
+  // ============================================================
+
+  // Get all LLCs
+  app.get("/api/llcs", isAuthenticated, async (req: any, res) => {
+    try {
+      const llcList = await storage.getLlcs();
+      res.json(llcList);
+    } catch (error) {
+      console.error("Error fetching LLCs:", error);
+      res.status(500).json({ message: "Failed to fetch LLCs" });
+    }
+  });
+
+  // Search for LLCs (queries OpenCorporates)
+  app.post("/api/llcs/search", isAuthenticated, async (req: any, res) => {
+    try {
+      const { query, jurisdiction } = req.body;
+      
+      if (!query) {
+        return res.status(400).json({ message: "Search query is required" });
+      }
+
+      console.log(`LLC Search: "${query}" in ${jurisdiction || 'all jurisdictions'}`);
+
+      // Search OpenCorporates
+      const searchResults = await dataProviders.searchOpenCorporates(query, jurisdiction);
+      
+      res.json({
+        results: searchResults || [],
+        query,
+        jurisdiction,
+      });
+    } catch (error) {
+      console.error("Error searching LLCs:", error);
+      res.status(500).json({ message: "LLC search failed" });
+    }
+  });
+
+  // Get LLC by ID
+  app.get("/api/llcs/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const llc = await storage.getLlc(req.params.id);
+      if (!llc) {
+        return res.status(404).json({ message: "LLC not found" });
+      }
+      res.json(llc);
+    } catch (error) {
+      console.error("Error fetching LLC:", error);
+      res.status(500).json({ message: "Failed to fetch LLC" });
+    }
+  });
+
+  // Get LLC dossier (with enrichment)
+  app.get("/api/llcs/:id/dossier", isAuthenticated, async (req: any, res) => {
+    try {
+      const llc = await storage.getLlc(req.params.id);
+      if (!llc) {
+        return res.status(404).json({ message: "LLC not found" });
+      }
+
+      // Check if we already have enrichment data
+      if (llc.enrichmentData && llc.officers) {
+        console.log(`Using cached LLC dossier for ${llc.name}`);
+        return res.json({
+          llc,
+          officers: llc.officers,
+          enrichment: llc.enrichmentData,
+          aiOutreach: llc.aiOutreach,
+        });
+      }
+
+      console.log(`Enriching LLC dossier for ${llc.name}`);
+
+      // Lookup detailed company info from OpenCorporates
+      let detailedInfo = null;
+      try {
+        detailedInfo = await dataProviders.lookupLlc(llc.name);
+      } catch (err) {
+        console.error("OpenCorporates lookup failed:", err);
+      }
+
+      // Build officers list
+      const officers = detailedInfo?.officers || (llc.officers as any[]) || [];
+      
+      // Enrich each officer with contact info
+      const enrichedOfficers: any[] = [];
+      for (const officer of officers.slice(0, 5)) {
+        const officerData: any = {
+          name: officer.name || officer.officerName,
+          position: officer.position || officer.role || "Officer",
+          role: officer.role || "officer",
+          address: officer.address,
+          emails: [],
+          phones: [],
+        };
+
+        // Skip trace for officer contact info
+        if (officerData.name && looksLikePersonName(officerData.name)) {
+          try {
+            const apifySkipTrace = await import("./providers/ApifySkipTraceProvider.js");
+            if (apifySkipTrace.isConfigured()) {
+              // Normalize name: convert "LAST, FIRST" to "FIRST LAST"
+              let normalizedOfficerName = officerData.name;
+              if (normalizedOfficerName.includes(",")) {
+                const parts = normalizedOfficerName.split(",").map((p: string) => p.trim());
+                if (parts.length === 2) {
+                  normalizedOfficerName = `${parts[1]} ${parts[0]}`;
+                }
+              }
+              const skipResult = await apifySkipTrace.skipTraceIndividual(
+                normalizedOfficerName,
+                undefined,
+                undefined,
+                llc.jurisdiction || undefined,
+                undefined
+              );
+              
+              if (skipResult) {
+                for (const phone of skipResult.phones || []) {
+                  officerData.phones.push({
+                    phone: phone.number,
+                    type: phone.type?.toLowerCase().includes("wireless") ? "mobile" : "landline",
+                    source: "apify_skip_trace",
+                    confidence: 90,
+                  });
+                }
+                for (const email of skipResult.emails || []) {
+                  officerData.emails.push({
+                    email: email.email,
+                    source: "apify_skip_trace",
+                    confidence: 90,
+                  });
+                }
+              }
+            }
+          } catch (err) {
+            console.error(`Skip trace failed for officer ${officerData.name}:`, err);
+          }
+        }
+
+        officerData.confidenceScore = 
+          officerData.phones.length > 0 || officerData.emails.length > 0 ? 85 : 50;
+        enrichedOfficers.push(officerData);
+      }
+
+      // Generate AI outreach suggestion
+      let aiOutreach = llc.aiOutreach;
+      if (!aiOutreach && enrichedOfficers.length > 0) {
+        try {
+          const primaryOfficer = enrichedOfficers[0];
+          // Create owner-like object for AI outreach
+          const llcAsOwner = {
+            id: llc.id,
+            name: primaryOfficer.name || llc.name,
+            type: "entity" as const,
+            primaryAddress: llc.principalAddress || llc.registeredAddress || null,
+            mailingAddress: null,
+            akaNames: null,
+            riskFlags: null,
+            sellerIntentScore: 50,
+            contactConfidenceScore: null,
+            metadata: null,
+            createdAt: llc.createdAt,
+            updatedAt: llc.updatedAt,
+          };
+          aiOutreach = await generateOutreachSuggestion(llcAsOwner, [], 50);
+        } catch (err) {
+          console.error("AI outreach generation failed:", err);
+        }
+      }
+
+      // Update LLC with enrichment data
+      const enrichmentData = {
+        enrichedOfficers,
+        registeredAgent: detailedInfo?.agentName || llc.registeredAgent,
+        registeredAddress: detailedInfo?.agentAddress || llc.registeredAddress,
+        status: detailedInfo?.status || llc.status,
+        entityType: detailedInfo?.entityType || llc.entityType,
+        enrichedAt: new Date().toISOString(),
+      };
+
+      await storage.updateLlc(llc.id, {
+        officers: enrichedOfficers,
+        enrichmentData,
+        aiOutreach,
+        registeredAgent: enrichmentData.registeredAgent,
+        registeredAddress: enrichmentData.registeredAddress,
+        status: enrichmentData.status,
+        entityType: enrichmentData.entityType,
+      });
+
+      res.json({
+        llc: {
+          ...llc,
+          officers: enrichedOfficers,
+          enrichmentData,
+          aiOutreach,
+        },
+        officers: enrichedOfficers,
+        enrichment: enrichmentData,
+        aiOutreach,
+      });
+    } catch (error) {
+      console.error("Error fetching LLC dossier:", error);
+      res.status(500).json({ message: "Failed to fetch LLC dossier" });
+    }
+  });
+
+  // Import LLC from OpenCorporates search result
+  app.post("/api/llcs/import", isAuthenticated, async (req: any, res) => {
+    try {
+      const { name, jurisdiction, opencorporatesUrl, registrationNumber, status, entityType } = req.body;
+
+      if (!name) {
+        return res.status(400).json({ message: "LLC name is required" });
+      }
+
+      // Check if LLC already exists
+      let existingLlc = await storage.getLlcByName(name, jurisdiction);
+      if (existingLlc) {
+        return res.json({ llc: existingLlc, existed: true });
+      }
+
+      // Look up detailed info from OpenCorporates
+      let detailedInfo = null;
+      try {
+        detailedInfo = await dataProviders.lookupLlc(name);
+      } catch (err) {
+        console.error("OpenCorporates lookup failed:", err);
+      }
+
+      // Create new LLC
+      const newLlc = await storage.createLlc({
+        name: name.toUpperCase(),
+        jurisdiction: jurisdiction || detailedInfo?.jurisdictionCode,
+        entityType: entityType || detailedInfo?.entityType,
+        status: status || detailedInfo?.status,
+        registrationNumber: registrationNumber || detailedInfo?.companyNumber,
+        registeredAgent: detailedInfo?.agentName,
+        registeredAddress: detailedInfo?.agentAddress,
+        principalAddress: detailedInfo?.principalAddress,
+        opencorporatesUrl: opencorporatesUrl || detailedInfo?.opencorporatesUrl,
+        officers: detailedInfo?.officers || [],
+      });
+
+      res.json({ llc: newLlc, existed: false });
+    } catch (error) {
+      console.error("Error importing LLC:", error);
+      res.status(500).json({ message: "Failed to import LLC" });
+    }
+  });
+
   // Debug API test endpoint
   app.get("/api/debug/test-apis", isAuthenticated, async (req: any, res) => {
     const results: Record<string, any> = {};
