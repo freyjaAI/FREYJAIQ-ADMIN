@@ -378,6 +378,53 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
         return name;
       };
+      
+      // Helper to format person names for search APIs (converts ALL CAPS to Proper Case)
+      const formatPersonNameForSearch = (name?: string | null): { primary: string; variants: string[] } => {
+        if (!name) return { primary: "", variants: [] };
+        
+        // Remove legal suffixes (JR, SR, II, III, IV, etc.) for cleaner matching
+        const suffixPattern = /\s+(JR\.?|SR\.?|II|III|IV|V|MD|PHD|ESQ)$/i;
+        let cleanName = name.replace(suffixPattern, "").trim();
+        
+        // Convert ALL CAPS to Proper Case (Title Case)
+        const toProperCase = (str: string): string => {
+          return str.toLowerCase().replace(/\b\w/g, char => char.toUpperCase());
+        };
+        
+        // Check if name is all uppercase
+        const isAllCaps = cleanName === cleanName.toUpperCase();
+        const properCaseName = isAllCaps ? toProperCase(cleanName) : cleanName;
+        
+        // Parse name parts to generate variants
+        const parts = properCaseName.split(/\s+/);
+        const variants: string[] = [];
+        
+        if (parts.length >= 2) {
+          const firstName = parts[0];
+          const lastName = parts[parts.length - 1];
+          
+          // If there's a middle initial (single letter possibly with period)
+          if (parts.length >= 3) {
+            const middlePart = parts.slice(1, -1).join(" ");
+            
+            // Variant 1: First + Last only (no middle)
+            variants.push(`${firstName} ${lastName}`);
+            
+            // Variant 2: If middle is initial only, try with period (e.g., "C" -> "C.")
+            if (middlePart.length === 1) {
+              variants.push(`${firstName} ${middlePart}. ${lastName}`);
+            }
+          }
+          
+          // Keep original format as additional variant if different
+          if (!variants.includes(properCaseName)) {
+            variants.push(properCaseName);
+          }
+        }
+        
+        return { primary: properCaseName, variants };
+      };
 
       // Fetch contact enrichment data from Data Axle / A-Leads
       let contactEnrichment = null;
@@ -638,7 +685,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         // Order: 1) Apify Skip Trace, 2) Data Axle, 3) Pacific East, 4) A-Leads
         try {
           const parsed = parseAddress(owner.primaryAddress);
-          const normalizedOwnerName = normalizeName(owner.name);
+          const normalizedOwnerName = normalizeName(owner.name) || owner.name || "";
           
           console.log(`Individual owner enrichment for: "${normalizedOwnerName}"`);
           
@@ -661,15 +708,33 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           // 1. APIFY SKIP TRACE (Primary source - best for cell phones)
           const apifySkipTrace = await import("./providers/ApifySkipTraceProvider.js");
           if (apifySkipTrace.isConfigured()) {
-            console.log(`[1/4] Apify Skip Trace: Searching for ${normalizedOwnerName} at ${parsed?.line1}`);
+            // Format name for person search (converts ALL CAPS to Proper Case)
+            const formattedName = formatPersonNameForSearch(normalizedOwnerName);
+            const namesToTry = [formattedName.primary, ...formattedName.variants].filter(Boolean);
             
-            const skipTraceResult = await apifySkipTrace.skipTraceIndividual(
-              normalizedOwnerName,
-              parsed?.line1,
-              parsed?.city,
-              parsed?.state,
-              parsed?.zip
-            );
+            console.log(`[1/4] Apify Skip Trace: Searching for "${formattedName.primary}" at ${parsed?.line1} (variants: ${namesToTry.join(", ")})`);
+            
+            let skipTraceResult = null;
+            // Try each name variant until we find a result with phones
+            for (const nameVariant of namesToTry) {
+              console.log(`Apify Skip Trace: Trying name variant "${nameVariant}"`);
+              const result = await apifySkipTrace.skipTraceIndividual(
+                nameVariant,
+                parsed?.line1,
+                parsed?.city,
+                parsed?.state,
+                parsed?.zip
+              );
+              
+              if (result && (result.phones.length > 0 || result.emails.length > 0)) {
+                skipTraceResult = result;
+                console.log(`Apify Skip Trace: Found match with variant "${nameVariant}"`);
+                break;
+              } else if (result && !skipTraceResult) {
+                // Store first result even if no phones, in case all variants fail
+                skipTraceResult = result;
+              }
+            }
             
             if (skipTraceResult) {
               // Add phones from skip trace (prioritize wireless/cell phones)
