@@ -397,7 +397,7 @@ export async function enrichContactFull(params: {
     city: city,
     state: state,
     postalCode: zip,
-    queryType: "0", // All phones
+    queryType: "2", // Prioritize wireless phones
   });
   
   // Step 2: Also search by NAME + CITY to find phones associated with the person
@@ -409,7 +409,7 @@ export async function enrichContactFull(params: {
     lastName: lastName,
     city: city,  // Need city for valid query
     state: state,
-    queryType: "0", // All phones
+    queryType: "2", // Prioritize wireless phones
   });
   
   // Step 3: Try name + address for email (email API requires lastName)
