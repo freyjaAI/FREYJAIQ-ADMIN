@@ -3267,8 +3267,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       // Check if we already have enrichment data
       const cachedEnrichment = llc.enrichmentData as any;
-      if (cachedEnrichment?.enrichedOfficers && llc.officers) {
-        console.log(`Using cached LLC dossier for ${llc.name}`);
+      
+      // Check if cached officers have actual contact data (not just base 35% score)
+      const hasContactData = cachedEnrichment?.enrichedOfficers?.some((o: any) => 
+        (o.phones?.length > 0) || (o.emails?.length > 0)
+      );
+      
+      // Only use cache if officers have contact data, otherwise re-enrich
+      if (cachedEnrichment?.enrichedOfficers && llc.officers && hasContactData) {
+        console.log(`Using cached LLC dossier for ${llc.name} (has contact data)`);
         
         // Migrate/sanitize cached officers to ensure confidence scores are present
         const sanitizedOfficers = cachedEnrichment.enrichedOfficers.map((officer: any) => {
@@ -3563,6 +3570,89 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           }
         } catch (err) {
           console.error(`Melissa failed for officer ${officerData.name}:`, err);
+        }
+
+        // 4. PACIFIC EAST (Phone append if still no phones)
+        if (officerData.phones.length === 0) {
+          try {
+            console.log(`[4/5] Pacific East FPA for officer: ${officerData.name}`);
+            const pacificEastResult = await dataProviders.fetchPacificEastFPA({
+              firstName,
+              lastName,
+              address: officerData.skipTraceData?.currentAddress?.streetAddress,
+              city: officerData.skipTraceData?.currentAddress?.city,
+              state: officerState,
+              zip: officerData.skipTraceData?.currentAddress?.postalCode,
+            });
+            
+            if (pacificEastResult?.phones?.length) {
+              for (const phone of pacificEastResult.phones) {
+                const normalizedPhone = phone.phone?.replace(/\D/g, "");
+                if (normalizedPhone && !officerData.phones.some((p: any) => 
+                  p.phone?.replace(/\D/g, "") === normalizedPhone
+                )) {
+                  officerData.phones.push({
+                    phone: phone.phone,
+                    type: phone.type || "direct",
+                    source: "pacific_east",
+                    confidence: phone.matchScore || 55,
+                  });
+                }
+              }
+              console.log(`Pacific East for officer: Found ${pacificEastResult.phones.length} phones`);
+            }
+          } catch (err) {
+            console.error(`Pacific East failed for officer ${officerData.name}:`, err);
+          }
+        }
+
+        // 5. A-LEADS (Skip trace fallback if still no phones)
+        if (officerData.phones.length === 0) {
+          try {
+            console.log(`[5/5] A-Leads for officer: ${officerData.name}`);
+            const aleadsResult = await dataProviders.fetchALeadsSkipTrace({
+              firstName,
+              lastName,
+              address: officerData.skipTraceData?.currentAddress?.streetAddress,
+              city: officerData.skipTraceData?.currentAddress?.city,
+              state: officerState,
+              zip: officerData.skipTraceData?.currentAddress?.postalCode,
+            });
+            
+            if (aleadsResult) {
+              // Add phones from A-Leads
+              for (const phone of aleadsResult.phones || []) {
+                const normalizedPhone = phone.phone?.replace(/\D/g, "");
+                if (normalizedPhone && !officerData.phones.some((p: any) => 
+                  p.phone?.replace(/\D/g, "") === normalizedPhone
+                )) {
+                  officerData.phones.push({
+                    phone: phone.phone,
+                    type: phone.type || "direct",
+                    source: "a_leads",
+                    confidence: phone.confidence || 50,
+                  });
+                }
+              }
+              
+              // Add emails from A-Leads
+              for (const email of aleadsResult.emails || []) {
+                if (email.email && !officerData.emails.some((e: any) => 
+                  e.email?.toLowerCase() === email.email.toLowerCase()
+                )) {
+                  officerData.emails.push({
+                    email: email.email,
+                    type: "personal",
+                    source: "a_leads",
+                    confidence: email.confidence || 50,
+                  });
+                }
+              }
+              console.log(`A-Leads for officer: Found ${aleadsResult.phones?.length || 0} phones, ${aleadsResult.emails?.length || 0} emails`);
+            }
+          } catch (err) {
+            console.error(`A-Leads failed for officer ${officerData.name}:`, err);
+          }
         }
 
         // Calculate confidence score based on data quality
