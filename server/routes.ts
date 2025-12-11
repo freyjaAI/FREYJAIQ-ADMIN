@@ -3703,6 +3703,80 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         console.log(`Officer ${officerData.name}: ${officerData.phones.length} phones, ${officerData.emails.length} emails, confidence=${officerData.confidenceScore}%`);
       }
 
+      // Merge duplicate officers (same name, different roles) into single records
+      // Keep higher confidence data and combine contact info
+      const mergedOfficersMap = new Map<string, any>();
+      for (const officer of enrichedOfficers) {
+        const normalizedName = (officer.name || "").toUpperCase().trim();
+        if (!normalizedName) continue;
+        
+        if (!mergedOfficersMap.has(normalizedName)) {
+          mergedOfficersMap.set(normalizedName, { ...officer });
+        } else {
+          const existing = mergedOfficersMap.get(normalizedName)!;
+          
+          // Merge positions/roles
+          const existingPositions = (existing.position || "").split(",").map((p: string) => p.trim().toLowerCase());
+          const newPosition = (officer.position || "").trim().toLowerCase();
+          if (newPosition && !existingPositions.includes(newPosition)) {
+            existing.position = existing.position 
+              ? `${existing.position}, ${officer.position}` 
+              : officer.position;
+          }
+          
+          // Keep highest confidence record's skipTraceData
+          if (officer.confidenceScore > existing.confidenceScore) {
+            // Use the higher confidence record's data as base
+            existing.skipTraceData = officer.skipTraceData || existing.skipTraceData;
+            existing.melissaData = officer.melissaData || existing.melissaData;
+            existing.address = officer.address || existing.address;
+            existing.confidenceScore = officer.confidenceScore;
+          } else if (!existing.skipTraceData && officer.skipTraceData) {
+            existing.skipTraceData = officer.skipTraceData;
+          }
+          
+          // Merge phones (dedup by normalized number)
+          for (const phone of officer.phones || []) {
+            const normalizedPhone = phone.phone?.replace(/\D/g, "");
+            if (normalizedPhone && !existing.phones.some((p: any) => 
+              p.phone?.replace(/\D/g, "") === normalizedPhone
+            )) {
+              existing.phones.push(phone);
+            }
+          }
+          
+          // Merge emails (dedup by lowercase)
+          for (const email of officer.emails || []) {
+            if (email.email && !existing.emails.some((e: any) => 
+              e.email?.toLowerCase() === email.email.toLowerCase()
+            )) {
+              existing.emails.push(email);
+            }
+          }
+          
+          // Recalculate confidence after merge
+          const hasPhone = existing.phones.length > 0;
+          const hasEmail = existing.emails.length > 0;
+          const hasVerified = existing.melissaData?.nameMatch?.verified || 
+                              existing.melissaData?.addressMatch?.verified;
+          let newConfidence = 35;
+          if (hasPhone) newConfidence += 25;
+          if (hasEmail) newConfidence += 20;
+          if (hasVerified) newConfidence += 20;
+          existing.confidenceScore = Math.min(newConfidence, 100);
+        }
+      }
+      
+      // Replace enrichedOfficers with merged list (sorted by confidence)
+      const mergedOfficers = Array.from(mergedOfficersMap.values())
+        .sort((a, b) => (b.confidenceScore || 0) - (a.confidenceScore || 0));
+      
+      console.log(`Merged ${enrichedOfficers.length} officers into ${mergedOfficers.length} unique records`);
+      
+      // Use merged officers for the rest of the flow
+      enrichedOfficers.length = 0;
+      enrichedOfficers.push(...mergedOfficers);
+
       // Generate AI outreach suggestion
       let aiOutreach = llc.aiOutreach;
       if (!aiOutreach && enrichedOfficers.length > 0) {
