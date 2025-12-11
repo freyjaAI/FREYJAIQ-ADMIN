@@ -49,6 +49,39 @@ const ENTITY_KEYWORDS = [
   'ASSOCIATION', 'FOUNDATION', 'PARTNERSHIP', 'JOINT VENTURE',
 ];
 
+// In-memory cache for LLC search results to prevent repeated OpenCorporates API calls
+// Key: normalized search query, Value: { results, timestamp }
+const llcSearchCache = new Map<string, { results: any[]; timestamp: number }>();
+const LLC_SEARCH_CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours in milliseconds
+
+function getCachedLlcSearchResults(query: string, jurisdiction?: string): any[] | null {
+  const cacheKey = `${query.toUpperCase().trim()}:${jurisdiction || "any"}`;
+  const cached = llcSearchCache.get(cacheKey);
+  
+  if (cached && (Date.now() - cached.timestamp) < LLC_SEARCH_CACHE_TTL_MS) {
+    console.log(`[CACHE HIT] LLC search "${query}" - using cached search results`);
+    return cached.results;
+  }
+  
+  return null;
+}
+
+function setCachedLlcSearchResults(query: string, jurisdiction: string | undefined, results: any[]): void {
+  const cacheKey = `${query.toUpperCase().trim()}:${jurisdiction || "any"}`;
+  llcSearchCache.set(cacheKey, { results, timestamp: Date.now() });
+  console.log(`[CACHE SET] LLC search "${query}" - caching ${results.length} results`);
+  
+  // Clean up old entries periodically (keep cache size manageable)
+  if (llcSearchCache.size > 500) {
+    const now = Date.now();
+    for (const [key, value] of llcSearchCache.entries()) {
+      if (now - value.timestamp > LLC_SEARCH_CACHE_TTL_MS) {
+        llcSearchCache.delete(key);
+      }
+    }
+  }
+}
+
 // Helper to detect if a name looks like an entity/company rather than an individual
 function isEntityName(name: string): boolean {
   const upperName = name.toUpperCase();
@@ -625,13 +658,33 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         console.error("Error generating outreach:", err);
       }
 
-      // Fetch LLC unmasking data for entity owners (using centralized entity detection)
+      // Fetch LLC unmasking data for entity owners (using centralized entity detection with caching)
       const isEntity = shouldTreatAsEntity(owner.type, owner.name);
       console.log(`Owner "${owner.name}" type="${owner.type}" -> isEntity=${isEntity}`);
       let llcUnmasking = null;
       if (isEntity) {
         try {
-          llcUnmasking = await dataProviders.fetchLlcUnmasking(owner.name);
+          // Use cached LLC data to avoid wasting OpenCorporates API calls
+          const cachedLlcResult = await getCachedLlcData(owner.name);
+          if (cachedLlcResult) {
+            const llc = cachedLlcResult.llc;
+            llcUnmasking = {
+              entityName: llc.name,
+              entityType: llc.entityType,
+              status: llc.status,
+              jurisdiction: llc.jurisdictionCode,
+              registrationNumber: llc.companyNumber,
+              registeredAgent: llc.agentName,
+              agentAddress: llc.agentAddress,
+              principalAddress: llc.principalAddress,
+              officers: (llc.officers || []).map((o: any) => ({
+                name: o.name,
+                position: o.position || o.role,
+              })),
+              fromCache: cachedLlcResult.fromCache,
+            };
+            console.log(`LLC unmasking for "${owner.name}": ${cachedLlcResult.fromCache ? "[CACHE]" : "[API]"} - ${(llc.officers || []).length} officers`);
+          }
         } catch (err) {
           console.error("Error fetching LLC unmasking:", err);
         }
@@ -1629,11 +1682,29 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           console.error("Failed to generate AI outreach for PDF:", e);
         }
 
-        // Fetch LLC unmasking data for entities (using centralized entity detection)
+        // Fetch LLC unmasking data for entities (using centralized entity detection with caching)
         const isEntity = shouldTreatAsEntity(owner.type, owner.name);
         if (isEntity) {
           try {
-            llcUnmasking = await dataProviders.fetchLlcUnmasking(owner.name);
+            // Use cached LLC data to avoid wasting OpenCorporates API calls
+            const cachedLlcResult = await getCachedLlcData(owner.name);
+            if (cachedLlcResult) {
+              const llc = cachedLlcResult.llc;
+              llcUnmasking = {
+                entityName: llc.name,
+                entityType: llc.entityType,
+                status: llc.status,
+                jurisdiction: llc.jurisdictionCode,
+                registrationNumber: llc.companyNumber,
+                registeredAgent: llc.agentName,
+                agentAddress: llc.agentAddress,
+                principalAddress: llc.principalAddress,
+                officers: (llc.officers || []).map((o: any) => ({
+                  name: o.name,
+                  position: o.position || o.role,
+                })),
+              };
+            }
           } catch (e) {
             console.error("Failed to fetch LLC data for PDF:", e);
           }
@@ -2349,7 +2420,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  // External LLC Officers (OpenCorporates)
+  // External LLC Officers (OpenCorporates) - with caching
   app.get("/api/external/llc-officers", isAuthenticated, async (req: any, res) => {
     try {
       const { name } = req.query;
@@ -2358,8 +2429,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(400).json({ message: "Company name required" });
       }
 
-      const officers = await dataProviders.searchLlcOfficers(name);
-      res.json(officers);
+      // Use cached LLC data to avoid wasting OpenCorporates API calls
+      const cachedResult = await getCachedLlcData(name);
+      if (cachedResult && cachedResult.llc.officers) {
+        const officers = (cachedResult.llc.officers || []).map((o: any) => ({
+          name: o.name,
+          position: o.position || o.role,
+          companyName: cachedResult.llc.name,
+        }));
+        console.log(`[CACHE ${cachedResult.fromCache ? "HIT" : "MISS"}] LLC officers for "${name}": ${officers.length} officers`);
+        return res.json(officers);
+      }
+
+      res.json([]);
     } catch (error) {
       console.error("Error searching LLC officers:", error);
       res.status(500).json({ message: "LLC officer search failed" });
@@ -3118,10 +3200,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  // Search for LLCs (queries OpenCorporates)
+  // Search for LLCs (queries OpenCorporates) - with in-memory caching
   app.post("/api/llcs/search", isAuthenticated, async (req: any, res) => {
     try {
-      const { query, jurisdiction } = req.body;
+      const { query, jurisdiction, forceRefresh } = req.body;
       
       if (!query) {
         return res.status(400).json({ message: "Search query is required" });
@@ -3129,13 +3211,31 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       console.log(`LLC Search: "${query}" in ${jurisdiction || 'all jurisdictions'}`);
 
-      // Search OpenCorporates
+      // Check in-memory cache first to avoid wasting OpenCorporates API calls
+      if (!forceRefresh) {
+        const cachedResults = getCachedLlcSearchResults(query, jurisdiction);
+        if (cachedResults !== null) {
+          return res.json({
+            results: cachedResults,
+            query,
+            jurisdiction,
+            fromCache: true,
+          });
+        }
+      }
+
+      // Not in cache - search OpenCorporates
+      console.log(`[API CALL] OpenCorporates search: "${query}" (jurisdiction: ${jurisdiction || "any"})`);
       const searchResults = await dataProviders.searchOpenCorporates(query, jurisdiction);
+      
+      // Cache the results
+      setCachedLlcSearchResults(query, jurisdiction, searchResults || []);
       
       res.json({
         results: searchResults || [],
         query,
         jurisdiction,
+        fromCache: false,
       });
     } catch (error) {
       console.error("Error searching LLCs:", error);
