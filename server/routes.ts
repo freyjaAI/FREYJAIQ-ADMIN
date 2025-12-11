@@ -110,6 +110,128 @@ function shouldTreatAsEntity(ownerType: string, ownerName: string): boolean {
   return ownerType === "entity";
 }
 
+// Cache configuration for LLC lookups
+const LLC_CACHE_TTL_HOURS = 72; // 3 days - LLC data doesn't change frequently
+
+// Cached LLC lookup - checks database cache before making OpenCorporates API calls
+// Returns cached data if available and not expired, otherwise fetches from API and caches
+async function getCachedLlcData(
+  companyName: string,
+  jurisdiction?: string,
+  forceRefresh: boolean = false
+): Promise<{ llc: any; fromCache: boolean; cacheAge?: number } | null> {
+  const normalizedName = companyName.toUpperCase().trim();
+  
+  // Check llcs table for cached data
+  const cachedLlc = await storage.getLlcByName(normalizedName, jurisdiction);
+  
+  if (cachedLlc && !forceRefresh) {
+    // Check if cache is still valid (within TTL)
+    const cacheAge = cachedLlc.updatedAt 
+      ? (Date.now() - new Date(cachedLlc.updatedAt).getTime()) / (1000 * 60 * 60)
+      : Infinity;
+    
+    if (cacheAge < LLC_CACHE_TTL_HOURS) {
+      console.log(`[CACHE HIT] LLC "${normalizedName}" - cached ${cacheAge.toFixed(1)}h ago, TTL=${LLC_CACHE_TTL_HOURS}h`);
+      return {
+        llc: {
+          name: cachedLlc.name,
+          jurisdictionCode: cachedLlc.jurisdiction,
+          companyNumber: cachedLlc.registrationNumber,
+          entityType: cachedLlc.entityType,
+          status: cachedLlc.status,
+          officers: cachedLlc.officers || [],
+          agentName: cachedLlc.registeredAgent,
+          agentAddress: cachedLlc.registeredAddress,
+          principalAddress: cachedLlc.principalAddress,
+          opencorporatesUrl: cachedLlc.opencorporatesUrl,
+        },
+        fromCache: true,
+        cacheAge: Math.round(cacheAge),
+      };
+    } else {
+      console.log(`[CACHE STALE] LLC "${normalizedName}" - cached ${cacheAge.toFixed(1)}h ago exceeds TTL=${LLC_CACHE_TTL_HOURS}h, will refresh`);
+    }
+  }
+  
+  // Not in cache or cache expired or force refresh - call OpenCorporates API
+  console.log(`[API CALL] OpenCorporates: Looking up "${normalizedName}" (jurisdiction: ${jurisdiction || "any"})`);
+  
+  try {
+    const llcResult = await dataProviders.lookupLlc(normalizedName, jurisdiction);
+    
+    if (!llcResult) {
+      console.log(`[API] OpenCorporates: No result for "${normalizedName}"`);
+      return null;
+    }
+    
+    // Store in llcs table for future cache hits
+    if (cachedLlc) {
+      // Update existing cache entry
+      await storage.updateLlc(cachedLlc.id, {
+        jurisdiction: llcResult.jurisdictionCode,
+        registrationNumber: llcResult.companyNumber,
+        entityType: llcResult.entityType,
+        status: llcResult.status || cachedLlc.status,
+        registeredAgent: llcResult.agentName,
+        registeredAddress: llcResult.agentAddress,
+        principalAddress: llcResult.principalAddress,
+        opencorporatesUrl: llcResult.opencorporatesUrl,
+        officers: llcResult.officers as any,
+      });
+      console.log(`[CACHE UPDATE] LLC "${normalizedName}" updated in cache`);
+    } else {
+      // Create new cache entry
+      await storage.createLlc({
+        name: normalizedName,
+        jurisdiction: llcResult.jurisdictionCode,
+        registrationNumber: llcResult.companyNumber,
+        entityType: llcResult.entityType,
+        status: llcResult.status,
+        registeredAgent: llcResult.agentName,
+        registeredAddress: llcResult.agentAddress,
+        principalAddress: llcResult.principalAddress,
+        opencorporatesUrl: llcResult.opencorporatesUrl,
+        officers: llcResult.officers as any,
+      });
+      console.log(`[CACHE NEW] LLC "${normalizedName}" added to cache`);
+    }
+    
+    return {
+      llc: llcResult,
+      fromCache: false,
+    };
+  } catch (error: any) {
+    // Handle 403 (quota exceeded) gracefully - return cached data if available
+    if (error.message?.includes("403") || error.message?.includes("quota")) {
+      console.warn(`[API ERROR] OpenCorporates quota exceeded for "${normalizedName}"`);
+      if (cachedLlc) {
+        console.log(`[CACHE FALLBACK] Returning stale cache for "${normalizedName}" due to API quota`);
+        return {
+          llc: {
+            name: cachedLlc.name,
+            jurisdictionCode: cachedLlc.jurisdiction,
+            companyNumber: cachedLlc.registrationNumber,
+            entityType: cachedLlc.entityType,
+            status: cachedLlc.status,
+            officers: cachedLlc.officers || [],
+            agentName: cachedLlc.registeredAgent,
+            agentAddress: cachedLlc.registeredAddress,
+            principalAddress: cachedLlc.principalAddress,
+            opencorporatesUrl: cachedLlc.opencorporatesUrl,
+          },
+          fromCache: true,
+          cacheAge: cachedLlc.updatedAt 
+            ? Math.round((Date.now() - new Date(cachedLlc.updatedAt).getTime()) / (1000 * 60 * 60))
+            : undefined,
+        };
+      }
+    }
+    console.error(`[API ERROR] OpenCorporates lookup failed for "${normalizedName}":`, error.message);
+    throw error;
+  }
+}
+
 export async function registerRoutes(httpServer: Server, app: Express): Promise<void> {
   // Auth middleware
   await setupAuth(app);
@@ -2011,16 +2133,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(400).json({ message: "Company name required" });
       }
 
-      const result = await dataProviders.lookupLlc(
+      // Use cached lookup to prevent wasting OpenCorporates API calls
+      const cachedResult = await getCachedLlcData(
         name,
         typeof state === "string" ? state : undefined
       );
 
-      if (!result) {
+      if (!cachedResult) {
         return res.status(404).json({ message: "LLC not found" });
       }
 
-      res.json(result);
+      res.json({ ...cachedResult.llc, fromCache: cachedResult.fromCache, cacheAge: cachedResult.cacheAge });
     } catch (error) {
       console.error("Error looking up LLC:", error);
       res.status(500).json({ message: "LLC lookup failed" });
@@ -2283,11 +2406,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       // Search by business name via OpenCorporates and ATTOM
       if (type === "business" || type === "all") {
-        // Search LLCs via OpenCorporates
-        const llc = await dataProviders.lookupLlc(query);
-        if (llc) {
-          results.llcs.push(llc);
-          results.sources.push("opencorporates");
+        // Search LLCs via OpenCorporates (cached)
+        const llcResult = await getCachedLlcData(query);
+        if (llcResult) {
+          results.llcs.push(llcResult.llc);
+          results.sources.push(llcResult.fromCache ? "opencorporates-cache" : "opencorporates");
         }
         
         // Also search properties by owner name (business name)
@@ -2317,21 +2440,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       // Search LLCs via OpenCorporates (skip if already searched via business type to avoid duplicates)
       // Note: "all" type already triggers business search which includes LLC lookup
       if (type === "llc" || type === "owner") {
-        const llc = await dataProviders.lookupLlc(query);
-        if (llc) {
-          results.llcs.push(llc);
-          if (!results.sources.includes("opencorporates")) {
-            results.sources.push("opencorporates");
+        const llcResult = await getCachedLlcData(query);
+        if (llcResult) {
+          results.llcs.push(llcResult.llc);
+          if (!results.sources.includes("opencorporates") && !results.sources.includes("opencorporates-cache")) {
+            results.sources.push(llcResult.fromCache ? "opencorporates-cache" : "opencorporates");
           }
 
-          // Get officers
-          const officers = await dataProviders.searchLlcOfficers(query);
+          // Get officers from cached data instead of making another API call
+          const officers = llcResult.llc.officers || [];
           results.contacts.push(
-            ...officers.map((o) => ({
+            ...officers.map((o: any) => ({
               name: o.name,
               title: o.position,
-              company: o.companyName,
-              source: "opencorporates",
+              company: llcResult.llc.name,
+              source: llcResult.fromCache ? "opencorporates-cache" : "opencorporates",
             }))
           );
         }
@@ -2493,10 +2616,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
       }
 
-      // Get LLC info from OpenCorporates (using centralized entity detection)
+      // Get LLC info from OpenCorporates (using centralized entity detection with caching)
       const enrichIsEntity = shouldTreatAsEntity(owner.type, owner.name);
       if (enrichIsEntity) {
-        const llc = await dataProviders.lookupLlc(owner.name);
+        const llcResult = await getCachedLlcData(owner.name);
+        const llc = llcResult?.llc;
         enrichmentResults.llc = llc;
 
         // Create contacts from officers and search Data Axle for their contact info
@@ -2884,10 +3008,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       console.log(`Enriching LLC dossier for ${llc.name}`);
 
-      // Lookup detailed company info from OpenCorporates
+      // Lookup detailed company info from OpenCorporates (with caching)
       let detailedInfo = null;
       try {
-        detailedInfo = await dataProviders.lookupLlc(llc.name);
+        const llcResult = await getCachedLlcData(llc.name, llc.jurisdiction || undefined);
+        detailedInfo = llcResult?.llc;
+        if (llcResult?.fromCache) {
+          console.log(`LLC dossier using cached OpenCorporates data (${llcResult.cacheAge}h old)`);
+        }
       } catch (err) {
         console.error("OpenCorporates lookup failed:", err);
       }
@@ -3211,15 +3339,23 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.json({ llc: existingLlc, existed: true });
       }
 
-      // Look up detailed info from OpenCorporates
+      // Look up detailed info from OpenCorporates (with caching)
       let detailedInfo = null;
       try {
-        detailedInfo = await dataProviders.lookupLlc(name);
+        const llcResult = await getCachedLlcData(name, jurisdiction);
+        detailedInfo = llcResult?.llc;
+        // If we got cached data, the LLC was already created by getCachedLlcData
+        if (llcResult?.fromCache) {
+          const existingCached = await storage.getLlcByName(name.toUpperCase(), jurisdiction);
+          if (existingCached) {
+            return res.json({ llc: existingCached, existed: true, fromCache: true });
+          }
+        }
       } catch (err) {
         console.error("OpenCorporates lookup failed:", err);
       }
 
-      // Create new LLC
+      // Create new LLC (if not already created by caching)
       const newLlc = await storage.createLlc({
         name: name.toUpperCase(),
         jurisdiction: jurisdiction || detailedInfo?.jurisdictionCode,
