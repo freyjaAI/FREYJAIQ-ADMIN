@@ -376,9 +376,6 @@ export default function LlcDossierPage() {
                             {phone.verified && (
                               <CheckCircle className="h-3 w-3 text-green-500" />
                             )}
-                            {phone.source && (
-                              <span className="text-xs opacity-60">{phone.source}</span>
-                            )}
                           </a>
                         ))}
                         {(officer.emails || []).map((email, eIdx) => (
@@ -389,9 +386,6 @@ export default function LlcDossierPage() {
                           >
                             <Mail className="h-3 w-3" />
                             {email.email}
-                            {email.source && (
-                              <span className="text-xs opacity-60">{email.source}</span>
-                            )}
                           </a>
                         ))}
                       </div>

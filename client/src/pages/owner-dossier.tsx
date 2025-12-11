@@ -1121,9 +1121,9 @@ export default function OwnerDossierPage() {
                   </>
                 )}
 
-                {contactEnrichment.sources && (
+                {contactEnrichment.sources && contactEnrichment.sources.length > 0 && (
                   <div className="text-xs text-muted-foreground pt-2">
-                    Sources: {contactEnrichment.sources.join(", ")}
+                    Enriched via Freyja IQ's proprietary waterfall algorithm
                   </div>
                 )}
               </CardContent>
