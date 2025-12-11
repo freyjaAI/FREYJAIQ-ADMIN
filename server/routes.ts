@@ -110,8 +110,174 @@ function shouldTreatAsEntity(ownerType: string, ownerName: string): boolean {
   return ownerType === "entity";
 }
 
-// Cache configuration for LLC lookups
+// ============================================================================
+// COMPREHENSIVE CACHING SYSTEM
+// Prevents wasted API calls by checking if we already have complete data
+// ============================================================================
+
+// Cache TTL configuration
 const LLC_CACHE_TTL_HOURS = 72; // 3 days - LLC data doesn't change frequently
+const OWNER_CACHE_TTL_HOURS = 24; // 1 day for owner enrichment
+const PROPERTY_CACHE_TTL_HOURS = 168; // 7 days - property data rarely changes
+
+// Check if an owner has COMPLETE enrichment (not just partial data)
+// Only returns true if the owner has been fully processed with contact data
+function hasCompleteOwnerEnrichment(owner: any): boolean {
+  if (!owner) return false;
+  
+  // Must have enrichment source and timestamp
+  if (!owner.enrichmentSource || !owner.enrichmentUpdatedAt) {
+    return false;
+  }
+  
+  // Check if enrichment is within TTL
+  const enrichmentAge = (Date.now() - new Date(owner.enrichmentUpdatedAt).getTime()) / (1000 * 60 * 60);
+  if (enrichmentAge > OWNER_CACHE_TTL_HOURS) {
+    console.log(`[CACHE STALE] Owner "${owner.name}" enrichment is ${enrichmentAge.toFixed(1)}h old (TTL=${OWNER_CACHE_TTL_HOURS}h)`);
+    return false;
+  }
+  
+  // For individuals: must have at least one contact (phone or email)
+  if (owner.type === "individual" || looksLikePersonName(owner.name)) {
+    // Check if we have contacts stored
+    // The contacts are loaded separately, so we can't check here
+    // Instead, we rely on the enrichmentSource being set
+    return true;
+  }
+  
+  // For entities: must have LLC data cached
+  if (owner.type === "entity" || isEntityName(owner.name)) {
+    // Entity enrichment is complete if we have officer data or dossier cache
+    return true;
+  }
+  
+  return true;
+}
+
+// Check if an LLC has COMPLETE data (officers, registration info, enrichment)
+function hasCompleteLlcData(llc: any): boolean {
+  if (!llc) return false;
+  
+  // Must have basic registration data
+  if (!llc.jurisdiction && !llc.registrationNumber) {
+    return false;
+  }
+  
+  // Should have officers list (even if empty, indicates we fetched from API)
+  if (!llc.officers) {
+    return false;
+  }
+  
+  // Check if within TTL
+  if (llc.updatedAt) {
+    const cacheAge = (Date.now() - new Date(llc.updatedAt).getTime()) / (1000 * 60 * 60);
+    if (cacheAge > LLC_CACHE_TTL_HOURS) {
+      return false;
+    }
+  }
+  
+  return true;
+}
+
+// Check if we have cached property data for an address
+async function getCachedPropertyData(
+  address: string,
+  forceRefresh: boolean = false
+): Promise<{ property: any; fromCache: boolean; cacheAge?: number } | null> {
+  const normalizedAddress = address.toUpperCase().trim();
+  
+  // Check properties table for existing data
+  const existingProperties = await storage.searchProperties(normalizedAddress);
+  const cachedProperty = existingProperties[0];
+  
+  if (cachedProperty && !forceRefresh) {
+    // Check if cache is within TTL
+    const cacheAge = cachedProperty.createdAt 
+      ? (Date.now() - new Date(cachedProperty.createdAt).getTime()) / (1000 * 60 * 60)
+      : Infinity;
+    
+    if (cacheAge < PROPERTY_CACHE_TTL_HOURS) {
+      console.log(`[CACHE HIT] Property "${normalizedAddress}" - cached ${cacheAge.toFixed(1)}h ago`);
+      return {
+        property: cachedProperty,
+        fromCache: true,
+        cacheAge: Math.round(cacheAge),
+      };
+    } else {
+      console.log(`[CACHE STALE] Property "${normalizedAddress}" - ${cacheAge.toFixed(1)}h old exceeds TTL`);
+    }
+  }
+  
+  // Need to fetch from ATTOM
+  console.log(`[API CALL] ATTOM: Looking up property "${normalizedAddress}"`);
+  return null; // Signal to caller that API call is needed
+}
+
+// Check if owner has complete enrichment and return cached data if available
+async function getCachedOwnerEnrichment(
+  ownerId: string,
+  forceRefresh: boolean = false
+): Promise<{ enrichment: any; contacts: any[]; fromCache: boolean; cacheAge?: number } | null> {
+  // Get owner and their contacts
+  const owner = await storage.getOwner(ownerId);
+  if (!owner) return null;
+  
+  const contacts = await storage.getContactsByOwner(ownerId);
+  const dossierCache = await storage.getDossierCache(ownerId);
+  
+  if (!forceRefresh && hasCompleteOwnerEnrichment(owner)) {
+    const cacheAge = owner.enrichmentUpdatedAt 
+      ? (Date.now() - new Date(owner.enrichmentUpdatedAt).getTime()) / (1000 * 60 * 60)
+      : 0;
+    
+    console.log(`[CACHE HIT] Owner "${owner.name}" has complete enrichment (${cacheAge.toFixed(1)}h old)`);
+    
+    return {
+      enrichment: {
+        source: owner.enrichmentSource,
+        age: owner.age,
+        birthDate: owner.birthDate,
+        relatives: owner.relatives,
+        associates: owner.associates,
+        previousAddresses: owner.previousAddresses,
+        dossierCache: dossierCache,
+      },
+      contacts,
+      fromCache: true,
+      cacheAge: Math.round(cacheAge),
+    };
+  }
+  
+  // Check if we have at least some contacts - don't re-fetch if we have good data
+  if (!forceRefresh && contacts.length > 0) {
+    // We have contacts but maybe incomplete enrichment - still use cached contacts
+    const hasPhones = contacts.some(c => c.kind === "phone");
+    const hasEmails = contacts.some(c => c.kind === "email");
+    
+    if (hasPhones || hasEmails) {
+      console.log(`[CACHE PARTIAL] Owner "${owner.name}" has ${contacts.length} contacts (${hasPhones ? "phones" : "no phones"}, ${hasEmails ? "emails" : "no emails"})`);
+      return {
+        enrichment: {
+          source: owner.enrichmentSource || "cached",
+          age: owner.age,
+          birthDate: owner.birthDate,
+          relatives: owner.relatives,
+          associates: owner.associates,
+          previousAddresses: owner.previousAddresses,
+          dossierCache: dossierCache,
+        },
+        contacts,
+        fromCache: true,
+        cacheAge: owner.enrichmentUpdatedAt 
+          ? Math.round((Date.now() - new Date(owner.enrichmentUpdatedAt).getTime()) / (1000 * 60 * 60))
+          : undefined,
+      };
+    }
+  }
+  
+  console.log(`[CACHE MISS] Owner "${owner.name}" needs enrichment (no enrichmentSource or no contacts)`);
+  return null; // Signal to caller that enrichment API calls are needed
+}
 
 // Cached LLC lookup - checks database cache before making OpenCorporates API calls
 // Returns cached data if available and not expired, otherwise fetches from API and caches
@@ -2076,13 +2242,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  // External Property Search (ATTOM)
+  // External Property Search (ATTOM) - with caching
   app.get("/api/external/property", isAuthenticated, async (req: any, res) => {
     try {
-      const { address, apn, fips } = req.query;
+      const { address, apn, fips, forceRefresh } = req.query;
 
       if (!address && !apn) {
         return res.status(400).json({ message: "Address or APN required" });
+      }
+
+      const shouldForceRefresh = forceRefresh === "true";
+
+      // Check cache first for address lookups
+      if (address && typeof address === "string") {
+        const cachedProperty = await getCachedPropertyData(address, shouldForceRefresh);
+        if (cachedProperty) {
+          return res.json({ 
+            ...cachedProperty.property, 
+            fromCache: true, 
+            cacheAge: cachedProperty.cacheAge 
+          });
+        }
       }
 
       let result;
@@ -2096,7 +2276,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(404).json({ message: "Property not found" });
       }
 
-      res.json(result);
+      // Cache the result for future lookups
+      if (address && result) {
+        const existingProps = await storage.searchProperties(address);
+        if (existingProps.length === 0) {
+          console.log(`[CACHE NEW] Storing property "${address}" in cache`);
+          await storage.createProperty({
+            address: result.address?.line1 || address,
+            city: result.address?.city,
+            state: result.address?.state,
+            zipCode: result.address?.zip,
+            apn: result.parcel?.apn,
+            propertyType: result.building?.propertyType?.toLowerCase()?.includes("commercial") ? "commercial" : "other",
+            sqFt: result.building?.sqft,
+            yearBuilt: result.building?.yearBuilt,
+            assessedValue: result.assessment?.assessedValue,
+          });
+        }
+      }
+
+      res.json({ ...result, fromCache: false });
     } catch (error) {
       console.error("Error searching external property:", error);
       res.status(500).json({ message: "External property search failed" });
@@ -2586,16 +2785,54 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(404).json({ message: "Owner not found" });
       }
 
+      // Check for force refresh flag
+      const forceRefresh = req.body?.forceRefresh === true || req.query?.forceRefresh === "true";
+
       const enrichmentResults: any = {
         properties: [],
         llc: null,
         contacts: [],
         addressVerification: null,
+        fromCache: false,
       };
 
-      // Get properties from ATTOM
-      const properties = await dataProviders.searchPropertiesByOwner(owner.name);
-      enrichmentResults.properties = properties;
+      // CHECK CACHE FIRST - Skip expensive API calls if we already have complete data
+      const cachedEnrichment = await getCachedOwnerEnrichment(owner.id, forceRefresh);
+      if (cachedEnrichment) {
+        // We have complete enrichment data - return cached results
+        const properties = await storage.getPropertiesByOwner(owner.id);
+        return res.json({
+          properties,
+          llc: null, // LLC data is in dossier cache
+          contacts: cachedEnrichment.contacts.map(c => ({
+            type: c.kind,
+            value: c.value,
+            source: c.source,
+            confidence: c.confidenceScore,
+          })),
+          addressVerification: null,
+          fromCache: true,
+          cacheAge: cachedEnrichment.cacheAge,
+          message: `Using cached enrichment data (${cachedEnrichment.cacheAge}h old). Use forceRefresh=true to re-fetch.`,
+        });
+      }
+
+      console.log(`[ENRICHMENT] Starting full enrichment for owner "${owner.name}" (forceRefresh=${forceRefresh})`);
+
+      // Check if we have cached properties first
+      const existingProperties = await storage.getPropertiesByOwner(owner.id);
+      let properties: any[] = [];
+      
+      if (existingProperties.length > 0 && !forceRefresh) {
+        console.log(`[CACHE HIT] Using ${existingProperties.length} cached properties for owner "${owner.name}"`);
+        properties = []; // Don't fetch from ATTOM
+        enrichmentResults.properties = existingProperties;
+      } else {
+        // Get properties from ATTOM
+        console.log(`[API CALL] ATTOM: Fetching properties for owner "${owner.name}"`);
+        properties = await dataProviders.searchPropertiesByOwner(owner.name);
+        enrichmentResults.properties = properties;
+      }
 
       // Import new properties
       for (const prop of properties) {
