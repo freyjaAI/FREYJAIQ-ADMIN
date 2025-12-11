@@ -3400,21 +3400,42 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         const nameParts = officerData.name.split(/\s+/);
         const firstName = nameParts.length > 1 ? nameParts[0] : undefined;
         const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : nameParts[0];
-        const officerState = llc.jurisdiction || undefined;
+        
+        // Convert jurisdiction "us_fl" to state code "FL"
+        const jurisdiction = llc.jurisdiction || "";
+        const officerState = jurisdiction.startsWith("us_") 
+          ? jurisdiction.substring(3).toUpperCase() 
+          : jurisdiction.toUpperCase();
+        
+        // Parse officer address if available (format: "5900 N ANDREWS AVENUE, FORT LAUDERDALE, FL, 33309")
+        let officerCity = undefined;
+        let officerZip = undefined;
+        let officerStreet = undefined;
+        if (officer.address) {
+          const addressParts = officer.address.split(",").map((p: string) => p.trim());
+          if (addressParts.length >= 4) {
+            officerStreet = addressParts[0];
+            officerCity = addressParts[1];
+            officerZip = addressParts[3];
+          } else if (addressParts.length >= 2) {
+            officerStreet = addressParts[0];
+            officerCity = addressParts[1];
+          }
+        }
 
-        console.log(`Enriching LLC officer: ${officerData.name} (${officerData.position})`);
+        console.log(`Enriching LLC officer: ${officerData.name} (${officerData.position}) - State: ${officerState}`);
 
         // 1. APIFY SKIP TRACE (Primary source - best for cell phones)
         try {
           const apifySkipTrace = await import("./providers/ApifySkipTraceProvider.js");
           if (apifySkipTrace.isConfigured()) {
-            console.log(`[1/3] Apify Skip Trace for officer: ${officerData.name}`);
+            console.log(`[1/5] Apify Skip Trace for officer: ${officerData.name}`);
             const skipResult = await apifySkipTrace.skipTraceIndividual(
               officerData.name,
-              undefined,
-              undefined,
+              officerStreet,
+              officerCity,
               officerState,
-              undefined
+              officerZip
             );
             
             if (skipResult) {
@@ -3471,7 +3492,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
         // 2. DATA AXLE (Secondary source)
         try {
-          console.log(`[2/3] Data Axle for officer: ${officerData.name}`);
+          console.log(`[2/5] Data Axle for officer: ${officerData.name}`);
           const location = officerState ? { state: officerState } : undefined;
           const allPeople = await dataProviders.searchPeopleV2(officerData.name, location);
           
@@ -3534,15 +3555,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
         // 3. MELISSA (Address & identity verification)
         try {
-          console.log(`[3/3] Melissa verification for officer: ${officerData.name}`);
+          console.log(`[3/5] Melissa verification for officer: ${officerData.name}`);
+          // Use officer address from OpenCorporates if skip trace data not available
+          const melissaAddress = officerData.skipTraceData?.currentAddress?.streetAddress || officerStreet;
+          const melissaCity = officerData.skipTraceData?.currentAddress?.city || officerCity;
+          const melissaZip = officerData.skipTraceData?.currentAddress?.postalCode || officerZip;
+          
           const melissaResult = await dataProviders.fetchMelissaEnrichment({
             fullName: officerData.name,
             firstName,
             lastName,
-            address: officerData.skipTraceData?.currentAddress?.streetAddress,
-            city: officerData.skipTraceData?.currentAddress?.city,
+            address: melissaAddress,
+            city: melissaCity,
             state: officerState,
-            zip: officerData.skipTraceData?.currentAddress?.postalCode,
+            zip: melissaZip,
           });
           
           if (melissaResult) {
@@ -3576,13 +3602,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         if (officerData.phones.length === 0) {
           try {
             console.log(`[4/5] Pacific East FPA for officer: ${officerData.name}`);
-            const pacificEastResult = await dataProviders.fetchPacificEastFPA({
+            // Use officer address from OpenCorporates if skip trace data not available
+            const peAddress = officerData.skipTraceData?.currentAddress?.streetAddress || officerStreet;
+            const peCity = officerData.skipTraceData?.currentAddress?.city || officerCity;
+            const peZip = officerData.skipTraceData?.currentAddress?.postalCode || officerZip;
+            
+            const pacificEastResult = await dataProviders.appendPhoneWithPacificEast({
               firstName,
               lastName,
-              address: officerData.skipTraceData?.currentAddress?.streetAddress,
-              city: officerData.skipTraceData?.currentAddress?.city,
+              address: peAddress,
+              city: peCity,
               state: officerState,
-              zip: officerData.skipTraceData?.currentAddress?.postalCode,
+              zip: peZip,
             });
             
             if (pacificEastResult?.phones?.length) {
@@ -3610,16 +3641,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         if (officerData.phones.length === 0) {
           try {
             console.log(`[5/5] A-Leads for officer: ${officerData.name}`);
-            const aleadsResult = await dataProviders.fetchALeadsSkipTrace({
-              firstName,
-              lastName,
-              address: officerData.skipTraceData?.currentAddress?.streetAddress,
-              city: officerData.skipTraceData?.currentAddress?.city,
-              state: officerState,
-              zip: officerData.skipTraceData?.currentAddress?.postalCode,
-            });
+            // Use city/state from parsed officer address
+            const aleadsLocation = (officerCity || officerState) 
+              ? { city: officerCity, state: officerState } 
+              : undefined;
+            const aleadsResults = await dataProviders.searchALeadsByName(officerData.name, aleadsLocation);
             
-            if (aleadsResult) {
+            if (aleadsResults && aleadsResults.length > 0) {
+              // Take the first result
+              const aleadsResult = aleadsResults[0];
+              
               // Add phones from A-Leads
               for (const phone of aleadsResult.phones || []) {
                 const normalizedPhone = phone.phone?.replace(/\D/g, "");
