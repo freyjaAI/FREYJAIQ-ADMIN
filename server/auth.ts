@@ -63,9 +63,42 @@ const loginSchema = z.object({
   password: z.string().min(1, "Password is required"),
 });
 
+// Ensure admin user exists on startup
+async function ensureAdminUser() {
+  const adminEmail = "admin@freyjafinancialgroup.net";
+  const adminPassword = "admin123";
+  
+  try {
+    const existingAdmin = await storage.getUserByEmail(adminEmail);
+    if (!existingAdmin) {
+      console.log("Creating admin user...");
+      const passwordHash = await hashPassword(adminPassword);
+      await storage.createUser({
+        email: adminEmail,
+        passwordHash,
+        firstName: "Admin",
+        lastName: "User",
+        role: "admin",
+      });
+      console.log("Admin user created successfully");
+    } else if (!existingAdmin.passwordHash) {
+      // Update existing user to have password
+      console.log("Updating admin user with password...");
+      const passwordHash = await hashPassword(adminPassword);
+      await storage.updateUserPassword(adminEmail, passwordHash);
+      console.log("Admin user password updated");
+    }
+  } catch (error) {
+    console.error("Error ensuring admin user:", error);
+  }
+}
+
 export async function setupAuth(app: Express) {
   app.set("trust proxy", 1);
   app.use(getSession());
+  
+  // Ensure admin user exists
+  await ensureAdminUser();
 
   app.post("/api/auth/register", async (req, res) => {
     try {

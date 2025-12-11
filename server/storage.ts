@@ -37,7 +37,8 @@ export interface IStorage {
   // User operations
   getUser(id: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
-  createUser(user: { email: string; passwordHash: string; firstName?: string | null; lastName?: string | null }): Promise<User>;
+  createUser(user: { email: string; passwordHash: string; firstName?: string | null; lastName?: string | null; role?: string }): Promise<User>;
+  updateUserPassword(email: string, passwordHash: string): Promise<void>;
   upsertUser(user: UpsertUser): Promise<User>;
 
   // Owner operations
@@ -109,7 +110,7 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
-  async createUser(userData: { email: string; passwordHash: string; firstName?: string | null; lastName?: string | null }): Promise<User> {
+  async createUser(userData: { email: string; passwordHash: string; firstName?: string | null; lastName?: string | null; role?: string }): Promise<User> {
     const [user] = await db
       .insert(users)
       .values({
@@ -117,9 +118,17 @@ export class DatabaseStorage implements IStorage {
         passwordHash: userData.passwordHash,
         firstName: userData.firstName,
         lastName: userData.lastName,
+        role: userData.role || "broker",
       })
       .returning();
     return user;
+  }
+
+  async updateUserPassword(email: string, passwordHash: string): Promise<void> {
+    await db
+      .update(users)
+      .set({ passwordHash, updatedAt: new Date() })
+      .where(eq(users.email, email));
   }
 
   async upsertUser(userData: UpsertUser): Promise<User> {
