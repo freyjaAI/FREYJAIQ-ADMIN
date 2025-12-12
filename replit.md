@@ -67,6 +67,8 @@ Preferred communication style: Simple, everyday language.
 - `server/openai.ts` - AI integration for scoring and suggestions
 - `server/static.ts` - Static file serving
 - `server/vite.ts` - Vite dev server integration
+- `server/addressNormalizer.ts` - Universal address normalization for provider compatibility
+- `server/dossierService.ts` - Unified dossier generation with entity resolution
 
 **Build Process**: Custom esbuild-based bundling with allowlist for specific dependencies to optimize cold starts
 
