@@ -354,150 +354,118 @@ async function getCachedLlcData(
     }
   }
   
-  // Not in cache or cache expired or force refresh - call OpenCorporates API
-  console.log(`[API CALL] OpenCorporates: Looking up "${normalizedName}" (jurisdiction: ${jurisdiction || "any"})`);
+  // Not in cache or cache expired or force refresh
+  // PRIORITY: Try Gemini first (cheaper), then OpenCorporates as fallback
   
-  try {
-    const llcResult = await dataProviders.lookupLlc(normalizedName, jurisdiction);
-    
-    if (!llcResult) {
-      console.log(`[API] OpenCorporates: No result for "${normalizedName}"`);
-      return null;
-    }
-    
-    // Store in llcs table for future cache hits
-    if (cachedLlc) {
-      // Update existing cache entry
-      await storage.updateLlc(cachedLlc.id, {
-        jurisdiction: llcResult.jurisdictionCode,
-        registrationNumber: llcResult.companyNumber,
-        entityType: llcResult.entityType,
-        status: llcResult.status || cachedLlc.status,
-        registeredAgent: llcResult.agentName,
-        registeredAddress: llcResult.agentAddress,
-        principalAddress: llcResult.principalAddress,
-        opencorporatesUrl: llcResult.opencorporatesUrl,
-        officers: llcResult.officers as any,
-      });
-      console.log(`[CACHE UPDATE] LLC "${normalizedName}" updated in cache`);
-    } else {
-      // Create new cache entry
-      await storage.createLlc({
-        name: normalizedName,
-        jurisdiction: llcResult.jurisdictionCode,
-        registrationNumber: llcResult.companyNumber,
-        entityType: llcResult.entityType,
-        status: llcResult.status,
-        registeredAgent: llcResult.agentName,
-        registeredAddress: llcResult.agentAddress,
-        principalAddress: llcResult.principalAddress,
-        opencorporatesUrl: llcResult.opencorporatesUrl,
-        officers: llcResult.officers as any,
-      });
-      console.log(`[CACHE NEW] LLC "${normalizedName}" added to cache`);
-    }
-    
-    return {
-      llc: llcResult,
-      fromCache: false,
-    };
-  } catch (error: any) {
-    // Handle 403 (quota exceeded) gracefully - return cached data if available
-    if (error.message?.includes("403") || error.message?.includes("quota")) {
-      console.warn(`[API ERROR] OpenCorporates quota exceeded for "${normalizedName}"`);
-      if (cachedLlc) {
-        console.log(`[CACHE FALLBACK] Returning stale cache for "${normalizedName}" due to API quota`);
-        return {
-          llc: {
-            name: cachedLlc.name,
-            jurisdictionCode: cachedLlc.jurisdiction,
-            companyNumber: cachedLlc.registrationNumber,
-            entityType: cachedLlc.entityType,
-            status: cachedLlc.status,
-            officers: cachedLlc.officers || [],
-            agentName: cachedLlc.registeredAgent,
-            agentAddress: cachedLlc.registeredAddress,
-            principalAddress: cachedLlc.principalAddress,
-            opencorporatesUrl: cachedLlc.opencorporatesUrl,
-          },
-          fromCache: true,
-          cacheAge: cachedLlc.updatedAt 
-            ? Math.round((Date.now() - new Date(cachedLlc.updatedAt).getTime()) / (1000 * 60 * 60))
-            : undefined,
+  let llcResult: any = null;
+  let source = "unknown";
+  
+  // 1. Try Gemini Deep Research first (cost-effective: $2/million tokens)
+  if (GeminiDeepResearch.isConfigured()) {
+    console.log(`[API CALL] Gemini Deep Research: Looking up "${normalizedName}" (jurisdiction: ${jurisdiction || "any"})`);
+    try {
+      const geminiResult = await GeminiDeepResearch.researchLlcWithGrounding(normalizedName, jurisdiction);
+      
+      if (geminiResult && (geminiResult.owners.length > 0 || geminiResult.officers.length > 0 || geminiResult.registeredAgent)) {
+        console.log(`[API SUCCESS] Gemini found ${geminiResult.owners.length} owners, ${geminiResult.officers.length} officers`);
+        
+        // Convert Gemini result to standard LLC format
+        const officers = [
+          ...geminiResult.owners.map(o => ({
+            name: o.name,
+            position: o.role || "Member",
+            role: o.role || "member",
+            confidence: o.confidence,
+          })),
+          ...geminiResult.officers.map(o => ({
+            name: o.name,
+            position: o.position || "Officer",
+            role: "officer",
+            address: o.address,
+            confidence: o.confidence,
+          })),
+        ];
+        
+        llcResult = {
+          name: normalizedName,
+          jurisdictionCode: jurisdiction,
+          officers,
+          agentName: geminiResult.registeredAgent?.name,
+          agentAddress: geminiResult.registeredAgent?.address,
+          status: "Active",
+          entityType: "LLC",
+          aiResearchSummary: geminiResult.summary,
+          aiCitations: geminiResult.citations,
         };
+        source = "gemini";
+      } else {
+        console.log(`[API] Gemini: No sufficient data for "${normalizedName}", trying OpenCorporates...`);
       }
+    } catch (geminiError) {
+      console.error(`[API ERROR] Gemini failed for "${normalizedName}":`, geminiError);
     }
-    console.error(`[API ERROR] OpenCorporates lookup failed for "${normalizedName}":`, error.message);
-    
-    // Fallback to Gemini Deep Research when OpenCorporates fails
-    if (GeminiDeepResearch.isConfigured()) {
-      console.log(`[FALLBACK] Trying Gemini Deep Research for "${normalizedName}"`);
-      try {
-        const geminiResult = await GeminiDeepResearch.researchLlcWithGrounding(normalizedName, jurisdiction);
-        if (geminiResult && (geminiResult.owners.length > 0 || geminiResult.officers.length > 0)) {
-          console.log(`[FALLBACK SUCCESS] Gemini found ${geminiResult.owners.length} owners, ${geminiResult.officers.length} officers`);
-          
-          // Convert Gemini result to LLC format
-          const officers = [
-            ...geminiResult.owners.map(o => ({
-              name: o.name,
-              position: o.role || "Member",
-              role: o.role || "member",
-              confidence: o.confidence,
-            })),
-            ...geminiResult.officers.map(o => ({
-              name: o.name,
-              position: o.position || "Officer",
-              role: "officer",
-              address: o.address,
-              confidence: o.confidence,
-            })),
-          ];
-          
-          const llcResult = {
-            name: normalizedName,
-            jurisdictionCode: jurisdiction,
-            officers,
-            agentName: geminiResult.registeredAgent?.name,
-            agentAddress: geminiResult.registeredAgent?.address,
-            status: "Unknown",
-            entityType: "LLC",
-            aiResearchSummary: geminiResult.summary,
-            aiCitations: geminiResult.citations,
-          };
-          
-          // Cache the Gemini result
-          if (cachedLlc) {
-            await storage.updateLlc(cachedLlc.id, {
-              officers: officers as any,
-              registeredAgent: llcResult.agentName,
-              registeredAddress: llcResult.agentAddress,
-            });
-          } else {
-            await storage.createLlc({
-              name: normalizedName,
-              jurisdiction: jurisdiction,
-              officers: officers as any,
-              registeredAgent: llcResult.agentName,
-              registeredAddress: llcResult.agentAddress,
-              entityType: "LLC",
-              status: "Unknown",
-            });
-          }
-          
-          return {
-            llc: llcResult,
-            fromCache: false,
-            source: "gemini",
-          };
-        }
-      } catch (geminiError) {
-        console.error(`[FALLBACK ERROR] Gemini Deep Research also failed:`, geminiError);
-      }
-    }
-    
-    throw error;
   }
+  
+  // 2. Fallback to OpenCorporates if Gemini didn't find enough data
+  if (!llcResult) {
+    console.log(`[API CALL] OpenCorporates: Looking up "${normalizedName}" (jurisdiction: ${jurisdiction || "any"})`);
+    try {
+      llcResult = await dataProviders.lookupLlc(normalizedName, jurisdiction);
+      source = "opencorporates";
+      
+      if (!llcResult) {
+        console.log(`[API] OpenCorporates: No result for "${normalizedName}"`);
+        return null;
+      }
+    } catch (openCorpError: any) {
+      console.error(`[API ERROR] OpenCorporates failed for "${normalizedName}":`, openCorpError.message);
+      throw openCorpError;
+    }
+  }
+  
+  if (!llcResult) {
+    console.log(`[API] No LLC data found from any source for "${normalizedName}"`);
+    return null;
+  }
+  
+  // Store in llcs table for future cache hits
+  console.log(`[CACHE] Storing LLC "${normalizedName}" from source: ${source}`);
+  if (cachedLlc) {
+    // Update existing cache entry
+    await storage.updateLlc(cachedLlc.id, {
+      jurisdiction: llcResult.jurisdictionCode,
+      registrationNumber: llcResult.companyNumber,
+      entityType: llcResult.entityType,
+      status: llcResult.status || cachedLlc.status,
+      registeredAgent: llcResult.agentName,
+      registeredAddress: llcResult.agentAddress,
+      principalAddress: llcResult.principalAddress,
+      opencorporatesUrl: llcResult.opencorporatesUrl,
+      officers: llcResult.officers as any,
+    });
+    console.log(`[CACHE UPDATE] LLC "${normalizedName}" updated in cache`);
+  } else {
+    // Create new cache entry
+    await storage.createLlc({
+      name: normalizedName,
+      jurisdiction: llcResult.jurisdictionCode,
+      registrationNumber: llcResult.companyNumber,
+      entityType: llcResult.entityType,
+      status: llcResult.status,
+      registeredAgent: llcResult.agentName,
+      registeredAddress: llcResult.agentAddress,
+      principalAddress: llcResult.principalAddress,
+      opencorporatesUrl: llcResult.opencorporatesUrl,
+      officers: llcResult.officers as any,
+    });
+    console.log(`[CACHE NEW] LLC "${normalizedName}" added to cache`);
+  }
+  
+  return {
+    llc: llcResult,
+    fromCache: false,
+    source,
+  };
 }
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<void> {
