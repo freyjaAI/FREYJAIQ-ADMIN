@@ -11,6 +11,7 @@ import {
 import { dataProviders } from "./dataProviders";
 import { insertOwnerSchema, insertPropertySchema, insertContactInfoSchema } from "@shared/schema";
 import { z } from "zod";
+import * as GeminiDeepResearch from "./providers/GeminiDeepResearchProvider";
 
 // Common first names to help detect person names (subset of most common US names)
 const COMMON_FIRST_NAMES = new Set([
@@ -427,6 +428,74 @@ async function getCachedLlcData(
       }
     }
     console.error(`[API ERROR] OpenCorporates lookup failed for "${normalizedName}":`, error.message);
+    
+    // Fallback to Gemini Deep Research when OpenCorporates fails
+    if (GeminiDeepResearch.isConfigured()) {
+      console.log(`[FALLBACK] Trying Gemini Deep Research for "${normalizedName}"`);
+      try {
+        const geminiResult = await GeminiDeepResearch.researchLlcWithGrounding(normalizedName, jurisdiction);
+        if (geminiResult && (geminiResult.owners.length > 0 || geminiResult.officers.length > 0)) {
+          console.log(`[FALLBACK SUCCESS] Gemini found ${geminiResult.owners.length} owners, ${geminiResult.officers.length} officers`);
+          
+          // Convert Gemini result to LLC format
+          const officers = [
+            ...geminiResult.owners.map(o => ({
+              name: o.name,
+              position: o.role || "Member",
+              role: o.role || "member",
+              confidence: o.confidence,
+            })),
+            ...geminiResult.officers.map(o => ({
+              name: o.name,
+              position: o.position || "Officer",
+              role: "officer",
+              address: o.address,
+              confidence: o.confidence,
+            })),
+          ];
+          
+          const llcResult = {
+            name: normalizedName,
+            jurisdictionCode: jurisdiction,
+            officers,
+            agentName: geminiResult.registeredAgent?.name,
+            agentAddress: geminiResult.registeredAgent?.address,
+            status: "Unknown",
+            entityType: "LLC",
+            aiResearchSummary: geminiResult.summary,
+            aiCitations: geminiResult.citations,
+          };
+          
+          // Cache the Gemini result
+          if (cachedLlc) {
+            await storage.updateLlc(cachedLlc.id, {
+              officers: officers as any,
+              registeredAgent: llcResult.agentName,
+              registeredAddress: llcResult.agentAddress,
+            });
+          } else {
+            await storage.createLlc({
+              name: normalizedName,
+              jurisdiction: jurisdiction,
+              officers: officers as any,
+              registeredAgent: llcResult.agentName,
+              registeredAddress: llcResult.agentAddress,
+              entityType: "LLC",
+              status: "Unknown",
+            });
+          }
+          
+          return {
+            llc: llcResult,
+            fromCache: false,
+            source: "gemini",
+          };
+        }
+      } catch (geminiError) {
+        console.error(`[FALLBACK ERROR] Gemini Deep Research also failed:`, geminiError);
+      }
+    }
+    
     throw error;
   }
 }
