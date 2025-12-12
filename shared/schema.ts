@@ -339,3 +339,33 @@ export const insertLlcSchema = createInsertSchema(llcs).omit({
 });
 export type InsertLlc = z.infer<typeof insertLlcSchema>;
 export type Llc = typeof llcs.$inferSelect;
+
+// LLC Ownership Chains - stores resolved ownership chains for entities
+export const llcOwnershipChains = pgTable("llc_ownership_chains", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  rootEntityName: varchar("root_entity_name").notNull(),
+  rootEntityJurisdiction: varchar("root_entity_jurisdiction"),
+  chain: jsonb("chain").notNull(), // Array of ChainNode
+  ultimateBeneficialOwners: jsonb("ultimate_beneficial_owners").notNull(), // Array of UBO names
+  maxDepthReached: boolean("max_depth_reached").default(false),
+  totalApiCalls: integer("total_api_calls").default(0),
+  resolvedAt: timestamp("resolved_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type LlcOwnershipChainNode = {
+  name: string;
+  type: "entity" | "individual";
+  role?: string;
+  confidence?: number;
+  jurisdiction?: string;
+  registeredAgent?: string;
+  depth: number;
+};
+
+export const insertLlcOwnershipChainSchema = createInsertSchema(llcOwnershipChains).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertLlcOwnershipChain = z.infer<typeof insertLlcOwnershipChainSchema>;
+export type LlcOwnershipChain = typeof llcOwnershipChains.$inferSelect;

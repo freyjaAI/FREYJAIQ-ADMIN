@@ -322,7 +322,7 @@ async function getCachedOwnerEnrichment(
 
 // Cached LLC lookup - checks database cache before making OpenCorporates API calls
 // Returns cached data if available and not expired, otherwise fetches from API and caches
-async function getCachedLlcData(
+export async function getCachedLlcData(
   companyName: string,
   jurisdiction?: string,
   forceRefresh: boolean = false
@@ -2553,6 +2553,71 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (error) {
       console.error("Error searching LLC officers:", error);
       res.status(500).json({ message: "LLC officer search failed" });
+    }
+  });
+
+  // LLC Ownership Chain Resolution - recursively resolves ownership through nested LLCs
+  app.get("/api/external/llc-ownership-chain", isAuthenticated, async (req: any, res) => {
+    try {
+      const { name, jurisdiction, forceRefresh } = req.query;
+
+      if (!name || typeof name !== "string") {
+        return res.status(400).json({ message: "Entity name required" });
+      }
+
+      const jCode = typeof jurisdiction === "string" ? jurisdiction : undefined;
+      const shouldForceRefresh = forceRefresh === "true";
+
+      // Check for cached chain first
+      if (!shouldForceRefresh) {
+        const cachedChain = await storage.getLlcOwnershipChain(name, jCode);
+        if (cachedChain) {
+          const cacheAge = cachedChain.resolvedAt
+            ? (Date.now() - new Date(cachedChain.resolvedAt).getTime()) / (1000 * 60 * 60)
+            : Infinity;
+
+          // Use chain if less than 24 hours old
+          if (cacheAge < 24) {
+            console.log(`[CACHE HIT] LLC ownership chain for "${name}" - cached ${cacheAge.toFixed(1)}h ago`);
+            return res.json({
+              ...cachedChain,
+              fromCache: true,
+              cacheAge: Math.round(cacheAge),
+            });
+          }
+        }
+      }
+
+      // Import the chain resolver
+      const { resolveOwnershipChain, formatChainForDisplay } = await import("./llcChainResolver");
+
+      console.log(`[API CALL] Resolving ownership chain for "${name}"...`);
+      const chain = await resolveOwnershipChain(name, jCode);
+
+      // Save the chain to database
+      await storage.saveLlcOwnershipChain({
+        rootEntityName: name,
+        rootEntityJurisdiction: jCode || null,
+        chain: chain.chain,
+        ultimateBeneficialOwners: chain.ultimateBeneficialOwners,
+        maxDepthReached: chain.maxDepthReached,
+        totalApiCalls: chain.totalApiCalls,
+        resolvedAt: chain.resolvedAt,
+      });
+
+      const formatted = formatChainForDisplay(chain);
+
+      res.json({
+        rootEntity: chain.rootEntity,
+        levels: formatted.levels,
+        ultimateBeneficialOwners: formatted.ubos,
+        maxDepthReached: chain.maxDepthReached,
+        totalApiCalls: chain.totalApiCalls,
+        fromCache: false,
+      });
+    } catch (error) {
+      console.error("Error resolving LLC ownership chain:", error);
+      res.status(500).json({ message: "Failed to resolve ownership chain" });
     }
   });
 

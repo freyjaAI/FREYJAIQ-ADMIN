@@ -23,6 +23,8 @@ import {
   AlertCircle,
   ExternalLink,
   Brain,
+  GitBranch,
+  ChevronRight,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -204,6 +206,29 @@ interface DossierData {
   melissaEnrichment?: MelissaEnrichmentData | null;
 }
 
+interface OwnershipChainNode {
+  name: string;
+  type: "entity" | "individual";
+  role?: string;
+  confidence?: number;
+  jurisdiction?: string;
+  registeredAgent?: string;
+  depth: number;
+}
+
+interface OwnershipChainData {
+  rootEntity: string;
+  levels: Array<{
+    depth: number;
+    entities: OwnershipChainNode[];
+  }>;
+  ultimateBeneficialOwners: OwnershipChainNode[];
+  maxDepthReached: boolean;
+  totalApiCalls: number;
+  fromCache: boolean;
+  cacheAge?: number;
+}
+
 const loadingSteps = [
   { id: "owner", label: "Loading owner profile" },
   { id: "properties", label: "Fetching property records" },
@@ -367,6 +392,13 @@ export default function OwnerDossierPage() {
     setCopiedText(text);
     setTimeout(() => setCopiedText(null), 2000);
   };
+
+  // Fetch ownership chain for entity owners
+  const ownershipChainQuery = useQuery<OwnershipChainData>({
+    queryKey: [`/api/external/llc-ownership-chain?name=${encodeURIComponent(dossier?.owner?.name || "")}`],
+    enabled: !!dossier?.owner?.type && dossier.owner.type === "entity" && !!dossier.owner.name,
+    staleTime: 1000 * 60 * 60, // Cache for 1 hour
+  });
 
   if (isLoading) {
     return <DossierLoadingProgress />;
@@ -1006,6 +1038,133 @@ export default function OwnerDossierPage() {
                       <RefreshCw className={`h-4 w-4 mr-2 ${generateDossierMutation.isPending ? "animate-spin" : ""}`} />
                       Fetch LLC Data
                     </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Ownership Chain Visualization - shows nested LLC structure */}
+          {owner.type === "entity" && (
+            <Card data-testid="card-ownership-chain">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <GitBranch className="h-4 w-4" />
+                  Ownership Chain
+                  {ownershipChainQuery.data?.ultimateBeneficialOwners && (
+                    <Badge variant="secondary" className="text-xs">
+                      {ownershipChainQuery.data.ultimateBeneficialOwners.length} UBOs
+                    </Badge>
+                  )}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {ownershipChainQuery.isLoading ? (
+                  <div className="flex items-center gap-2 py-4">
+                    <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />
+                    <span className="text-sm text-muted-foreground">Resolving ownership chain...</span>
+                  </div>
+                ) : ownershipChainQuery.data ? (
+                  <>
+                    <div className="text-xs text-muted-foreground mb-3">
+                      Traced through {ownershipChainQuery.data.levels?.length || 0} layers
+                      {ownershipChainQuery.data.maxDepthReached && " (max depth reached)"}
+                      {ownershipChainQuery.data.fromCache && ` • Cached ${ownershipChainQuery.data.cacheAge}h ago`}
+                    </div>
+                    
+                    {/* Chain Visualization */}
+                    <div className="space-y-2">
+                      {ownershipChainQuery.data.levels?.map((level, levelIdx) => (
+                        <div key={levelIdx} className="relative">
+                          {levelIdx > 0 && (
+                            <div className="absolute left-3 -top-2 h-2 w-px bg-border" />
+                          )}
+                          <div className="flex items-start gap-2">
+                            <div className="flex flex-col items-center">
+                              <div className={`h-6 w-6 rounded-full flex items-center justify-center text-xs font-medium
+                                ${level.depth === 0 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+                                {level.depth}
+                              </div>
+                              {levelIdx < (ownershipChainQuery.data.levels?.length || 0) - 1 && (
+                                <div className="h-full w-px bg-border flex-1 min-h-4" />
+                              )}
+                            </div>
+                            <div className="flex-1 space-y-1 pb-2">
+                              {level.entities.map((entity, entityIdx) => (
+                                <div 
+                                  key={entityIdx}
+                                  className={`p-2 rounded-md text-sm ${
+                                    entity.type === "individual" 
+                                      ? "bg-green-500/10 border border-green-500/20" 
+                                      : "bg-muted/50"
+                                  }`}
+                                  data-testid={`chain-node-${level.depth}-${entityIdx}`}
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      {entity.type === "individual" ? (
+                                        <User className="h-3 w-3 text-green-600 shrink-0" />
+                                      ) : (
+                                        <Building2 className="h-3 w-3 text-muted-foreground shrink-0" />
+                                      )}
+                                      <span className="font-medium truncate">{entity.name}</span>
+                                    </div>
+                                    {entity.role && (
+                                      <Badge variant="outline" className="text-xs capitalize shrink-0">
+                                        {entity.role}
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  {entity.jurisdiction && (
+                                    <div className="text-xs text-muted-foreground mt-1">
+                                      {entity.jurisdiction.toUpperCase().replace("US_", "")}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Ultimate Beneficial Owners Summary */}
+                    {ownershipChainQuery.data.ultimateBeneficialOwners?.length > 0 && (
+                      <>
+                        <Separator />
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 text-sm font-medium">
+                            <Users className="h-4 w-4 text-green-600" />
+                            Ultimate Beneficial Owners
+                          </div>
+                          <div className="grid gap-2">
+                            {ownershipChainQuery.data.ultimateBeneficialOwners.map((ubo, idx) => (
+                              <div 
+                                key={idx}
+                                className="p-2 rounded-md bg-green-500/10 border border-green-500/20 flex items-center justify-between"
+                                data-testid={`ubo-${idx}`}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <User className="h-4 w-4 text-green-600" />
+                                  <span className="font-medium">{ubo.name}</span>
+                                </div>
+                                {ubo.role && (
+                                  <Badge variant="outline" className="text-xs capitalize">
+                                    {ubo.role}
+                                  </Badge>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <div className="text-center py-4">
+                    <p className="text-sm text-muted-foreground">
+                      Ownership chain not yet resolved. This feature traces ownership through nested LLCs.
+                    </p>
                   </div>
                 )}
               </CardContent>

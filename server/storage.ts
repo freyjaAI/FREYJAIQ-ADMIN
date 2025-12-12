@@ -9,6 +9,7 @@ import {
   dossierExports,
   dossierCache,
   llcs,
+  llcOwnershipChains,
   type User,
   type UpsertUser,
   type Owner,
@@ -29,6 +30,8 @@ import {
   type InsertDossierCache,
   type Llc,
   type InsertLlc,
+  type LlcOwnershipChain,
+  type InsertLlcOwnershipChain,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, ilike, or, and, desc, sql } from "drizzle-orm";
@@ -89,6 +92,10 @@ export interface IStorage {
   updateLlc(id: string, llc: Partial<InsertLlc>): Promise<Llc | undefined>;
   searchLlcs(query: string): Promise<Llc[]>;
   getLlcByName(name: string, jurisdiction?: string): Promise<Llc | undefined>;
+
+  // LLC Ownership Chains
+  getLlcOwnershipChain(rootEntityName: string, jurisdiction?: string): Promise<LlcOwnershipChain | undefined>;
+  saveLlcOwnershipChain(chain: InsertLlcOwnershipChain): Promise<LlcOwnershipChain>;
 
   // Stats
   getStats(userId: string): Promise<{
@@ -408,6 +415,36 @@ export class DatabaseStorage implements IStorage {
       return results.find(l => l.jurisdiction?.toUpperCase() === jurisdiction.toUpperCase()) || results[0];
     }
     return results[0];
+  }
+
+  // LLC Ownership Chains
+  async getLlcOwnershipChain(rootEntityName: string, jurisdiction?: string): Promise<LlcOwnershipChain | undefined> {
+    const normalizedName = rootEntityName.toUpperCase().trim();
+    const conditions = [ilike(llcOwnershipChains.rootEntityName, normalizedName)];
+    
+    if (jurisdiction) {
+      conditions.push(ilike(llcOwnershipChains.rootEntityJurisdiction, jurisdiction));
+    }
+    
+    const [chain] = await db
+      .select()
+      .from(llcOwnershipChains)
+      .where(and(...conditions))
+      .orderBy(desc(llcOwnershipChains.resolvedAt))
+      .limit(1);
+    
+    return chain;
+  }
+
+  async saveLlcOwnershipChain(chain: InsertLlcOwnershipChain): Promise<LlcOwnershipChain> {
+    const [saved] = await db
+      .insert(llcOwnershipChains)
+      .values({
+        ...chain,
+        rootEntityName: chain.rootEntityName.toUpperCase().trim(),
+      })
+      .returning();
+    return saved;
   }
 }
 
