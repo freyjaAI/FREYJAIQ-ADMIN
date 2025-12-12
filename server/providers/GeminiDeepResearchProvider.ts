@@ -288,3 +288,192 @@ Return your findings as JSON with owners, officers, registeredAgent, summary, an
     return null;
   }
 }
+
+/**
+ * Property research result structure
+ */
+interface PropertyResearchResult {
+  address: {
+    line1: string;
+    city: string;
+    state: string;
+    zip: string;
+    county?: string;
+  };
+  ownership: {
+    ownerName: string;
+    ownerType: "individual" | "entity";
+    mailingAddress?: string;
+  };
+  parcel?: {
+    apn?: string;
+    fips?: string;
+  };
+  building?: {
+    yearBuilt?: number;
+    sqft?: number;
+    propertyType?: string;
+  };
+  assessment?: {
+    assessedValue?: number;
+    marketValue?: number;
+  };
+  summary: string;
+  citations: string[];
+  source: "gemini";
+}
+
+/**
+ * Research property ownership using Gemini with Google Search grounding
+ * This is used as a fallback when ATTOM doesn't have property data
+ */
+export async function researchPropertyOwnership(
+  address: string
+): Promise<PropertyResearchResult | null> {
+  if (!GOOGLE_AI_API_KEY) {
+    console.log("Gemini Property Research: Not configured (missing GOOGLE_AI_API_KEY)");
+    return null;
+  }
+
+  console.log(`Gemini Property Research: Researching property "${address}"`);
+
+  const prompt = `You are a real estate research assistant. Research the property at this address and find ownership information:
+
+ADDRESS: ${address}
+
+Search for:
+1. Current property owner name (individual or company/LLC)
+2. Property type (residential, commercial, industrial, etc.)
+3. Year built
+4. Property size (square footage)
+5. County/municipality
+6. Any public records about this property
+
+IMPORTANT: 
+- Search public property records, county assessor databases, and real estate databases
+- If the owner is an LLC or company, note that as the owner type
+- Provide the most accurate, up-to-date information available
+
+Respond in this exact JSON format:
+{
+  "ownerName": "Full owner name as shown in records",
+  "ownerType": "individual" or "entity",
+  "mailingAddress": "Owner's mailing address if different from property",
+  "propertyType": "residential/commercial/industrial/land/mixed",
+  "yearBuilt": 1990,
+  "sqft": 2500,
+  "county": "County Name",
+  "assessedValue": 500000,
+  "apn": "Parcel number if found",
+  "summary": "Brief summary of findings",
+  "confidence": "high/medium/low"
+}
+
+If you cannot find certain information, use null for that field. Always provide the ownerName and summary.`;
+
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GOOGLE_AI_API_KEY}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{
+              text: prompt
+            }]
+          }],
+          tools: [{
+            googleSearch: {}
+          }],
+          generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 2048,
+          },
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`Gemini Property Research error: ${response.status}`, errorText);
+      return null;
+    }
+
+    const data = await response.json();
+    
+    // Extract grounding metadata (citations)
+    const groundingMetadata = data.candidates?.[0]?.groundingMetadata;
+    const citations = groundingMetadata?.groundingChunks?.map((chunk: any) => 
+      chunk.web?.uri || chunk.retrievedContext?.uri
+    ).filter(Boolean) || [];
+    
+    const textContent = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    
+    if (!textContent) {
+      console.log("Gemini Property Research: No content in response");
+      return null;
+    }
+
+    // Parse the JSON response
+    const jsonMatch = textContent.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.log("Gemini Property Research: Could not extract JSON from response");
+      return null;
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    
+    if (!parsed.ownerName) {
+      console.log("Gemini Property Research: No owner name found");
+      return null;
+    }
+
+    // Parse the address to extract components
+    const addressParts = address.split(",").map(s => s.trim());
+    const line1 = addressParts[0] || address;
+    const city = addressParts[1] || "";
+    const stateZip = addressParts[2] || "";
+    const stateMatch = stateZip.match(/([A-Z]{2})/i);
+    const zipMatch = stateZip.match(/(\d{5})/);
+    const state = stateMatch ? stateMatch[1].toUpperCase() : "";
+    const zip = zipMatch ? zipMatch[1] : "";
+
+    console.log(`Gemini Property Research: Found owner "${parsed.ownerName}" for "${address}"`);
+
+    return {
+      address: {
+        line1,
+        city,
+        state,
+        zip,
+        county: parsed.county || undefined,
+      },
+      ownership: {
+        ownerName: parsed.ownerName,
+        ownerType: parsed.ownerType === "entity" ? "entity" : "individual",
+        mailingAddress: parsed.mailingAddress || undefined,
+      },
+      parcel: parsed.apn ? {
+        apn: parsed.apn,
+      } : undefined,
+      building: {
+        yearBuilt: parsed.yearBuilt || undefined,
+        sqft: parsed.sqft || undefined,
+        propertyType: parsed.propertyType || undefined,
+      },
+      assessment: parsed.assessedValue ? {
+        assessedValue: parsed.assessedValue,
+        marketValue: parsed.assessedValue,
+      } : undefined,
+      summary: parsed.summary || `Property research for ${address}`,
+      citations,
+      source: "gemini",
+    };
+  } catch (error) {
+    console.error("Gemini Property Research error:", error);
+    return null;
+  }
+}

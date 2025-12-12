@@ -2915,12 +2915,63 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         sources: [],
       };
 
-      // Search properties via ATTOM
+      // Search properties via ATTOM, with Gemini as fallback
       if (type === "address" || type === "all") {
-        const property = await dataProviders.searchPropertyByAddress(query);
+        let property = await dataProviders.searchPropertyByAddress(query);
+        let propertySource = "attom";
+        
+        // If ATTOM doesn't have the property, try Gemini as fallback
+        if (!property && GeminiDeepResearch.isConfigured()) {
+          console.log(`[FALLBACK] ATTOM didn't find "${query}", trying Gemini property research...`);
+          logRoutingDecision('Property Search', 'gemini', 'ATTOM fallback - property not in ATTOM database');
+          trackProviderCall('gemini', false);
+          
+          const geminiResult = await GeminiDeepResearch.researchPropertyOwnership(query);
+          if (geminiResult) {
+            // Convert Gemini result to ATTOM-compatible format
+            property = {
+              attomId: "",
+              address: {
+                line1: geminiResult.address.line1,
+                city: geminiResult.address.city,
+                state: geminiResult.address.state,
+                zip: geminiResult.address.zip,
+                county: geminiResult.address.county || "",
+              },
+              parcel: {
+                apn: geminiResult.parcel?.apn || "",
+                fips: geminiResult.parcel?.fips || "",
+              },
+              ownership: {
+                ownerName: geminiResult.ownership.ownerName,
+                ownerType: geminiResult.ownership.ownerType,
+                mailingAddress: geminiResult.ownership.mailingAddress,
+              },
+              assessment: {
+                assessedValue: geminiResult.assessment?.assessedValue || 0,
+                marketValue: geminiResult.assessment?.marketValue || 0,
+                taxAmount: 0,
+                taxYear: new Date().getFullYear(),
+              },
+              building: {
+                yearBuilt: geminiResult.building?.yearBuilt || 0,
+                sqft: geminiResult.building?.sqft || 0,
+                bedrooms: 0,
+                bathrooms: 0,
+                propertyType: geminiResult.building?.propertyType || "",
+              },
+              sales: [],
+              aiResearchSummary: geminiResult.summary,
+              aiCitations: geminiResult.citations,
+            };
+            propertySource = "gemini";
+            console.log(`[GEMINI SUCCESS] Found property owner: "${geminiResult.ownership.ownerName}"`);
+          }
+        }
+        
         if (property) {
           results.properties.push(property);
-          results.sources.push("attom");
+          results.sources.push(propertySource);
 
           // Auto-import to local database
           const existingOwner = (await storage.searchOwners(property.ownership.ownerName))[0];
@@ -2948,12 +2999,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                 city: property.address.city,
                 state: property.address.state,
                 zipCode: property.address.zip,
-                apn: property.parcel.apn,
-                propertyType: property.building.propertyType.toLowerCase().includes("commercial") ? "commercial" : 
-                              property.building.propertyType.toLowerCase().includes("industrial") ? "industrial" : "other",
-                sqFt: property.building.sqft,
-                yearBuilt: property.building.yearBuilt,
-                assessedValue: property.assessment.assessedValue,
+                apn: property.parcel?.apn || "",
+                propertyType: (property.building?.propertyType || "").toLowerCase().includes("commercial") ? "commercial" : 
+                              (property.building?.propertyType || "").toLowerCase().includes("industrial") ? "industrial" : "other",
+                sqFt: property.building?.sqft || 0,
+                yearBuilt: property.building?.yearBuilt || 0,
+                assessedValue: property.assessment?.assessedValue || 0,
                 ownerId,
               });
             }
