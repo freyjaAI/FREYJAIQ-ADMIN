@@ -1,4 +1,4 @@
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { Building2, Phone, Mail, ChevronRight, MapPin } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -19,13 +19,19 @@ export function OwnerCard({
   contacts = [],
   showActions = true,
 }: OwnerCardProps) {
+  const [, navigate] = useLocation();
   const phoneContact = contacts.find((c) => c.kind === "phone");
   const emailContact = contacts.find((c) => c.kind === "email");
 
+  const handleCardClick = () => {
+    navigate(`/owners/${owner.id}`);
+  };
+
   return (
     <Card
-      className="hover-elevate transition-all"
+      className="hover-elevate transition-all cursor-pointer"
       data-testid={`card-owner-${owner.id}`}
+      onClick={handleCardClick}
     >
       <CardContent className="p-4">
         <div className="flex items-start justify-between gap-4">

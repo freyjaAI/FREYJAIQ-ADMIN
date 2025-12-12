@@ -1,4 +1,4 @@
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { Building, MapPin, Calendar, DollarSign, ChevronRight, Home } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,7 @@ export function PropertyCard({
   showOwnerLink = true,
   compact = false,
 }: PropertyCardProps) {
+  const [, navigate] = useLocation();
   const formatCurrency = (value: number | null | undefined) => {
     if (!value) return "N/A";
     return new Intl.NumberFormat("en-US", {
@@ -44,11 +45,18 @@ export function PropertyCard({
   const Icon =
     propertyTypeIcons[property.propertyType?.toLowerCase() || ""] || Building;
 
+  const handleCardClick = () => {
+    if (property.ownerId) {
+      navigate(`/owners/${property.ownerId}`);
+    }
+  };
+
   if (compact) {
     return (
       <div
-        className="flex items-center justify-between gap-4 p-3 rounded-lg border hover-elevate"
+        className="flex items-center justify-between gap-4 p-3 rounded-lg border hover-elevate cursor-pointer"
         data-testid={`card-property-compact-${property.id}`}
+        onClick={handleCardClick}
       >
         <div className="flex items-center gap-3 min-w-0 flex-1">
           <div className="flex h-9 w-9 items-center justify-center rounded-md bg-muted flex-shrink-0">
@@ -82,8 +90,9 @@ export function PropertyCard({
 
   return (
     <Card
-      className="hover-elevate transition-all"
+      className="hover-elevate transition-all cursor-pointer"
       data-testid={`card-property-${property.id}`}
+      onClick={handleCardClick}
     >
       <CardContent className="p-4">
         <div className="space-y-3">

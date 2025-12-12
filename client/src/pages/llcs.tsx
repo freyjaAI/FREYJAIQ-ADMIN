@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { Building, Search, Filter, ChevronRight, Loader2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -46,6 +46,7 @@ const US_STATES = [
 ];
 
 export default function LLCsPage() {
+  const [, navigate] = useLocation();
   const [searchQuery, setSearchQuery] = useState("");
   const [stateFilter, setStateFilter] = useState("all");
   const [isSearching, setIsSearching] = useState(false);
@@ -53,6 +54,21 @@ export default function LLCsPage() {
 
   const { data: llcs, isLoading } = useQuery<Llc[]>({
     queryKey: ["/api/llcs"],
+  });
+
+  const resolveMutation = useMutation({
+    mutationFn: async (name: string) => {
+      const res = await apiRequest("POST", "/api/owners/resolve-by-name", {
+        name,
+        type: "entity",
+      });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      if (data.owner?.id) {
+        navigate(`/owners/${data.owner.id}`);
+      }
+    },
   });
 
   const searchMutation = useMutation({
@@ -164,7 +180,11 @@ export default function LLCsPage() {
           </div>
           <div className="space-y-3">
             {searchResults.map((result, idx) => (
-              <Card key={`${result.registrationNumber}-${idx}`}>
+              <Card 
+                key={`${result.registrationNumber}-${idx}`}
+                className="hover-elevate cursor-pointer"
+                onClick={() => resolveMutation.mutate(result.name)}
+              >
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between gap-4 flex-wrap">
                     <div className="space-y-1">
@@ -181,6 +201,22 @@ export default function LLCsPage() {
                         <span className="font-mono text-xs">{result.registrationNumber}</span>
                       </div>
                     </div>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="gap-1"
+                      disabled={resolveMutation.isPending}
+                      data-testid={`button-view-llc-${idx}`}
+                    >
+                      {resolveMutation.isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <>
+                          View Dossier
+                          <ChevronRight className="h-4 w-4" />
+                        </>
+                      )}
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
@@ -228,7 +264,11 @@ export default function LLCsPage() {
         ) : filteredLLCs && filteredLLCs.length > 0 ? (
           <div className="space-y-3">
             {filteredLLCs.map((llc) => (
-              <Card key={llc.id}>
+              <Card 
+                key={llc.id} 
+                className="hover-elevate cursor-pointer"
+                onClick={() => navigate(`/llcs/${llc.id}`)}
+              >
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between gap-4 flex-wrap">
                     <div className="space-y-1">
@@ -249,11 +289,9 @@ export default function LLCsPage() {
                         )}
                       </div>
                     </div>
-                    <Button variant="ghost" size="sm" asChild>
-                      <Link href={`/llcs/${llc.id}`} data-testid={`link-llc-dossier-${llc.id}`}>
-                        View Dossier
-                        <ChevronRight className="h-4 w-4 ml-1" />
-                      </Link>
+                    <Button variant="ghost" size="sm" className="gap-1" data-testid={`link-llc-dossier-${llc.id}`}>
+                      View Dossier
+                      <ChevronRight className="h-4 w-4" />
                     </Button>
                   </div>
                 </CardContent>
