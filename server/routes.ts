@@ -2621,6 +2621,48 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // Person-to-Property Linking - Find all holdings for a person
+  app.get("/api/persons/:name/related-holdings", isAuthenticated, async (req: any, res) => {
+    try {
+      const { name } = req.params;
+      const { excludeOwnerId } = req.query;
+
+      if (!name) {
+        return res.status(400).json({ message: "Person name required" });
+      }
+
+      const { findRelatedHoldingsForPerson } = await import("./personPropertyLinker");
+      const holdings = await findRelatedHoldingsForPerson(
+        decodeURIComponent(name),
+        typeof excludeOwnerId === "string" ? excludeOwnerId : undefined
+      );
+
+      res.json(holdings);
+    } catch (error) {
+      console.error("Error finding related holdings:", error);
+      res.status(500).json({ message: "Failed to find related holdings" });
+    }
+  });
+
+  // Property-to-Owners Linking - Find all owners linked to a property
+  app.get("/api/properties/:id/linked-owners", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+
+      if (!id) {
+        return res.status(400).json({ message: "Property ID required" });
+      }
+
+      const { findOwnersLinkedToProperty } = await import("./personPropertyLinker");
+      const linkedOwners = await findOwnersLinkedToProperty(id);
+
+      res.json(linkedOwners);
+    } catch (error) {
+      console.error("Error finding linked owners:", error);
+      res.status(500).json({ message: "Failed to find linked owners" });
+    }
+  });
+
   // External Contact Enrichment (Data Axle + A-Leads)
   app.post("/api/external/enrich-contact", isAuthenticated, async (req: any, res) => {
     try {

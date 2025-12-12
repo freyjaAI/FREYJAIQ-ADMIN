@@ -229,6 +229,22 @@ interface OwnershipChainData {
   cacheAge?: number;
 }
 
+interface RelatedHolding {
+  owner: Owner;
+  properties: Property[];
+  relationship: string;
+  confidence: number;
+}
+
+interface PersonPropertyLinks {
+  personName: string;
+  directProperties: Property[];
+  llcHoldings: RelatedHolding[];
+  relatedOwners: RelatedHolding[];
+  totalProperties: number;
+  totalLlcs: number;
+}
+
 const loadingSteps = [
   { id: "owner", label: "Loading owner profile" },
   { id: "properties", label: "Fetching property records" },
@@ -397,6 +413,13 @@ export default function OwnerDossierPage() {
   const ownershipChainQuery = useQuery<OwnershipChainData>({
     queryKey: [`/api/external/llc-ownership-chain?name=${encodeURIComponent(dossier?.owner?.name || "")}`],
     enabled: !!dossier?.owner?.type && dossier.owner.type === "entity" && !!dossier.owner.name,
+    staleTime: 1000 * 60 * 60, // Cache for 1 hour
+  });
+
+  // Fetch related holdings for individual owners (cross-property links)
+  const relatedHoldingsQuery = useQuery<PersonPropertyLinks>({
+    queryKey: [`/api/persons/${encodeURIComponent(dossier?.owner?.name || "")}/related-holdings?excludeOwnerId=${dossier?.owner?.id || ""}`],
+    enabled: !!dossier?.owner?.type && dossier.owner.type === "individual" && !!dossier.owner.name,
     staleTime: 1000 * 60 * 60, // Cache for 1 hour
   });
 
@@ -1164,6 +1187,129 @@ export default function OwnerDossierPage() {
                   <div className="text-center py-4">
                     <p className="text-sm text-muted-foreground">
                       Ownership chain not yet resolved. This feature traces ownership through nested LLCs.
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Related Holdings Section - for individual owners, shows other properties they own through LLCs */}
+          {owner.type === "individual" && (
+            <Card data-testid="card-related-holdings">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Home className="h-4 w-4" />
+                  Related Holdings
+                  {relatedHoldingsQuery.data && (
+                    <Badge variant="secondary" className="text-xs">
+                      {relatedHoldingsQuery.data.totalProperties} properties via {relatedHoldingsQuery.data.totalLlcs} LLCs
+                    </Badge>
+                  )}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {relatedHoldingsQuery.isLoading ? (
+                  <div className="flex items-center gap-2 py-4">
+                    <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />
+                    <span className="text-sm text-muted-foreground">Searching for related properties...</span>
+                  </div>
+                ) : relatedHoldingsQuery.data && (relatedHoldingsQuery.data.llcHoldings.length > 0 || relatedHoldingsQuery.data.directProperties.length > 0) ? (
+                  <>
+                    {/* LLC Holdings */}
+                    {relatedHoldingsQuery.data.llcHoldings.length > 0 && (
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2 text-sm font-medium">
+                          <Building2 className="h-4 w-4" />
+                          Properties via LLCs
+                        </div>
+                        <div className="space-y-3">
+                          {relatedHoldingsQuery.data.llcHoldings.map((holding, idx) => (
+                            <div 
+                              key={idx}
+                              className="p-3 rounded-md border bg-muted/30"
+                              data-testid={`llc-holding-${idx}`}
+                            >
+                              <div className="flex items-center justify-between gap-2 mb-2">
+                                <div className="flex items-center gap-2">
+                                  <Building2 className="h-4 w-4 text-muted-foreground" />
+                                  <Link 
+                                    href={`/owners/${holding.owner.id}`}
+                                    className="font-medium text-sm hover:underline"
+                                  >
+                                    {holding.owner.name}
+                                  </Link>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Badge variant="outline" className="text-xs capitalize">
+                                    {holding.relationship}
+                                  </Badge>
+                                  <Badge variant="secondary" className="text-xs">
+                                    {holding.confidence}% match
+                                  </Badge>
+                                </div>
+                              </div>
+                              <div className="space-y-1 ml-6">
+                                {holding.properties.slice(0, 3).map((prop, propIdx) => (
+                                  <div 
+                                    key={propIdx}
+                                    className="flex items-center gap-2 text-sm text-muted-foreground"
+                                  >
+                                    <MapPin className="h-3 w-3" />
+                                    <span className="truncate">{prop.address}</span>
+                                    {prop.assessedValue && (
+                                      <span className="shrink-0">
+                                        ${(prop.assessedValue / 1000000).toFixed(1)}M
+                                      </span>
+                                    )}
+                                  </div>
+                                ))}
+                                {holding.properties.length > 3 && (
+                                  <div className="text-xs text-muted-foreground ml-5">
+                                    +{holding.properties.length - 3} more properties
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Direct Properties from name matches */}
+                    {relatedHoldingsQuery.data.directProperties.length > 0 && (
+                      <>
+                        {relatedHoldingsQuery.data.llcHoldings.length > 0 && <Separator />}
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 text-sm font-medium">
+                            <Home className="h-4 w-4" />
+                            Other Direct Holdings
+                          </div>
+                          <div className="space-y-2">
+                            {relatedHoldingsQuery.data.directProperties.slice(0, 5).map((prop, idx) => (
+                              <div 
+                                key={idx}
+                                className="flex items-center gap-2 p-2 rounded-md bg-muted/50"
+                                data-testid={`direct-property-${idx}`}
+                              >
+                                <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
+                                <span className="text-sm truncate">{prop.address}</span>
+                                {prop.assessedValue && (
+                                  <Badge variant="secondary" className="text-xs shrink-0">
+                                    ${(prop.assessedValue / 1000000).toFixed(1)}M
+                                  </Badge>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <div className="text-center py-4">
+                    <p className="text-sm text-muted-foreground">
+                      No additional holdings found for this person across other LLCs or properties.
                     </p>
                   </div>
                 )}
