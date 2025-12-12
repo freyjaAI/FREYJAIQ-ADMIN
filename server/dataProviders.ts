@@ -2,7 +2,7 @@ import pLimit from "p-limit";
 import pRetry from "p-retry";
 import * as PacificEast from "./providers/PacificEastProvider";
 import * as Perplexity from "./providers/PerplexityProvider";
-import { parseFromDescription, toAttomQuery, isValidForSearch, AddressComponents } from "./addressNormalizer";
+import { parseFromDescription, toAttomQuery, toAttomSplitQuery, isValidForSearch, AddressComponents } from "./addressNormalizer";
 
 const limit = pLimit(3);
 
@@ -284,7 +284,22 @@ export class AttomDataProvider {
             if (response.status === 429) {
               throw new Error("Rate limited");
             }
-            throw new Error(`ATTOM API error: ${response.status}`);
+            if (response.status === 400) {
+              const errorBody = await response.text();
+              try {
+                const errorJson = JSON.parse(errorBody);
+                if (errorJson.status?.msg === "SuccessWithoutResult") {
+                  console.log("ATTOM: Property not found in database (SuccessWithoutResult)");
+                  return { property: [] };
+                }
+              } catch (e) {
+              }
+              console.error(`ATTOM API error response: ${response.status} - ${errorBody}`);
+              throw new Error(`ATTOM API error: ${response.status} - ${errorBody}`);
+            }
+            const errorBody = await response.text();
+            console.error(`ATTOM API error response: ${response.status} - ${errorBody}`);
+            throw new Error(`ATTOM API error: ${response.status} - ${errorBody}`);
           }
 
           return response.json();
@@ -296,9 +311,22 @@ export class AttomDataProvider {
 
   async searchByAddress(address: string): Promise<AttomPropertyData | null> {
     try {
-      const data = await this.request<any>("/propertyapi/v1.0.0/property/basicprofile", {
-        address,
-      });
+      const parsed = parseFromDescription(address);
+      let params: Record<string, string>;
+      
+      if (parsed && isValidForSearch(parsed)) {
+        const split = toAttomSplitQuery(parsed);
+        params = {
+          address1: split.address1,
+          address2: split.address2,
+        };
+        console.log(`ATTOM using split format: address1="${split.address1}", address2="${split.address2}"`);
+      } else {
+        params = { address };
+        console.log(`ATTOM using single address format: "${address}"`);
+      }
+      
+      const data = await this.request<any>("/propertyapi/v1.0.0/property/basicprofile", params);
 
       if (!data.property?.[0]) return null;
 

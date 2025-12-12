@@ -269,6 +269,26 @@ export function toAttomQuery(addr: AddressComponents): string {
   return parts.join(', ');
 }
 
+export function toAttomSplitQuery(addr: AddressComponents): { address1: string; address2: string } {
+  const address1 = addr.line1 || '';
+  
+  const address2Parts: string[] = [];
+  if (addr.city) {
+    address2Parts.push(addr.city);
+  }
+  if (addr.stateCode) {
+    address2Parts.push(addr.stateCode);
+  }
+  if (addr.postalCode) {
+    address2Parts.push(addr.postalCode);
+  }
+  
+  return {
+    address1,
+    address2: address2Parts.join(', '),
+  };
+}
+
 export function toOpenCorporatesQuery(addr: AddressComponents): { city?: string; state?: string } {
   return {
     city: addr.city || undefined,
