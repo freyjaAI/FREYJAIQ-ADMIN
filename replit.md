@@ -208,3 +208,17 @@ Preferred communication style: Simple, everyday language.
 - `AI_INTEGRATIONS_OPENAI_API_KEY` - Replit AI API key
 - `ISSUER_URL` - OIDC issuer URL
 - `REPL_ID` - Replit application ID
+- `GOOGLE_AI_API_KEY` - Google Gemini API key for LLC research
+
+### Cost Configuration (optional overrides)
+Provider costs and priorities can be tuned via environment variables:
+- `PROVIDER_COST_<NAME>` - Override cost per call (e.g., `PROVIDER_COST_GEMINI=0.003`)
+- `PROVIDER_PRIORITY_<NAME>` - Override priority order (e.g., `PROVIDER_PRIORITY_OPENCORPORATES=3`)
+- `PROVIDER_QUOTA_<NAME>` - Set monthly call quota (e.g., `PROVIDER_QUOTA_ATTOM=1000`)
+
+Available provider names: `gemini`, `opencorporates`, `perplexity`, `attom`, `apify_skip_trace`, `dataaxle`, `melissa`, `pacificeast`, `aleads`, `google_address`, `openai`
+
+### Cost Metrics API
+- `GET /api/admin/provider-metrics` - Returns provider usage, costs, and cache statistics
+  - Tracks calls per provider, estimated costs, cache hit rates
+  - Useful for monitoring API spending and optimizing usage

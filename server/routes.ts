@@ -12,6 +12,13 @@ import { dataProviders } from "./dataProviders";
 import { insertOwnerSchema, insertPropertySchema, insertContactInfoSchema } from "@shared/schema";
 import { z } from "zod";
 import * as GeminiDeepResearch from "./providers/GeminiDeepResearchProvider";
+import { 
+  trackProviderCall, 
+  trackCacheEvent, 
+  getCostSummary, 
+  getCacheStats,
+  logRoutingDecision 
+} from "./providerConfig";
 
 // Common first names to help detect person names (subset of most common US names)
 const COMMON_FIRST_NAMES = new Set([
@@ -333,6 +340,7 @@ async function getCachedLlcData(
     
     if (cacheAge < LLC_CACHE_TTL_HOURS) {
       console.log(`[CACHE HIT] LLC "${normalizedName}" - cached ${cacheAge.toFixed(1)}h ago, TTL=${LLC_CACHE_TTL_HOURS}h`);
+      trackCacheEvent('llc', true);
       return {
         llc: {
           name: cachedLlc.name,
@@ -361,9 +369,14 @@ async function getCachedLlcData(
   let source = "unknown";
   
   // 1. Try Gemini Deep Research first (cost-effective: $2/million tokens)
+  trackCacheEvent('llc', false); // Cache miss - will make API call
+  
   if (GeminiDeepResearch.isConfigured()) {
+    logRoutingDecision('LLC Lookup', 'gemini', 'Primary provider - lowest cost');
     console.log(`[API CALL] Gemini Deep Research: Looking up "${normalizedName}" (jurisdiction: ${jurisdiction || "any"})`);
+    let geminiCalled = false;
     try {
+      geminiCalled = true;
       const geminiResult = await GeminiDeepResearch.researchLlcWithGrounding(normalizedName, jurisdiction);
       
       if (geminiResult && (geminiResult.owners.length > 0 || geminiResult.officers.length > 0 || geminiResult.registeredAgent)) {
@@ -403,13 +416,18 @@ async function getCachedLlcData(
       }
     } catch (geminiError) {
       console.error(`[API ERROR] Gemini failed for "${normalizedName}":`, geminiError);
+    } finally {
+      if (geminiCalled) trackProviderCall('gemini', false);
     }
   }
   
   // 2. Fallback to OpenCorporates if Gemini didn't find enough data
   if (!llcResult) {
+    logRoutingDecision('LLC Lookup', 'opencorporates', 'Fallback - Gemini insufficient data');
     console.log(`[API CALL] OpenCorporates: Looking up "${normalizedName}" (jurisdiction: ${jurisdiction || "any"})`);
+    let openCorpCalled = false;
     try {
+      openCorpCalled = true;
       llcResult = await dataProviders.lookupLlc(normalizedName, jurisdiction);
       source = "opencorporates";
       
@@ -420,6 +438,8 @@ async function getCachedLlcData(
     } catch (openCorpError: any) {
       console.error(`[API ERROR] OpenCorporates failed for "${normalizedName}":`, openCorpError.message);
       throw openCorpError;
+    } finally {
+      if (openCorpCalled) trackProviderCall('opencorporates', false);
     }
   }
   
@@ -486,6 +506,44 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (error) {
       console.error("Error fetching stats:", error);
       res.status(500).json({ message: "Failed to fetch stats" });
+    }
+  });
+
+  // Provider cost and usage metrics (admin dashboard)
+  app.get("/api/admin/provider-metrics", isAuthenticated, async (req: any, res) => {
+    try {
+      const costSummary = getCostSummary();
+      const cacheStats = getCacheStats();
+      
+      res.json({
+        providers: costSummary.providers,
+        totals: {
+          cost: costSummary.totalCost,
+          costSaved: costSummary.totalCostSaved,
+          sessionStart: costSummary.sessionStart,
+        },
+        cache: {
+          llc: {
+            hits: cacheStats.llcHits,
+            misses: cacheStats.llcMisses,
+            hitRate: cacheStats.llcHitRate.toFixed(1) + '%',
+          },
+          dossier: {
+            hits: cacheStats.dossierHits,
+            misses: cacheStats.dossierMisses,
+            hitRate: cacheStats.dossierHitRate.toFixed(1) + '%',
+          },
+          contact: {
+            hits: cacheStats.contactHits,
+            misses: cacheStats.contactMisses,
+            hitRate: cacheStats.contactHitRate.toFixed(1) + '%',
+          },
+        },
+        lastReset: cacheStats.lastReset,
+      });
+    } catch (error) {
+      console.error("Error fetching provider metrics:", error);
+      res.status(500).json({ message: "Failed to fetch provider metrics" });
     }
   });
 
@@ -645,6 +703,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       if (isCacheValid && existingCache) {
         console.log(`Using cached dossier data for owner ${owner.id}`);
+        trackCacheEvent('dossier', true);
         return res.json({
           owner: { 
             id: owner.id,
@@ -683,6 +742,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
 
       console.log(`Fetching fresh dossier data for owner ${owner.id} (no valid cache)`);
+      trackCacheEvent('dossier', false);
 
       // Calculate seller intent score
       const { score, breakdown } = calculateSellerIntentScore(owner, properties, legalEvents);
@@ -2374,10 +2434,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
 
       let result;
-      if (address && typeof address === "string") {
-        result = await dataProviders.searchPropertyByAddress(address);
-      } else if (apn && fips && typeof apn === "string" && typeof fips === "string") {
-        result = await dataProviders.searchPropertyByApn(apn, fips);
+      let attomCalled = false;
+      try {
+        if (address && typeof address === "string") {
+          attomCalled = true;
+          result = await dataProviders.searchPropertyByAddress(address);
+        } else if (apn && fips && typeof apn === "string" && typeof fips === "string") {
+          attomCalled = true;
+          result = await dataProviders.searchPropertyByApn(apn, fips);
+        }
+      } finally {
+        if (attomCalled) trackProviderCall('attom', false);
       }
 
       if (!result) {
@@ -2412,6 +2479,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // External Owner Search (ATTOM)
   app.get("/api/external/owner-properties", isAuthenticated, async (req: any, res) => {
+    let attomCalled = false;
     try {
       const { name, state } = req.query;
 
@@ -2419,6 +2487,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(400).json({ message: "Owner name required" });
       }
 
+      attomCalled = true;
       const results = await dataProviders.searchPropertiesByOwner(
         name,
         typeof state === "string" ? state : undefined
@@ -2428,6 +2497,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (error) {
       console.error("Error searching owner properties:", error);
       res.status(500).json({ message: "Owner property search failed" });
+    } finally {
+      if (attomCalled) trackProviderCall('attom', false);
     }
   });
 
@@ -3463,10 +3534,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         console.log(`Enriching LLC officer: ${officerData.name} (${officerData.position}) - State: ${officerState}`);
 
         // 1. APIFY SKIP TRACE (Primary source - best for cell phones)
+        let apifyCalled = false;
         try {
           const apifySkipTrace = await import("./providers/ApifySkipTraceProvider.js");
           if (apifySkipTrace.isConfigured()) {
             console.log(`[1/5] Apify Skip Trace for officer: ${officerData.name}`);
+            apifyCalled = true;
             const skipResult = await apifySkipTrace.skipTraceIndividual(
               officerData.name,
               officerStreet,
@@ -3525,11 +3598,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           }
         } catch (err) {
           console.error(`Apify Skip Trace failed for officer ${officerData.name}:`, err);
+        } finally {
+          if (apifyCalled) trackProviderCall('apify_skip_trace', false);
         }
 
         // 2. DATA AXLE (Secondary source)
+        let dataAxleCalled = false;
         try {
           console.log(`[2/5] Data Axle for officer: ${officerData.name}`);
+          dataAxleCalled = true;
           const location = officerState ? { state: officerState } : undefined;
           const allPeople = await dataProviders.searchPeopleV2(officerData.name, location);
           
@@ -3588,11 +3665,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           console.log(`Data Axle for officer: Found ${filteredPeople.length} matching people`);
         } catch (err) {
           console.error(`Data Axle failed for officer ${officerData.name}:`, err);
+        } finally {
+          if (dataAxleCalled) trackProviderCall('dataaxle', false);
         }
 
         // 3. MELISSA (Address & identity verification)
+        let melissaCalled = false;
         try {
           console.log(`[3/5] Melissa verification for officer: ${officerData.name}`);
+          melissaCalled = true;
           // Use officer address from OpenCorporates if skip trace data not available
           const melissaAddress = officerData.skipTraceData?.currentAddress?.streetAddress || officerStreet;
           const melissaCity = officerData.skipTraceData?.currentAddress?.city || officerCity;
@@ -3633,12 +3714,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           }
         } catch (err) {
           console.error(`Melissa failed for officer ${officerData.name}:`, err);
+        } finally {
+          if (melissaCalled) trackProviderCall('melissa', false);
         }
 
         // 4. PACIFIC EAST (Phone append if still no phones)
         if (officerData.phones.length === 0) {
+          let pacificEastCalled = false;
           try {
             console.log(`[4/5] Pacific East FPA for officer: ${officerData.name}`);
+            pacificEastCalled = true;
             // Use officer address from OpenCorporates if skip trace data not available
             const peAddress = officerData.skipTraceData?.currentAddress?.streetAddress || officerStreet;
             const peCity = officerData.skipTraceData?.currentAddress?.city || officerCity;
@@ -3671,13 +3756,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             }
           } catch (err) {
             console.error(`Pacific East failed for officer ${officerData.name}:`, err);
+          } finally {
+            if (pacificEastCalled) trackProviderCall('pacificeast', false);
           }
         }
 
         // 5. A-LEADS (Skip trace fallback if still no phones)
         if (officerData.phones.length === 0) {
+          let aleadsCalled = false;
           try {
             console.log(`[5/5] A-Leads for officer: ${officerData.name}`);
+            aleadsCalled = true;
             // Use city/state from parsed officer address
             const aleadsLocation = (officerCity || officerState) 
               ? { city: officerCity, state: officerState } 
@@ -3720,6 +3809,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             }
           } catch (err) {
             console.error(`A-Leads failed for officer ${officerData.name}:`, err);
+          } finally {
+            if (aleadsCalled) trackProviderCall('aleads', false);
           }
         }
 
