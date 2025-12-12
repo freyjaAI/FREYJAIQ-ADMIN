@@ -1,4 +1,4 @@
-import { useRoute, Link } from "wouter";
+import { useRoute, Link, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -243,6 +243,81 @@ interface PersonPropertyLinks {
   relatedOwners: RelatedHolding[];
   totalProperties: number;
   totalLlcs: number;
+}
+
+function ClickableEntityName({ 
+  name, 
+  type,
+  role,
+  className = "" 
+}: { 
+  name: string; 
+  type?: "entity" | "individual";
+  role?: string;
+  className?: string;
+}) {
+  const [, setLocation] = useLocation();
+  const [isLoading, setIsLoading] = useState(false);
+  const { toast } = useToast();
+
+  const handleClick = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (isLoading) return;
+    setIsLoading(true);
+    
+    try {
+      const response = await apiRequest("POST", "/api/owners/resolve-by-name", {
+        name,
+        type: type || undefined,
+      });
+      
+      const data = await response.json();
+      
+      if (data.owner?.id) {
+        setLocation(`/owner/${data.owner.id}`);
+        
+        if (data.isNew) {
+          toast({
+            title: "New entity created",
+            description: `Created dossier for "${name}". Running enrichment...`,
+          });
+        }
+      }
+    } catch (error) {
+      console.error("Failed to resolve entity:", error);
+      toast({
+        title: "Navigation failed",
+        description: "Could not navigate to entity dossier",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const isEntity = type === "entity" || 
+    /\b(LLC|INC|CORP|TRUST|PROPERTIES|HOLDINGS|REALTY|COMPANY|LTD)\b/i.test(name);
+
+  return (
+    <button
+      onClick={handleClick}
+      disabled={isLoading}
+      className={`text-left font-medium underline underline-offset-2 hover:text-primary cursor-pointer inline-flex items-center gap-1 ${isLoading ? "opacity-50" : ""} ${className}`}
+      data-testid={`link-entity-${name.toLowerCase().replace(/\s+/g, '-')}`}
+    >
+      {isEntity ? (
+        <Building2 className="h-3 w-3 shrink-0" />
+      ) : (
+        <User className="h-3 w-3 shrink-0" />
+      )}
+      <span className="truncate">{name}</span>
+      {role && <span className="text-xs text-muted-foreground">({role})</span>}
+      <ChevronRight className="h-3 w-3 shrink-0" />
+      {isLoading && <RefreshCw className="h-3 w-3 animate-spin" />}
+    </button>
+  );
 }
 
 const loadingSteps = [
@@ -951,7 +1026,7 @@ export default function OwnerDossierPage() {
                                     >
                                       <div className="flex items-start justify-between gap-2">
                                         <div className="min-w-0 flex-1">
-                                          <div className="font-medium">{officer.name}</div>
+                                          <ClickableEntityName name={officer.name} />
                                           <div className="text-sm text-muted-foreground">{officer.position || officer.role}</div>
                                         </div>
                                         <Badge variant="outline" className="text-xs capitalize shrink-0">
@@ -1139,14 +1214,10 @@ export default function OwnerDossierPage() {
                                   data-testid={`chain-node-${level.depth}-${entityIdx}`}
                                 >
                                   <div className="flex items-center justify-between gap-2">
-                                    <div className="flex items-center gap-2 min-w-0">
-                                      {entity.type === "individual" ? (
-                                        <User className="h-3 w-3 text-green-600 shrink-0" />
-                                      ) : (
-                                        <Building2 className="h-3 w-3 text-muted-foreground shrink-0" />
-                                      )}
-                                      <span className="font-medium truncate">{entity.name}</span>
-                                    </div>
+                                    <ClickableEntityName 
+                                      name={entity.name} 
+                                      type={entity.type}
+                                    />
                                     {entity.role && (
                                       <Badge variant="outline" className="text-xs capitalize shrink-0">
                                         {entity.role}
@@ -1182,10 +1253,10 @@ export default function OwnerDossierPage() {
                                 className="p-2 rounded-md bg-green-500/10 border border-green-500/20 flex items-center justify-between"
                                 data-testid={`ubo-${idx}`}
                               >
-                                <div className="flex items-center gap-2">
-                                  <User className="h-4 w-4 text-green-600" />
-                                  <span className="font-medium">{ubo.name}</span>
-                                </div>
+                                <ClickableEntityName 
+                                  name={ubo.name} 
+                                  type={ubo.type}
+                                />
                                 {ubo.role && (
                                   <Badge variant="outline" className="text-xs capitalize">
                                     {ubo.role}

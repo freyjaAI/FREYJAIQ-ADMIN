@@ -1660,6 +1660,46 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // Resolve owner by name - finds existing or creates new owner
+  app.post("/api/owners/resolve-by-name", isAuthenticated, async (req: any, res) => {
+    try {
+      const { name, type } = req.body;
+      
+      if (!name || typeof name !== "string") {
+        return res.status(400).json({ message: "Name is required" });
+      }
+      
+      const normalizedName = name.trim().toUpperCase();
+      
+      // Try to find existing owner
+      const existingOwners = await storage.searchOwners(normalizedName);
+      const exactMatch = existingOwners.find(
+        o => o.name.toUpperCase() === normalizedName
+      );
+      
+      if (exactMatch) {
+        console.log(`[RESOLVE] Found existing owner: ${exactMatch.name} (ID: ${exactMatch.id})`);
+        return res.json({ owner: exactMatch, isNew: false });
+      }
+      
+      // Determine type based on name if not provided
+      const detectedType = type || (shouldTreatAsEntity("individual", normalizedName) ? "entity" : "individual");
+      
+      // Create new owner
+      const newOwner = await storage.createOwner({
+        name: normalizedName,
+        type: detectedType,
+      });
+      
+      console.log(`[RESOLVE] Created new owner: ${newOwner.name} (ID: ${newOwner.id})`);
+      
+      res.json({ owner: newOwner, isNew: true });
+    } catch (error) {
+      console.error("Error resolving owner by name:", error);
+      res.status(500).json({ message: "Failed to resolve owner" });
+    }
+  });
+
   // Generate dossier (refresh/enrich data)
   app.post("/api/owners/:id/generate-dossier", isAuthenticated, async (req: any, res) => {
     try {
