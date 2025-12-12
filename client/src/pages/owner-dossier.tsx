@@ -694,8 +694,11 @@ export default function OwnerDossierPage() {
                       {(() => {
                         // Check if all officers are corporate entities (registered agents) rather than people
                         const corporatePatterns = /\b(COMPANY|CORP|INC|LLC|TRUST|NETWORK|SERVICE|SERVICES|CORPORATION|REGISTERED|AGENT)\b/i;
-                        const officers = llcUnmasking.officers || [];
+                        const allOfficers = llcUnmasking.officers || [];
+                        // Filter out officers with empty/blank names (just role labels)
+                        const officers = allOfficers.filter(o => o.name && o.name.trim() && o.name.trim().toLowerCase() !== "member" && o.name.trim().toLowerCase() !== "officer");
                         const allCorporateEntities = officers.length > 0 && officers.every(o => corporatePatterns.test(o.name));
+                        const hasOnlyRoleLabels = allOfficers.length > 0 && officers.length === 0;
                         const isDelawareLLC = llcUnmasking.jurisdictionCode === "us_de";
                         
                         // Helper to find all contact info for an officer from enrichment data
@@ -854,6 +857,16 @@ export default function OwnerDossierPage() {
                                 )}
                               </div>
                             )}
+                            {hasOnlyRoleLabels && (
+                              <div className="p-3 rounded-md bg-muted/50 text-sm text-muted-foreground" data-testid="text-no-names-notice">
+                                <div className="flex items-start gap-2">
+                                  <Users className="h-4 w-4 mt-0.5 shrink-0" />
+                                  <div>
+                                    <span>Public records show {allOfficers.length} {allOfficers.length === 1 ? 'officer/member' : 'officers/members'} but individual names are not disclosed.</span>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
                             {officers.length > 0 ? (
                               <div className="space-y-2">
                                 {officers.map((officer, idx) => {
@@ -916,9 +929,9 @@ export default function OwnerDossierPage() {
                                   );
                                 })}
                               </div>
-                            ) : (
+                            ) : !hasOnlyRoleLabels ? (
                               <p className="text-sm text-muted-foreground">No officers found</p>
-                            )}
+                            ) : null}
                           </>
                         );
                       })()}
