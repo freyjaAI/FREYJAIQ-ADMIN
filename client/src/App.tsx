@@ -24,6 +24,7 @@ import PropertiesPage from "@/pages/properties";
 import DossiersPage from "@/pages/dossiers";
 import LLCsPage from "@/pages/llcs";
 import LlcDossierPage from "@/pages/llc-dossier";
+import UnifiedDossierPage from "@/pages/unified-dossier";
 import SettingsPage from "@/pages/settings";
 
 function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
@@ -83,6 +84,7 @@ function Router() {
         <Route path="/dossiers" component={DossiersPage} />
         <Route path="/llcs" component={LLCsPage} />
         <Route path="/llcs/:id" component={LlcDossierPage} />
+        <Route path="/dossier/:id" component={UnifiedDossierPage} />
         <Route path="/settings" component={SettingsPage} />
         <Route component={NotFound} />
       </Switch>

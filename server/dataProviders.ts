@@ -2,6 +2,7 @@ import pLimit from "p-limit";
 import pRetry from "p-retry";
 import * as PacificEast from "./providers/PacificEastProvider";
 import * as Perplexity from "./providers/PerplexityProvider";
+import { parseFromDescription, toAttomQuery, isValidForSearch, AddressComponents } from "./addressNormalizer";
 
 const limit = pLimit(3);
 
@@ -1299,43 +1300,17 @@ export class DataProviderManager {
   }
 
   private normalizeAddressForAttom(address: string): string {
-    const stateAbbreviations: Record<string, string> = {
-      "alabama": "AL", "alaska": "AK", "arizona": "AZ", "arkansas": "AR", "california": "CA",
-      "colorado": "CO", "connecticut": "CT", "delaware": "DE", "florida": "FL", "georgia": "GA",
-      "hawaii": "HI", "idaho": "ID", "illinois": "IL", "indiana": "IN", "iowa": "IA",
-      "kansas": "KS", "kentucky": "KY", "louisiana": "LA", "maine": "ME", "maryland": "MD",
-      "massachusetts": "MA", "michigan": "MI", "minnesota": "MN", "mississippi": "MS", "missouri": "MO",
-      "montana": "MT", "nebraska": "NE", "nevada": "NV", "new hampshire": "NH", "new jersey": "NJ",
-      "new mexico": "NM", "new york": "NY", "north carolina": "NC", "north dakota": "ND", "ohio": "OH",
-      "oklahoma": "OK", "oregon": "OR", "pennsylvania": "PA", "rhode island": "RI", "south carolina": "SC",
-      "south dakota": "SD", "tennessee": "TN", "texas": "TX", "utah": "UT", "vermont": "VT",
-      "virginia": "VA", "washington": "WA", "west virginia": "WV", "wisconsin": "WI", "wyoming": "WY",
-      "district of columbia": "DC"
-    };
-
-    let normalized = address
+    const parsed = parseFromDescription(address);
+    if (parsed && isValidForSearch(parsed)) {
+      const query = toAttomQuery(parsed);
+      console.log(`Address normalized: "${address}" -> "${query}" (city: ${parsed.city}, state: ${parsed.stateCode})`);
+      return query;
+    }
+    console.warn(`Could not parse address, using raw: "${address}"`);
+    return address
       .replace(/,?\s*USA$/i, "")
       .replace(/,?\s*United States$/i, "")
       .trim();
-
-    const parts = normalized.split(",").map(p => p.trim());
-    
-    if (parts.length >= 2) {
-      const lastPart = parts[parts.length - 1].toLowerCase();
-      
-      if (stateAbbreviations[lastPart]) {
-        parts[parts.length - 1] = stateAbbreviations[lastPart];
-      }
-      
-      if (parts.length >= 3) {
-        const secondLastPart = parts[parts.length - 2].toLowerCase();
-        if (stateAbbreviations[secondLastPart] && parts[parts.length - 1].length === 2) {
-          parts.splice(parts.length - 2, 1);
-        }
-      }
-    }
-
-    return parts.join(", ");
   }
 
   async searchPropertyByAddress(address: string): Promise<AttomPropertyData | null> {

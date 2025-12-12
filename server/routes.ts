@@ -14,6 +14,7 @@ import { z } from "zod";
 import { db } from "./db";
 import { eq } from "drizzle-orm";
 import * as GeminiDeepResearch from "./providers/GeminiDeepResearchProvider";
+import { buildUnifiedDossier, runFullEnrichment, resolveEntityById, UnifiedDossier } from "./dossierService";
 import { 
   trackProviderCall, 
   trackCacheEvent, 
@@ -4209,6 +4210,91 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (error) {
       console.error("Error importing LLC:", error);
       res.status(500).json({ message: "Failed to import LLC" });
+    }
+  });
+
+  // =====================================
+  // UNIFIED DOSSIER API
+  // =====================================
+
+  // Get unified dossier for any entity (person, LLC, or property)
+  app.get("/api/dossier/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      
+      if (!id) {
+        return res.status(400).json({ message: "Entity ID required" });
+      }
+
+      const dossier = await buildUnifiedDossier(id);
+      
+      if (!dossier) {
+        return res.status(404).json({ message: "Entity not found" });
+      }
+
+      res.json(dossier);
+    } catch (error) {
+      console.error("Error building dossier:", error);
+      res.status(500).json({ message: "Failed to build dossier" });
+    }
+  });
+
+  // Run full enrichment on an entity
+  app.post("/api/dossier/:id/enrich", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      
+      if (!id) {
+        return res.status(400).json({ message: "Entity ID required" });
+      }
+
+      const result = await runFullEnrichment(id);
+      
+      if (!result.success && result.error) {
+        return res.status(result.error === "Entity not found" ? 404 : 500).json({ 
+          message: result.error,
+          providersUsed: result.providersUsed,
+        });
+      }
+
+      // Return updated dossier after enrichment
+      const dossier = await buildUnifiedDossier(id);
+      
+      res.json({
+        success: result.success,
+        providersUsed: result.providersUsed,
+        dossier,
+      });
+    } catch (error) {
+      console.error("Error running enrichment:", error);
+      res.status(500).json({ message: "Failed to run enrichment" });
+    }
+  });
+
+  // Check entity type for routing decisions
+  app.get("/api/dossier/:id/type", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      
+      if (!id) {
+        return res.status(400).json({ message: "Entity ID required" });
+      }
+
+      const resolved = await resolveEntityById(id);
+      
+      if (!resolved) {
+        return res.status(404).json({ message: "Entity not found" });
+      }
+
+      res.json({ 
+        id, 
+        entityType: resolved.entityType,
+        name: 'name' in resolved.record ? resolved.record.name : 
+              'address' in resolved.record ? resolved.record.address : 'Unknown',
+      });
+    } catch (error) {
+      console.error("Error resolving entity type:", error);
+      res.status(500).json({ message: "Failed to resolve entity type" });
     }
   });
 
