@@ -25,6 +25,10 @@ import {
   Brain,
   GitBranch,
   ChevronRight,
+  Zap,
+  Database,
+  Clock,
+  Loader2,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -478,6 +482,39 @@ export default function OwnerDossierPage() {
     },
   });
 
+  const runFullEnrichmentMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", `/api/dossier/${ownerId}/enrich`);
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/owners", ownerId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/owners", ownerId, "dossier"] });
+      toast({ 
+        title: "Full enrichment complete",
+        description: `Found ${data.contactsAdded || 0} new contacts from ${data.providersUsed?.length || 0} sources`,
+      });
+    },
+    onError: (error) => {
+      if (isUnauthorizedError(error)) {
+        toast({
+          title: "Unauthorized",
+          description: "You are logged out. Logging in again...",
+          variant: "destructive",
+        });
+        setTimeout(() => {
+          window.location.href = "/api/login";
+        }, 500);
+        return;
+      }
+      toast({
+        title: "Error",
+        description: "Failed to run full enrichment",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleCopy = async (text: string) => {
     await navigator.clipboard.writeText(text);
     setCopiedText(text);
@@ -727,6 +764,24 @@ export default function OwnerDossierPage() {
               }`}
             />
             Refresh Data
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => runFullEnrichmentMutation.mutate()}
+            disabled={runFullEnrichmentMutation.isPending}
+            data-testid="button-run-enrichment"
+          >
+            {runFullEnrichmentMutation.isPending ? (
+              <>
+                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                Enriching...
+              </>
+            ) : (
+              <>
+                <Zap className="h-4 w-4 mr-2" />
+                Run Full Enrichment
+              </>
+            )}
           </Button>
           <Button
             onClick={() => exportPdfMutation.mutate()}
