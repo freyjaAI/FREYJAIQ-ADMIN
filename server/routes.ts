@@ -9,8 +9,10 @@ import {
   calculateContactConfidence,
 } from "./openai";
 import { dataProviders } from "./dataProviders";
-import { insertOwnerSchema, insertPropertySchema, insertContactInfoSchema } from "@shared/schema";
+import { insertOwnerSchema, insertPropertySchema, insertContactInfoSchema, ownerLlcLinks, owners } from "@shared/schema";
 import { z } from "zod";
+import { db } from "./db";
+import { eq } from "drizzle-orm";
 import * as GeminiDeepResearch from "./providers/GeminiDeepResearchProvider";
 import { 
   trackProviderCall, 
@@ -2660,6 +2662,73 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (error) {
       console.error("Error finding linked owners:", error);
       res.status(500).json({ message: "Failed to find linked owners" });
+    }
+  });
+
+  // LLC-to-Individuals Linking - Find all individuals linked to an LLC owner
+  app.get("/api/owners/:id/linked-individuals", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+
+      if (!id) {
+        return res.status(400).json({ message: "Owner ID required" });
+      }
+
+      // Get the owner directly from database
+      const ownerResults = await db
+        .select()
+        .from(owners)
+        .where(eq(owners.id, id))
+        .limit(1);
+      
+      const owner = ownerResults[0];
+      if (!owner) {
+        return res.status(404).json({ message: "Owner not found" });
+      }
+
+      // Only works for entity type owners
+      if (owner.type !== 'entity') {
+        return res.json({ linkedIndividuals: [] });
+      }
+
+      // Find all individuals linked to this LLC via owner_llc_links
+      const links = await db
+        .select()
+        .from(ownerLlcLinks)
+        .where(eq(ownerLlcLinks.llcOwnerId, id));
+
+      const linkedIndividuals: Array<{
+        id: string;
+        name: string;
+        relationship: string;
+        confidence: number;
+        primaryAddress?: string;
+      }> = [];
+
+      for (const link of links) {
+        // Query individual directly from database
+        const individualResults = await db
+          .select()
+          .from(owners)
+          .where(eq(owners.id, link.ownerId))
+          .limit(1);
+        
+        const individual = individualResults[0];
+        if (individual) {
+          linkedIndividuals.push({
+            id: individual.id,
+            name: individual.name,
+            relationship: link.relationship || 'linked',
+            confidence: link.confidenceScore || 70,
+            primaryAddress: individual.primaryAddress || undefined,
+          });
+        }
+      }
+
+      res.json({ linkedIndividuals });
+    } catch (error) {
+      console.error("Error finding linked individuals:", error);
+      res.status(500).json({ message: "Failed to find linked individuals" });
     }
   });
 

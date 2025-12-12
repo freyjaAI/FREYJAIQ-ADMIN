@@ -423,6 +423,21 @@ export default function OwnerDossierPage() {
     staleTime: 1000 * 60 * 60, // Cache for 1 hour
   });
 
+  // Fetch linked individuals for LLC/entity owners (bidirectional linking)
+  const linkedIndividualsQuery = useQuery<{
+    linkedIndividuals: Array<{
+      id: string;
+      name: string;
+      relationship: string;
+      confidence: number;
+      primaryAddress?: string;
+    }>;
+  }>({
+    queryKey: [`/api/owners/${dossier?.owner?.id}/linked-individuals`],
+    enabled: !!dossier?.owner?.type && dossier.owner.type === "entity" && !!dossier.owner.id,
+    staleTime: 1000 * 60 * 60, // Cache for 1 hour
+  });
+
   if (isLoading) {
     return <DossierLoadingProgress />;
   }
@@ -1310,6 +1325,71 @@ export default function OwnerDossierPage() {
                   <div className="text-center py-4">
                     <p className="text-sm text-muted-foreground">
                       No additional holdings found for this person across other LLCs or properties.
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Linked Individuals Section - for LLC/entity owners, shows individuals connected to this entity */}
+          {owner.type === "entity" && (
+            <Card data-testid="card-linked-individuals">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Users className="h-4 w-4" />
+                  Linked Individuals
+                  {linkedIndividualsQuery.data && linkedIndividualsQuery.data.linkedIndividuals.length > 0 && (
+                    <Badge variant="secondary" className="text-xs">
+                      {linkedIndividualsQuery.data.linkedIndividuals.length} people
+                    </Badge>
+                  )}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {linkedIndividualsQuery.isLoading ? (
+                  <div className="flex items-center gap-2 py-4">
+                    <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />
+                    <span className="text-sm text-muted-foreground">Loading linked individuals...</span>
+                  </div>
+                ) : linkedIndividualsQuery.data && linkedIndividualsQuery.data.linkedIndividuals.length > 0 ? (
+                  <div className="space-y-2">
+                    {linkedIndividualsQuery.data.linkedIndividuals.map((person, idx) => (
+                      <Link 
+                        key={idx}
+                        href={`/owners/${person.id}`}
+                        className="flex items-center justify-between p-3 rounded-md border bg-muted/30 hover-elevate"
+                        data-testid={`linked-individual-${idx}`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10">
+                            <User className="h-4 w-4 text-primary" />
+                          </div>
+                          <div>
+                            <div className="font-medium text-sm">{person.name}</div>
+                            {person.primaryAddress && (
+                              <div className="text-xs text-muted-foreground truncate max-w-[200px]">
+                                {person.primaryAddress}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="text-xs capitalize">
+                            {person.relationship}
+                          </Badge>
+                          <Badge variant="secondary" className="text-xs">
+                            {person.confidence}% match
+                          </Badge>
+                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-4">
+                    <p className="text-sm text-muted-foreground">
+                      No linked individuals found. Run LLC unmasking to discover connected people.
                     </p>
                   </div>
                 )}
