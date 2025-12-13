@@ -1563,8 +1563,88 @@ export class DataProviderManager {
         return !isAgent && !isCorporateService && !looksLikeCorporate;
       });
 
-      const isPrivacyProtected = realPersonOfficers.length === 0;
+      let isPrivacyProtected = realPersonOfficers.length === 0;
       console.log(`Privacy protection check: ${isPrivacyProtected ? "YES - only agents/service companies found" : "NO - real person officers found"}`);
+
+      // If privacy-protected and we searched with a specific jurisdiction, try other states to find home filing with real officers
+      if (isPrivacyProtected && searchedJurisdiction) {
+        console.log(`Retrying search without jurisdiction constraint to find home state filing with real officers...`);
+        
+        // Search all jurisdictions without filter
+        const broadResults = await this.openCorporates.searchCompanies(companyName);
+        
+        // Filter to find registrations in different jurisdictions that might have real officers
+        const alternativeFilings = broadResults.filter(c => 
+          c.jurisdictionCode !== searchedJurisdiction && 
+          c.name.toUpperCase().includes(companyName.toUpperCase().split(' ')[0])
+        );
+        
+        console.log(`Found ${alternativeFilings.length} alternative filings in other jurisdictions`);
+        
+        // Try each alternative filing to find one with real person officers
+        for (const altCompany of alternativeFilings.slice(0, 5)) {
+          console.log(`Checking ${altCompany.name} in ${altCompany.jurisdictionCode}...`);
+          
+          const altFullCompany = await this.openCorporates.getCompany(
+            altCompany.jurisdictionCode,
+            altCompany.companyNumber
+          );
+          
+          if (!altFullCompany) continue;
+          
+          let altOfficers = altFullCompany.officers || [];
+          if (altOfficers.length === 0) {
+            try {
+              altOfficers = await this.openCorporates.getOfficers(
+                altCompany.jurisdictionCode,
+                altCompany.companyNumber
+              );
+            } catch (err) {
+              // Ignore errors
+            }
+          }
+          
+          const altNormalizedOfficers = altOfficers.map(o => ({
+            name: o.name,
+            position: o.position,
+            startDate: o.startDate,
+            address: o.address,
+            role: categorizeRole(o.position),
+            confidenceScore: 85,
+          }));
+          
+          const altRealPersonOfficers = altNormalizedOfficers.filter(o => {
+            const isAgent = o.role === "agent";
+            const isCorporateService = corporateServicePatterns.test(o.name);
+            const looksLikeCorporate = /\b(INC|LLC|CORP|COMPANY|SERVICES|SERVICE|TRUST|NETWORK)\b/i.test(o.name);
+            return !isAgent && !isCorporateService && !looksLikeCorporate;
+          });
+          
+          if (altRealPersonOfficers.length > 0) {
+            console.log(`Found ${altRealPersonOfficers.length} real person officers in ${altCompany.jurisdictionCode}! Using this filing.`);
+            
+            // Update our data to use this better filing
+            Object.assign(fullCompany, altFullCompany);
+            officers = altOfficers;
+            normalizedOfficers.length = 0;
+            normalizedOfficers.push(...altNormalizedOfficers);
+            isPrivacyProtected = false;
+            
+            // Update registered agent from the better filing
+            if (altFullCompany.agentName) {
+              registeredAgent = { 
+                name: altFullCompany.agentName, 
+                address: altFullCompany.agentAddress 
+              };
+            }
+            break;
+          }
+        }
+        
+        if (isPrivacyProtected) {
+          console.log(`No alternative filings with real person officers found`);
+        }
+      }
 
       let aiInferredOwners: LlcUnmaskingResult["aiInferredOwners"];
       let aiRelatedEntities: string[] | undefined;
