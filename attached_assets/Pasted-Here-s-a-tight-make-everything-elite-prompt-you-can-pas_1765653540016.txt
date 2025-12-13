@@ -1,0 +1,160 @@
+Here’s a tight, “make everything elite” prompt you can paste into Replit Agent for FREYJA IQ:
+
+Prompt for Replit Agent (FREYJA IQ Hardening & Polish)
+You are the lead engineer and product owner for FREYJA IQ, an interactive ownership intelligence platform. The system is already 90% complete; your job now is to tighten everything, eliminate rough edges, and make the product feel elite, reliable, and investor-ready.
+
+Work within this Replit project and:
+
+1. End-to-end correctness & stability
+Do a full pass on the server and client code (src/server, src/client, shared, providers, routes etc.).
+
+Fix any remaining issues that could cause runtime errors, bad states, or broken UX:
+
+Broken imports, dead code, unsafe any types, unhandled null / undefined.
+
+Inconsistent error handling or missing try/catch around provider calls.
+
+Any obvious performance issues (N+1 queries, unnecessary repeated calls).
+
+Make sure the app can:
+
+Start cleanly with npm run dev and build/deploy cleanly for production.
+
+Handle timeouts and provider failures gracefully (no white screens, no crashes).
+
+2. Clickable, navigable ownership graph
+The product goal: anything that looks like an entity must be clickable and open its dossier, and it must be enrichable.
+
+Go through all client pages:
+
+owners.tsx, owner-dossier.tsx
+
+llcs.tsx, llc-dossier.tsx
+
+properties.tsx
+
+dossiers.tsx, unified-dossier.tsx
+
+Any other entity/search/result components
+
+Enforce these rules:
+
+Any owner name, LLC name, or property address/APN shown anywhere in the UI is a clickable component that routes to the correct unified dossier for that entity.
+
+In owner-dossier and llc-dossier, make every owner, officer, member, registered agent, related LLC, and related property clickable.
+
+Example: strings like "GILAR REALTY", "ABUELO REALTY LLC", or any similar LLC/owner label should always be clickable, re-running enrichment if needed and opening the correct dossier.
+
+Use a single, shared ClickableEntity / dossier link helper so routing is consistent and easy to maintain.
+
+3. Unified Dossier & enrichment behavior
+Make the unified dossier flow the central way the app works.
+
+Ensure there is a single Unified Dossier API/service (e.g. dossierService.ts) that can return a complete dossier for:
+
+person
+
+llc
+
+property
+
+Every dossier page (owner-dossier, llc-dossier, properties, unified-dossier) should:
+
+Call this unified API
+
+Render a consistent structure:
+
+Core info (name, type, IDs, primary address)
+
+Contact (phones, emails, addresses)
+
+Ownership (owners / UBOs, holdings/portfolio)
+
+Network (family, associates, co-owners)
+
+Meta (last enriched, providers used, enrichment status, cost estimate)
+
+Make sure navigation is loop-safe:
+
+From a property dossier you can click into its LLC owner.
+
+From that LLC, you can click into members/UBOs.
+
+From a person, you can click into their other properties/LLCs.
+
+There should be no dead ends or non-clickable entities in these chains.
+
+4. “Run Full Enrichment” & intelligent waterfall
+Enforce the rule: the system should never just give up if data is missing.
+
+Add or verify a universal “Run Full Enrichment” action on the dossier:
+
+If a dossier is missing key data (contacts, owners, UBOs, portfolio), the system should run a cost-aware waterfall across providers, for that entity:
+
+Cache → free/cheapest (Data Axle free quota, OpenCorporates, existing records)
+
+Pacific East / Apify / Melissa / ATTOM as configured
+
+Gemini Deep Research as last resort for LLC/owner/property gaps
+
+Surface this in the UI on every dossier:
+
+A clear “Run Full Enrichment” button.
+
+Show enrichment status: complete, partial, enriching, failed.
+
+Show which providers were used and which are pending/skipped (without exposing raw vendor names if branding requires aliases).
+
+Apply the “never just not find something” principle:
+
+If ATTOM (or any primary provider) has no data for an address, automatically:
+
+Try alternate providers (Apify scrape, other APIs).
+
+Use GeminiDeepResearchProvider as an intelligent fallback before returning an empty state.
+
+Reflect this in the dossier meta/status so the user knows the system tried everything.
+
+5. Cost-awareness, logging, and polish
+Ensure the existing providerConfig / cost tracking is actually used in enrichment flows:
+
+Routing should respect provider priority and cost.
+
+Caching should be hit before making paid calls wherever possible.
+
+Improve logging for production:
+
+Log provider calls with: entity id, provider, outcome (hit/miss/error), and latency.
+
+Avoid logging sensitive PII where not necessary.
+
+UI/UX polish:
+
+Fix any obvious layout issues, broken states, or missing loading/error states on dossier and search pages.
+
+Ensure loading spinners and empty-state messages are clear and professional.
+
+Make it obvious when a dossier is still enriching vs finished.
+
+6. Final QA pass
+Before you stop:
+
+Run through these manual flows end-to-end and ensure they work smoothly in the deployed app:
+
+Search by address → property dossier → click LLC owner → click UBO → see their other properties.
+
+Search by LLC name → LLC dossier → run full enrichment → see officers + properties.
+
+Search by person → person dossier → see properties + LLCs + associates.
+
+From any dossier with missing data, click Run Full Enrichment and verify:
+
+Providers are called in the right order.
+
+Data appears on refresh.
+
+No crashes, no confusing errors.
+
+Fix any bugs, edge cases, or UX issues you encounter along the way.
+
+Treat this like a pre-investor demo hardening pass: the codebase should be clean, the UX should feel intentional and premium, and the product should behave like a tight, intelligent ownership graph that always tries its hardest to find and enrich the true owner.
