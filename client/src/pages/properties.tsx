@@ -54,11 +54,11 @@ export default function PropertiesPage() {
 
   const propertyTypes = [
     "all",
-    ...new Set(
+    ...Array.from(new Set(
       properties
         ?.map((p) => p.propertyType?.toLowerCase())
         .filter(Boolean) as string[]
-    ),
+    )),
   ];
 
   return (

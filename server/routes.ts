@@ -4252,6 +4252,44 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // Run full enrichment for LLC
+  app.post("/api/llcs/:id/enrich", isAuthenticated, async (req: any, res) => {
+    try {
+      const llc = await storage.getLlc(req.params.id);
+      if (!llc) {
+        return res.status(404).json({ message: "LLC not found" });
+      }
+
+      console.log(`Running full enrichment for LLC: ${llc.name}`);
+      
+      // Clear cached enrichment to force re-enrichment
+      await storage.updateLlc(llc.id, { enrichmentData: null });
+      
+      // Redirect to dossier endpoint which will run fresh enrichment
+      const dossierRes = await fetch(`${req.protocol}://${req.get('host')}/api/llcs/${llc.id}/dossier`, {
+        headers: { 
+          Cookie: req.headers.cookie,
+        },
+      });
+      
+      if (!dossierRes.ok) {
+        throw new Error('Enrichment failed');
+      }
+      
+      const dossierData = await dossierRes.json();
+      
+      res.json({
+        message: "Full enrichment completed",
+        llc: dossierData.llc,
+        officers: dossierData.officers,
+        enrichment: dossierData.enrichment,
+      });
+    } catch (error) {
+      console.error("Error running LLC enrichment:", error);
+      res.status(500).json({ message: "Failed to run full enrichment" });
+    }
+  });
+
   // Import LLC from OpenCorporates search result
   app.post("/api/llcs/import", isAuthenticated, async (req: any, res) => {
     try {

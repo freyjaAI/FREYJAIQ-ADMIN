@@ -15,6 +15,7 @@ import {
   CheckCircle,
   User,
   Home,
+  Zap,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -23,6 +24,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { ClickableEntity } from "@/components/clickable-entity";
 import type { Llc } from "@shared/schema";
 
 interface EnrichedOfficer {
@@ -166,6 +168,27 @@ export default function LlcDossierPage() {
     },
   });
 
+  const runFullEnrichmentMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/llcs/${id}/enrich`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/llcs", id, "dossier"] });
+      toast({
+        title: "Full Enrichment Complete",
+        description: "All available data sources have been queried for officer information.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Enrichment failed",
+        description: "Could not complete full enrichment. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const getStatusColor = (status: string | null | undefined) => {
     if (!status) return "secondary";
     const s = status.toLowerCase();
@@ -257,6 +280,19 @@ export default function LlcDossierPage() {
         </div>
         <div className="flex items-center gap-2">
           <Button
+            variant="default"
+            onClick={() => runFullEnrichmentMutation.mutate()}
+            disabled={runFullEnrichmentMutation.isPending}
+            data-testid="button-run-full-enrichment"
+          >
+            {runFullEnrichmentMutation.isPending ? (
+              <RefreshCw className="h-4 w-4 animate-spin mr-2" />
+            ) : (
+              <Zap className="h-4 w-4 mr-2" />
+            )}
+            Run Full Enrichment
+          </Button>
+          <Button
             variant="outline"
             onClick={() => enrichMutation.mutate()}
             disabled={enrichMutation.isPending}
@@ -330,12 +366,17 @@ export default function LlcDossierPage() {
                   <div key={idx} className="space-y-2">
                     <div className="flex items-center justify-between gap-2 flex-wrap">
                       <div>
-                        <p className="font-medium flex items-center gap-2">
-                          {officer.name}
+                        <div className="font-medium flex items-center gap-2">
+                          <ClickableEntity 
+                            name={officer.name} 
+                            type="individual" 
+                            showIcon={false}
+                            size="md"
+                          />
                           {officer.melissaData?.nameMatch?.verified && (
                             <CheckCircle className="h-3 w-3 text-green-500" />
                           )}
-                        </p>
+                        </div>
                         <p className="text-sm text-muted-foreground">{officer.position}</p>
                       </div>
                       <Badge variant="outline">
@@ -408,8 +449,11 @@ export default function LlcDossierPage() {
                     <p className="text-sm text-muted-foreground font-medium">Other Officers (not enriched)</p>
                     {nonEnrichedOfficers.map((officer, idx) => (
                       <div key={`raw-${idx}`} className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <User className="h-3 w-3" />
-                        <span>{officer.name}</span>
+                        <ClickableEntity 
+                          name={officer.name} 
+                          type="individual"
+                          size="sm"
+                        />
                         {officer.position && (
                           <span className="opacity-60">- {officer.position}</span>
                         )}
@@ -422,14 +466,17 @@ export default function LlcDossierPage() {
               <div className="space-y-2">
                 {nonEnrichedOfficers.map((officer, idx) => (
                   <div key={idx} className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <User className="h-3 w-3" />
-                    <span>{officer.name}</span>
+                    <ClickableEntity 
+                      name={officer.name} 
+                      type="individual"
+                      size="sm"
+                    />
                     {officer.position && (
                       <span className="opacity-60">- {officer.position}</span>
                     )}
                   </div>
                 ))}
-                <p className="text-xs text-muted-foreground mt-2">Click "Refresh Data" to enrich officer contact information</p>
+                <p className="text-xs text-muted-foreground mt-2">Click "Run Full Enrichment" to enrich officer contact information</p>
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">No officer information available.</p>
