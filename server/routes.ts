@@ -156,6 +156,43 @@ function shouldTreatAsEntity(ownerType: string, ownerName: string): boolean {
 }
 
 // ============================================================================
+// PRIVACY-PROTECTED OFFICER DETECTION
+// Detect when LLC officers are only corporate agents/privacy services
+// ============================================================================
+
+const PRIVACY_AGENT_PATTERNS = [
+  "CORPORATION SERVICE", "CORP SERVICE", "CSC", "CT CORPORATION",
+  "REGISTERED AGENT", "NATIONAL REGISTERED", "NORTHWEST REGISTERED",
+  "INCORP SERVICES", "LEGALZOOM", "HARBOR COMPLIANCE", "COGENCY GLOBAL",
+  "UNITED STATES CORPORATION", "VCORP", "UNITED AGENT", "AGENT GROUP",
+  "PRIVACY PROTECTED", "CORPORATE CREATIONS", "HARVARD BUSINESS",
+  "PARACORP", "INCORPORATING SERVICES", "CORPORATE AGENTS"
+];
+
+function isPrivacyProtectedOfficer(officerName: string): boolean {
+  if (!officerName) return false;
+  const upper = officerName.toUpperCase();
+  return PRIVACY_AGENT_PATTERNS.some(pattern => upper.includes(pattern));
+}
+
+function hasOnlyPrivacyProtectedOfficers(officers: Array<{ name: string; position?: string; role?: string }>): boolean {
+  if (!officers || officers.length === 0) return false;
+  
+  const validOfficers = officers.filter(o => o.name && o.name.trim().length > 0);
+  if (validOfficers.length === 0) return false;
+  
+  const realPersonOfficers = validOfficers.filter(o => {
+    const name = o.name;
+    if (isPrivacyProtectedOfficer(name)) return false;
+    if (isEntityName(name)) return false;
+    return looksLikePersonName(name);
+  });
+  
+  console.log(`[PRIVACY CHECK] ${validOfficers.length} officers, ${realPersonOfficers.length} are real people`);
+  return realPersonOfficers.length === 0;
+}
+
+// ============================================================================
 // COMPREHENSIVE CACHING SYSTEM
 // Prevents wasted API calls by checking if we already have complete data
 // ============================================================================
@@ -461,6 +498,30 @@ export async function getCachedLlcData(
   if (!llcResult) {
     console.log(`[API] No LLC data found from any source for "${normalizedName}"`);
     return null;
+  }
+  
+  // 3. Privacy-protection detection and retry
+  // If we only found corporate agents as officers, retry without jurisdiction to find home state filings
+  if (llcResult.officers && hasOnlyPrivacyProtectedOfficers(llcResult.officers) && jurisdiction) {
+    console.log(`[PRIVACY-PROTECTED] "${normalizedName}" has only corporate agent officers, retrying without jurisdiction constraint...`);
+    
+    try {
+      const retryResult = await dataProviders.lookupLlc(normalizedName, undefined);
+      trackProviderCall('opencorporates', false);
+      
+      if (retryResult && retryResult.officers) {
+        const hasRealOfficers = !hasOnlyPrivacyProtectedOfficers(retryResult.officers);
+        if (hasRealOfficers) {
+          console.log(`[PRIVACY-PROTECTED] Found ${retryResult.officers.length} officers in home state filing with real people!`);
+          llcResult = retryResult;
+          source = "opencorporates_retry";
+        } else {
+          console.log(`[PRIVACY-PROTECTED] Retry also found only corporate agents, keeping original result`);
+        }
+      }
+    } catch (retryError) {
+      console.error(`[PRIVACY-PROTECTED] Retry failed:`, retryError);
+    }
   }
   
   // Store in llcs table for future cache hits
