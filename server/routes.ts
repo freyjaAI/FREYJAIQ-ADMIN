@@ -386,20 +386,25 @@ export async function getCachedLlcData(
         console.log(`[API SUCCESS] Gemini found ${geminiResult.owners.length} owners, ${geminiResult.officers.length} officers`);
         
         // Convert Gemini result to standard LLC format
+        // IMPORTANT: Filter out officers with empty names to avoid caching bad data
         const officers = [
-          ...geminiResult.owners.map(o => ({
-            name: o.name,
-            position: o.role || "Member",
-            role: o.role || "member",
-            confidence: o.confidence,
-          })),
-          ...geminiResult.officers.map(o => ({
-            name: o.name,
-            position: o.position || "Officer",
-            role: "officer",
-            address: o.address,
-            confidence: o.confidence,
-          })),
+          ...geminiResult.owners
+            .filter(o => o.name && o.name.trim().length > 0)
+            .map(o => ({
+              name: o.name,
+              position: o.role || "Member",
+              role: o.role || "member",
+              confidence: o.confidence,
+            })),
+          ...geminiResult.officers
+            .filter(o => o.name && o.name.trim().length > 0)
+            .map(o => ({
+              name: o.name,
+              position: o.position || "Officer",
+              role: "officer",
+              address: o.address,
+              confidence: o.confidence,
+            })),
         ];
         
         llcResult = {
