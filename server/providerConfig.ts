@@ -274,9 +274,9 @@ export function getCacheStats(): CacheStats & {
  */
 export function getTotalCost(): number {
   let total = 0;
-  for (const metrics of usageMetrics.values()) {
+  Array.from(usageMetrics.values()).forEach(metrics => {
     total += metrics.totalCost;
-  }
+  });
   return total;
 }
 
