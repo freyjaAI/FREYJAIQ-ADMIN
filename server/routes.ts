@@ -85,7 +85,8 @@ function setCachedLlcSearchResults(query: string, jurisdiction: string | undefin
   // Clean up old entries periodically (keep cache size manageable)
   if (llcSearchCache.size > 500) {
     const now = Date.now();
-    for (const [key, value] of llcSearchCache.entries()) {
+    const entries = Array.from(llcSearchCache.entries());
+    for (const [key, value] of entries) {
       if (now - value.timestamp > LLC_SEARCH_CACHE_TTL_MS) {
         llcSearchCache.delete(key);
       }
@@ -492,7 +493,7 @@ export async function getCachedLlcData(
   return {
     llc: llcResult,
     fromCache: false,
-    source,
+    cacheAge: 0,
   };
 }
 
@@ -1076,14 +1077,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                   if (phone.number && !enrichedOfficer.phones.some((p: any) => p.phone === phone.number)) {
                     enrichedOfficer.phones.push({
                       phone: phone.number,
-                      type: phone.type === "residential" ? "landline" : "direct",
+                      type: phone.type === "residential" ? "direct" : "direct",
                       source: "pacific_east",
                       confidence: phone.confidence,
                     });
                     if (!contactEnrichment.directDials.some((d: any) => d.phone === phone.number)) {
                       contactEnrichment.directDials.push({
                         phone: phone.number,
-                        type: phone.type === "residential" ? "landline" : "direct",
+                        type: phone.type === "residential" ? "direct" : "direct",
                         name: normalizedOfficerName,
                         confidence: phone.confidence,
                         source: "pacific_east",
@@ -1099,15 +1100,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                       email: email.address,
                       source: "pacific_east",
                       confidence: email.confidence,
-                      validated: email.validated,
                     });
                     if (!contactEnrichment.companyEmails.some((e: any) => e.email === email.address)) {
                       contactEnrichment.companyEmails.push({
                         email: email.address,
                         type: "personal",
                         confidence: email.confidence,
-                        validated: email.validated,
-                        source: "pacific_east",
                       });
                     }
                   }
@@ -1379,8 +1377,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                   email: email.address,
                   type: "personal",
                   confidence: email.confidence,
-                  validated: email.validated,
-                  source: "pacific_east",
                 });
               }
             }
@@ -1405,7 +1401,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           console.log(`[4/4] A-Leads search for: ${normalizedOwnerName}`);
           const aLeadsResults = await dataProviders.searchALeadsByName(normalizedOwnerName, location);
           for (const result of (aLeadsResults || []).slice(0, 5)) {
-            if (result.email && !contactEnrichment.companyEmails.some((e: any) => e.email.toLowerCase() === result.email.toLowerCase())) {
+            if (result.email && !contactEnrichment.companyEmails.some((e: any) => e.email.toLowerCase() === result.email!.toLowerCase())) {
               contactEnrichment.companyEmails.push({
                 email: result.email,
                 type: "personal",
@@ -1413,7 +1409,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                 source: "a_leads",
               });
             }
-            if (result.phone && !contactEnrichment.directDials.some((d: any) => d.phone.replace(/\D/g, "") === result.phone.replace(/\D/g, ""))) {
+            if (result.phone && !contactEnrichment.directDials.some((d: any) => d.phone.replace(/\D/g, "") === result.phone!.replace(/\D/g, ""))) {
               contactEnrichment.directDials.push({
                 phone: result.phone,
                 type: "direct",
@@ -1822,7 +1818,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         scoreBreakdown = scoreResult.breakdown;
         
         try {
-          aiOutreach = await generateOutreachSuggestion(owner, properties);
+          aiOutreach = await generateOutreachSuggestion(owner, properties, sellerScore);
         } catch (e) {
           console.error("Failed to generate AI outreach for PDF:", e);
         }
@@ -1964,9 +1960,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           if (p.assessedValue) details.push(`Value: $${p.assessedValue.toLocaleString()}`);
           if (p.sqFt) details.push(`Sq Ft: ${p.sqFt.toLocaleString()}`);
           if (p.yearBuilt) details.push(`Built: ${p.yearBuilt}`);
-          if (p.lotSize) details.push(`Lot: ${p.lotSize.toLocaleString()} sq ft`);
-          if (p.bedrooms) details.push(`Beds: ${p.bedrooms}`);
-          if (p.bathrooms) details.push(`Baths: ${p.bathrooms}`);
+          if ((p as any).lotSize) details.push(`Lot: ${(p as any).lotSize.toLocaleString()} sq ft`);
+          if ((p as any).bedrooms) details.push(`Beds: ${(p as any).bedrooms}`);
+          if ((p as any).bathrooms) details.push(`Baths: ${(p as any).bathrooms}`);
           if (details.length > 0) {
             addText(`   ${details.join(" | ")}`, 8, false, [80, 80, 80]);
           }
@@ -2174,9 +2170,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         addSectionHeader(`LEGAL EVENTS (${legalEvents.length})`);
         for (const event of legalEvents) {
           checkPageBreak(15);
-          addText(`- ${event.eventType.toUpperCase()}: ${event.title || event.description}`, 9, true, [40, 40, 40]);
-          if (event.eventDate) {
-            addText(`    Date: ${new Date(event.eventDate).toLocaleDateString()}`, 8, false, [80, 80, 80]);
+          addText(`- ${event.type.toUpperCase()}: ${event.description || ""}`, 9, true, [40, 40, 40]);
+          if (event.filedDate) {
+            addText(`    Date: ${new Date(event.filedDate).toLocaleDateString()}`, 8, false, [80, 80, 80]);
           }
           if (event.amount) {
             addText(`    Amount: $${event.amount.toLocaleString()}`, 8, false, [80, 80, 80]);
