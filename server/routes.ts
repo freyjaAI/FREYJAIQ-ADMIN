@@ -12,7 +12,7 @@ import { dataProviders } from "./dataProviders";
 import { insertOwnerSchema, insertPropertySchema, insertContactInfoSchema, ownerLlcLinks, owners } from "@shared/schema";
 import { z } from "zod";
 import { db } from "./db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import * as GeminiDeepResearch from "./providers/GeminiDeepResearchProvider";
 import { buildUnifiedDossier, runFullEnrichment, resolveEntityById, UnifiedDossier } from "./dossierService";
 import { 
@@ -620,6 +620,51 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (error) {
       console.error("Error fetching provider metrics:", error);
       res.status(500).json({ message: "Failed to fetch provider metrics" });
+    }
+  });
+
+  // Admin endpoint to clear LLC cache for specific entities (privacy-protected fix)
+  app.post("/api/admin/clear-llc-cache", isAuthenticated, async (req: any, res) => {
+    try {
+      const { entityName } = req.body;
+      
+      let deletedLlcs = 0;
+      let deletedChains = 0;
+      let deletedDossiers = 0;
+      
+      if (entityName) {
+        // Clear specific entity
+        const llcResult = await db.execute(sql`DELETE FROM llcs WHERE name ILIKE ${'%' + entityName + '%'} RETURNING id`);
+        deletedLlcs = llcResult.rowCount || 0;
+        
+        const chainResult = await db.execute(sql`DELETE FROM llc_ownership_chains WHERE root_entity_name ILIKE ${'%' + entityName + '%'} RETURNING id`);
+        deletedChains = chainResult.rowCount || 0;
+      } else {
+        // Clear Corporate Creations and United Agent Group specifically
+        const llcResult = await db.execute(sql`DELETE FROM llcs WHERE name ILIKE '%CORPORATE CREATIONS%' OR name ILIKE '%UNITED AGENT GROUP%' RETURNING id`);
+        deletedLlcs = llcResult.rowCount || 0;
+        
+        const chainResult = await db.execute(sql`DELETE FROM llc_ownership_chains WHERE root_entity_name ILIKE '%CORPORATE CREATIONS%' OR root_entity_name ILIKE '%UNITED AGENT GROUP%' RETURNING id`);
+        deletedChains = chainResult.rowCount || 0;
+        
+        const dossierResult = await db.execute(sql`DELETE FROM dossier_cache RETURNING id`);
+        deletedDossiers = dossierResult.rowCount || 0;
+      }
+      
+      console.log(`[ADMIN] Cache cleared: ${deletedLlcs} LLCs, ${deletedChains} chains, ${deletedDossiers} dossiers`);
+      
+      res.json({
+        success: true,
+        deleted: {
+          llcs: deletedLlcs,
+          llcOwnershipChains: deletedChains,
+          dossierCache: deletedDossiers,
+        },
+        message: `Cache cleared successfully. ${deletedLlcs + deletedChains + deletedDossiers} total records deleted.`
+      });
+    } catch (error) {
+      console.error("Error clearing LLC cache:", error);
+      res.status(500).json({ message: "Failed to clear LLC cache", error: String(error) });
     }
   });
 
