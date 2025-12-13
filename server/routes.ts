@@ -4008,16 +4008,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               postalCode: peZip,
             });
             
-            if (pacificEastResult?.phone) {
-              const normalizedPhone = pacificEastResult.phone?.replace(/\D/g, "");
+            if (pacificEastResult?.contacts && pacificEastResult.contacts.length > 0) {
+              const contact = pacificEastResult.contacts[0];
+              const normalizedPhone = contact.phoneNumber?.replace(/\D/g, "");
               if (normalizedPhone && !officerData.phones.some((p: any) => 
                 p.phone?.replace(/\D/g, "") === normalizedPhone
               )) {
                 officerData.phones.push({
-                  phone: pacificEastResult.phone,
-                  type: (pacificEastResult as any).type || "direct",
+                  phone: contact.phoneNumber,
+                  type: contact.contactType || "direct",
                   source: "pacific_east",
-                  confidence: pacificEastResult.matchScore || 55,
+                  confidence: contact.matchScore?.overallName || 55,
                 });
               }
               console.log(`Pacific East for officer: Found phone`);
