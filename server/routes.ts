@@ -1087,7 +1087,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                         type: phone.type === "residential" ? "direct" : "direct",
                         name: normalizedOfficerName,
                         confidence: phone.confidence,
-                        source: "pacific_east",
                       });
                     }
                   }
@@ -1544,9 +1543,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
         
         // Persist person enrichment data (age, relatives, associates, previous addresses) to owner record
-        if (!isEntity && contactEnrichment.skipTraceData) {
+        if (!isEntity && (contactEnrichment as any).skipTraceData) {
           try {
-            const skipData = contactEnrichment.skipTraceData;
+            const skipData = (contactEnrichment as any).skipTraceData;
             const ownerUpdate: any = {
               enrichmentSource: "apify_skip_trace",
               enrichmentUpdatedAt: new Date(),
@@ -3002,9 +3001,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                 propertyType: geminiResult.building?.propertyType || "",
               },
               sales: [],
-              aiResearchSummary: geminiResult.summary,
-              aiCitations: geminiResult.citations,
-            };
+            } as any;
             propertySource = "gemini";
             console.log(`[GEMINI SUCCESS] Found property owner: "${geminiResult.ownership.ownerName}"`);
           }
@@ -3340,7 +3337,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           // Now search Data Axle People v2 for each real officer (not corporate entities)
           console.log(`Searching Data Axle for ${llc.officers.length} officers...`);
           const officerContacts = await dataProviders.findOfficerContacts(
-            llc.officers.map(o => ({ name: o.name, position: o.position })),
+            llc.officers.map((o: any) => ({ name: o.name, position: o.position })),
             { state: owner.primaryAddress?.match(/([A-Z]{2})\s*\d{5}?/)?.[1] }
           );
 
@@ -3949,9 +3946,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           const melissaZip = officerData.skipTraceData?.currentAddress?.postalCode || officerZip;
           
           const melissaResult = await dataProviders.fetchMelissaEnrichment({
-            fullName: officerData.name,
-            firstName,
-            lastName,
+            name: officerData.name,
             address: melissaAddress,
             city: melissaCity,
             state: officerState,
@@ -4004,24 +3999,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               address: peAddress,
               city: peCity,
               state: officerState,
-              zip: peZip,
+              postalCode: peZip,
             });
             
-            if (pacificEastResult?.phones?.length) {
-              for (const phone of pacificEastResult.phones) {
-                const normalizedPhone = phone.phone?.replace(/\D/g, "");
-                if (normalizedPhone && !officerData.phones.some((p: any) => 
-                  p.phone?.replace(/\D/g, "") === normalizedPhone
-                )) {
-                  officerData.phones.push({
-                    phone: phone.phone,
-                    type: phone.type || "direct",
-                    source: "pacific_east",
-                    confidence: phone.matchScore || 55,
-                  });
-                }
+            if (pacificEastResult?.phone) {
+              const normalizedPhone = pacificEastResult.phone?.replace(/\D/g, "");
+              if (normalizedPhone && !officerData.phones.some((p: any) => 
+                p.phone?.replace(/\D/g, "") === normalizedPhone
+              )) {
+                officerData.phones.push({
+                  phone: pacificEastResult.phone,
+                  type: (pacificEastResult as any).type || "direct",
+                  source: "pacific_east",
+                  confidence: pacificEastResult.matchScore || 55,
+                });
               }
-              console.log(`Pacific East for officer: Found ${pacificEastResult.phones.length} phones`);
+              console.log(`Pacific East for officer: Found phone`);
             }
           } catch (err) {
             console.error(`Pacific East failed for officer ${officerData.name}:`, err);
@@ -4046,35 +4039,35 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               // Take the first result
               const aleadsResult = aleadsResults[0];
               
-              // Add phones from A-Leads
-              for (const phone of aleadsResult.phones || []) {
-                const normalizedPhone = phone.phone?.replace(/\D/g, "");
+              // Add phone from A-Leads (singular property)
+              if (aleadsResult.phone) {
+                const normalizedPhone = aleadsResult.phone?.replace(/\D/g, "");
                 if (normalizedPhone && !officerData.phones.some((p: any) => 
                   p.phone?.replace(/\D/g, "") === normalizedPhone
                 )) {
                   officerData.phones.push({
-                    phone: phone.phone,
-                    type: phone.type || "direct",
+                    phone: aleadsResult.phone,
+                    type: "direct",
                     source: "a_leads",
-                    confidence: phone.confidence || 50,
+                    confidence: 50,
                   });
                 }
               }
               
-              // Add emails from A-Leads
-              for (const email of aleadsResult.emails || []) {
-                if (email.email && !officerData.emails.some((e: any) => 
-                  e.email?.toLowerCase() === email.email.toLowerCase()
+              // Add email from A-Leads (singular property)
+              if (aleadsResult.email) {
+                if (!officerData.emails.some((e: any) => 
+                  e.email?.toLowerCase() === aleadsResult.email?.toLowerCase()
                 )) {
                   officerData.emails.push({
-                    email: email.email,
+                    email: aleadsResult.email,
                     type: "personal",
                     source: "a_leads",
-                    confidence: email.confidence || 50,
+                    confidence: 50,
                   });
                 }
               }
-              console.log(`A-Leads for officer: Found ${aleadsResult.phones?.length || 0} phones, ${aleadsResult.emails?.length || 0} emails`);
+              console.log(`A-Leads for officer: Found ${aleadsResult.phone ? 1 : 0} phones, ${aleadsResult.email ? 1 : 0} emails`);
             }
           } catch (err) {
             console.error(`A-Leads failed for officer ${officerData.name}:`, err);
@@ -4193,8 +4186,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             metadata: null,
             createdAt: llc.createdAt,
             updatedAt: llc.updatedAt,
+            age: null,
+            birthDate: null,
+            relatives: null,
+            associates: null,
+            previousAddresses: null,
+            enrichmentSource: null,
+            enrichmentUpdatedAt: null,
           };
-          aiOutreach = await generateOutreachSuggestion(llcAsOwner, [], 50);
+          aiOutreach = await generateOutreachSuggestion(llcAsOwner as any, [], 50);
         } catch (err) {
           console.error("AI outreach generation failed:", err);
         }
