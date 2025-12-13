@@ -280,7 +280,7 @@ function ClickableEntityName({
       const data = await response.json();
       
       if (data.owner?.id) {
-        setLocation(`/owner/${data.owner.id}`);
+        setLocation(`/owners/${data.owner.id}`);
         
         if (data.isNew) {
           toast({
