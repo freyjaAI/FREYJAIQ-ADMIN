@@ -408,18 +408,24 @@ export async function getCachedLlcData(
             })),
         ];
         
-        llcResult = {
-          name: normalizedName,
-          jurisdictionCode: jurisdiction,
-          officers,
-          agentName: geminiResult.registeredAgent?.name,
-          agentAddress: geminiResult.registeredAgent?.address,
-          status: "Active",
-          entityType: "LLC",
-          aiResearchSummary: geminiResult.summary,
-          aiCitations: geminiResult.citations,
-        };
-        source = "gemini";
+        // Only use Gemini result if we have at least one officer with a valid name
+        // Otherwise fall back to OpenCorporates which has more reliable officer data
+        if (officers.length > 0) {
+          llcResult = {
+            name: normalizedName,
+            jurisdictionCode: jurisdiction,
+            officers,
+            agentName: geminiResult.registeredAgent?.name,
+            agentAddress: geminiResult.registeredAgent?.address,
+            status: "Active",
+            entityType: "LLC",
+            aiResearchSummary: geminiResult.summary,
+            aiCitations: geminiResult.citations,
+          };
+          source = "gemini";
+        } else {
+          console.log(`[API] Gemini: Found data but no valid officer names for "${normalizedName}", trying OpenCorporates...`);
+        }
       } else {
         console.log(`[API] Gemini: No sufficient data for "${normalizedName}", trying OpenCorporates...`);
       }
