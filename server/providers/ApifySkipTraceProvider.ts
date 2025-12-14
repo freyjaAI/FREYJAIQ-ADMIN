@@ -220,6 +220,178 @@ export async function searchByPhone(phoneNumber: string): Promise<SkipTraceResul
 }
 
 /**
+ * Extract the last name from a full name string
+ * Handles formats like "NANCY E ROMAN", "Nancy Roman", "John Smith Jr"
+ */
+function extractLastName(fullName: string): string {
+  const parts = fullName.trim().split(/\s+/);
+  if (parts.length === 0) return "";
+  
+  // Common suffixes to skip
+  const suffixes = ["JR", "SR", "II", "III", "IV", "ESQ", "MD", "PHD"];
+  
+  // Work backwards to find the last non-suffix word
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const part = parts[i].toUpperCase().replace(/[.,]/g, "");
+    if (!suffixes.includes(part)) {
+      return part;
+    }
+  }
+  
+  return parts[parts.length - 1].toUpperCase();
+}
+
+/**
+ * Normalize a name for comparison (uppercase, remove punctuation)
+ */
+function normalizeName(name: string): string {
+  return name.toUpperCase().replace(/[^A-Z]/g, "");
+}
+
+/**
+ * Calculate Levenshtein distance between two strings
+ */
+function levenshteinDistance(a: string, b: string): number {
+  const matrix: number[][] = [];
+  
+  for (let i = 0; i <= b.length; i++) {
+    matrix[i] = [i];
+  }
+  for (let j = 0; j <= a.length; j++) {
+    matrix[0][j] = j;
+  }
+  
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b.charAt(i - 1) === a.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1, // substitution
+          matrix[i][j - 1] + 1,     // insertion
+          matrix[i - 1][j] + 1      // deletion
+        );
+      }
+    }
+  }
+  
+  return matrix[b.length][a.length];
+}
+
+/**
+ * Split a name into parts by common delimiters (hyphen, space)
+ * Used for handling compound/hyphenated names like "Smith-Jones"
+ */
+function splitNameParts(name: string): string[] {
+  return name.split(/[-\s]+/).filter(part => part.length > 0);
+}
+
+/**
+ * Check if two last names are similar enough to be a match
+ * Uses strict matching with Levenshtein distance for typo tolerance
+ */
+function lastNamesMatch(expected: string, actual: string): boolean {
+  // First check with original names (preserving delimiters for compound name handling)
+  const expectedParts = splitNameParts(expected.toUpperCase());
+  const actualParts = splitNameParts(actual.toUpperCase());
+  
+  // Handle compound/hyphenated names: if either has multiple parts,
+  // check if any part of one matches any part of the other
+  if (expectedParts.length > 1 || actualParts.length > 1) {
+    for (const expPart of expectedParts) {
+      for (const actPart of actualParts) {
+        if (expPart.length >= 3 && actPart.length >= 3) {
+          // Use strict comparison for compound name parts
+          if (expPart === actPart) {
+            return true;
+          }
+          // Allow 1 typo for longer compound parts (5+ chars)
+          if (expPart.length >= 5 && actPart.length >= 5) {
+            const distance = levenshteinDistance(expPart, actPart);
+            if (distance <= 1) {
+              return true;
+            }
+          }
+        }
+      }
+    }
+  }
+  
+  // For simple names, use normalized comparison
+  const normalizedExpected = normalizeName(expected);
+  const normalizedActual = normalizeName(actual);
+  
+  // Reject if either name is too short (< 3 chars) - these are likely abbreviations
+  if (normalizedExpected.length < 3 || normalizedActual.length < 3) {
+    // For very short names, require exact match
+    return normalizedExpected === normalizedActual;
+  }
+  
+  // Exact match
+  if (normalizedExpected === normalizedActual) return true;
+  
+  // Names must be similar in length (within 2 chars) to be considered the same person
+  const lengthDiff = Math.abs(normalizedExpected.length - normalizedActual.length);
+  if (lengthDiff > 2) {
+    return false;
+  }
+  
+  // Use Levenshtein distance for typo tolerance
+  const distance = levenshteinDistance(normalizedExpected, normalizedActual);
+  const maxLen = Math.max(normalizedExpected.length, normalizedActual.length);
+  
+  // Allow edit distance of 1 for names 4-6 chars, 2 for 7+ chars
+  // But never more than 20% of the name length (stricter than before)
+  const maxAllowedDistance = Math.min(
+    maxLen >= 7 ? 2 : 1,
+    Math.floor(maxLen * 0.2)
+  );
+  
+  return distance <= maxAllowedDistance;
+}
+
+/**
+ * Validate that a skip trace result matches the expected person
+ */
+function validateResult(
+  result: SkipTraceResult,
+  expectedLastName: string,
+  expectedState?: string
+): { valid: boolean; reason?: string } {
+  // Check last name match
+  if (result.lastName) {
+    if (!lastNamesMatch(expectedLastName, result.lastName)) {
+      return {
+        valid: false,
+        reason: `Last name mismatch: expected "${expectedLastName}", got "${result.lastName}"`
+      };
+    }
+  }
+  
+  // Check state match if we have both expected state and result address
+  if (expectedState && result.currentAddress?.state) {
+    const normalizedExpected = expectedState.toUpperCase().trim();
+    const normalizedActual = result.currentAddress.state.toUpperCase().trim();
+    
+    if (normalizedExpected !== normalizedActual) {
+      // Check if any previous address matches the expected state
+      const hasAddressInState = result.previousAddresses.some(
+        addr => addr.state?.toUpperCase().trim() === normalizedExpected
+      );
+      
+      if (!hasAddressInState) {
+        return {
+          valid: false,
+          reason: `State mismatch: expected "${expectedState}", got "${result.currentAddress.state}" (no address history in expected state)`
+        };
+      }
+    }
+  }
+  
+  return { valid: true };
+}
+
+/**
  * Combined search: tries address first, then name if no results
  */
 export async function skipTraceIndividual(
@@ -230,22 +402,37 @@ export async function skipTraceIndividual(
   zip?: string
 ): Promise<SkipTraceResult | null> {
   let results: SkipTraceResult[] = [];
+  const expectedLastName = extractLastName(fullName);
+  
+  console.log(`Apify Skip Trace: Searching for "${fullName}" (expected last name: "${expectedLastName}")`);
   
   // Try address search first if we have full address
   if (streetAddress && city && state) {
     results = await searchByAddress(streetAddress, city, state, zip);
     if (results.length > 0 && results[0].phones.length > 0) {
+      // Address search results are trusted since they're based on property records
       console.log(`Apify Skip Trace: Found ${results[0].phones.length} phones via address search`);
       return results[0];
     }
   }
   
-  // Fall back to name search
+  // Fall back to name search - but validate results carefully
   if (fullName) {
     results = await searchByName(fullName, city, state);
     if (results.length > 0) {
-      console.log(`Apify Skip Trace: Found ${results[0].phones.length} phones via name search`);
-      return results[0];
+      const result = results[0];
+      
+      // Validate the result matches our expected person
+      const validation = validateResult(result, expectedLastName, state);
+      
+      if (!validation.valid) {
+        console.log(`Apify Skip Trace: Rejecting name search result - ${validation.reason}`);
+        console.log(`Apify Skip Trace: Result was for "${result.firstName} ${result.lastName}" in ${result.currentAddress?.state || "unknown state"}`);
+        return null;
+      }
+      
+      console.log(`Apify Skip Trace: Found ${result.phones.length} phones via name search (validated)`);
+      return result;
     }
   }
   
