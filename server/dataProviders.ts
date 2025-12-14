@@ -62,6 +62,13 @@ interface OpenCorporatesCompany {
   opencorporatesUrl?: string;
   status?: string;
   entityType?: string;
+  /** Branch relationship - links foreign registrations to their parent company */
+  branch?: {
+    parentCompanyNumber: string;
+    parentJurisdictionCode: string;
+    parentName: string;
+    parentOpencorporatesUrl: string;
+  };
   officers: Array<{
     name: string;
     position: string;
@@ -531,6 +538,19 @@ export class OpenCorporatesProvider {
         console.log(`OpenCorporates registered agent: ${company.agent_name}`);
       }
 
+      // Parse branch relationship (for foreign registrations)
+      let branch: OpenCorporatesCompany["branch"] = undefined;
+      if (company.branch) {
+        const branchCompany = company.branch;
+        branch = {
+          parentCompanyNumber: branchCompany.company_number || "",
+          parentJurisdictionCode: branchCompany.jurisdiction_code || "",
+          parentName: branchCompany.name || "",
+          parentOpencorporatesUrl: branchCompany.opencorporates_url || "",
+        };
+        console.log(`OpenCorporates branch detected: "${company.name}" is branch of "${branch.parentName}" (${branch.parentJurisdictionCode})`);
+      }
+
       const officers = (company.officers || []).map((o: any) => ({
         name: o.officer?.name || o.name || "",
         position: o.officer?.position || o.position || "",
@@ -554,6 +574,7 @@ export class OpenCorporatesProvider {
         registeredAddress: company.registered_address_in_full,
         agentName: company.agent_name,
         agentAddress: company.agent_address,
+        branch,
         officers,
         filings,
       };
@@ -594,6 +615,49 @@ export class OpenCorporatesProvider {
     } catch (error) {
       console.error("OpenCorporates officer search error:", error);
       return [];
+    }
+  }
+
+  /**
+   * Follow branch relationship to get parent company with officers.
+   * Foreign registrations (branches) often have no officers listed, but the parent company does.
+   */
+  async getParentCompanyWithOfficers(company: OpenCorporatesCompany): Promise<OpenCorporatesCompany | null> {
+    if (!company.branch) {
+      return null;
+    }
+
+    const { parentJurisdictionCode, parentCompanyNumber, parentName } = company.branch;
+    
+    if (!parentJurisdictionCode || !parentCompanyNumber) {
+      console.log(`OpenCorporates: Branch detected for "${company.name}" but missing parent company identifiers`);
+      return null;
+    }
+
+    console.log(`OpenCorporates: Following branch to parent company "${parentName}" (${parentJurisdictionCode}/${parentCompanyNumber})`);
+
+    try {
+      const parentCompany = await this.getCompany(parentJurisdictionCode, parentCompanyNumber);
+      
+      if (!parentCompany) {
+        console.log(`OpenCorporates: Parent company lookup failed for "${parentName}"`);
+        return null;
+      }
+
+      // If parent has no officers in main response, try the officers endpoint
+      if (parentCompany.officers.length === 0) {
+        console.log(`OpenCorporates: Parent company has no officers in response, fetching via officers endpoint`);
+        const officers = await this.getOfficers(parentJurisdictionCode, parentCompanyNumber);
+        if (officers.length > 0) {
+          parentCompany.officers = officers;
+        }
+      }
+
+      console.log(`OpenCorporates: Parent company "${parentCompany.name}" has ${parentCompany.officers.length} officers`);
+      return parentCompany;
+    } catch (error) {
+      console.error(`OpenCorporates: Error fetching parent company:`, error);
+      return null;
     }
   }
 }
@@ -1512,6 +1576,21 @@ export class DataProviderManager {
           console.log(`Fetched ${officers.length} officers from separate endpoint`);
         } catch (err) {
           console.log("Officers endpoint not available, using company data");
+        }
+      }
+
+      // If still no officers, check if this is a branch (foreign registration) and get parent company officers
+      if (officers.length === 0 && fullCompany.branch) {
+        console.log(`No officers found, checking parent company via branch relationship...`);
+        const parentCompany = await this.openCorporates.getParentCompanyWithOfficers(fullCompany);
+        if (parentCompany && parentCompany.officers.length > 0) {
+          console.log(`Found ${parentCompany.officers.length} officers from parent company "${parentCompany.name}"`);
+          officers = parentCompany.officers;
+          // Update registered agent from parent if available
+          if (parentCompany.agentName && !fullCompany.agentName) {
+            fullCompany.agentName = parentCompany.agentName;
+            fullCompany.agentAddress = parentCompany.agentAddress;
+          }
         }
       }
 
