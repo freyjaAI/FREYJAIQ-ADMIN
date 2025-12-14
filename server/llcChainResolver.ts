@@ -200,6 +200,44 @@ export async function resolveOwnershipChain(
         }
       }
 
+      // Check for parent company via branch relationship (foreign registrations)
+      // The "home state" parent often has the real officers while foreign filings only have agents
+      if (llc.branch && llc.branch.parentName) {
+        const parentName = llc.branch.parentName;
+        const parentVisited = visited.has(normalizeEntityName(parentName));
+        if (!parentVisited) {
+          console.log(`[LLC Chain] Found parent company via branch: "${parentName}" (${llc.branch.parentJurisdictionCode})`);
+          await traverse(parentName, depth + 1, "parent_company");
+        }
+      }
+
+      // For entity officers, recursively check if THEY have parent companies
+      // This discovers holding company structures (e.g., LLC owned by another LLC owned by a person)
+      for (const officer of officers) {
+        if (!officer.name) continue;
+        
+        const officerName = officer.name.trim();
+        
+        if (isEntityName(officerName)) {
+          const officerNormalized = normalizeEntityName(officerName);
+          if (!visited.has(officerNormalized)) {
+            console.log(`[LLC Chain] Officer "${officerName}" is an entity, checking for parent company...`);
+            
+            try {
+              const officerLlcData = await _llcLookupFn!(officerName, jurisdiction);
+              apiCalls++;
+              
+              if (officerLlcData?.llc?.branch?.parentName) {
+                const officerParent = officerLlcData.llc.branch.parentName;
+                console.log(`[LLC Chain] Entity officer "${officerName}" has parent: "${officerParent}"`);
+              }
+            } catch (err) {
+              console.log(`[LLC Chain] Could not lookup entity officer "${officerName}"`);
+            }
+          }
+        }
+      }
+
       if (llc.agentName && !isPrivacyAgent(llc.agentName)) {
         const agentVisited = visited.has(normalizeEntityName(llc.agentName));
         if (!agentVisited) {
