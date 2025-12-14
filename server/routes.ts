@@ -22,6 +22,7 @@ import {
   getCacheStats,
   logRoutingDecision 
 } from "./providerConfig";
+import { setLlcLookupFunction } from "./llcChainResolver";
 
 // Common first names to help detect person names (subset of most common US names)
 const COMMON_FIRST_NAMES = new Set([
@@ -204,7 +205,8 @@ const PROPERTY_CACHE_TTL_HOURS = 168; // 7 days - property data rarely changes
 
 // Check if an owner has COMPLETE enrichment (not just partial data)
 // Only returns true if the owner has been fully processed with contact data
-function hasCompleteOwnerEnrichment(owner: any): boolean {
+// NOTE: This is a sync check that doesn't verify contacts - use hasCompleteOwnerEnrichmentWithContacts for full check
+function hasCompleteOwnerEnrichment(owner: any, contactCount?: number): boolean {
   if (!owner) return false;
   
   // Must have enrichment source and timestamp
@@ -221,15 +223,16 @@ function hasCompleteOwnerEnrichment(owner: any): boolean {
   
   // For individuals: must have at least one contact (phone or email)
   if (owner.type === "individual" || looksLikePersonName(owner.name)) {
-    // Check if we have contacts stored
-    // The contacts are loaded separately, so we can't check here
-    // Instead, we rely on the enrichmentSource being set
+    // If contactCount was provided, verify we have at least one contact
+    if (contactCount !== undefined && contactCount === 0) {
+      console.log(`[CACHE INCOMPLETE] Owner "${owner.name}" has enrichmentSource but no contacts stored`);
+      return false;
+    }
     return true;
   }
   
-  // For entities: must have LLC data cached
+  // For entities: must have LLC data cached (officer data checked separately)
   if (owner.type === "entity" || isEntityName(owner.name)) {
-    // Entity enrichment is complete if we have officer data or dossier cache
     return true;
   }
   
@@ -307,12 +310,12 @@ async function getCachedOwnerEnrichment(
   const contacts = await storage.getContactsByOwner(ownerId);
   const dossierCache = await storage.getDossierCache(ownerId);
   
-  if (!forceRefresh && hasCompleteOwnerEnrichment(owner)) {
+  if (!forceRefresh && hasCompleteOwnerEnrichment(owner, contacts.length)) {
     const cacheAge = owner.enrichmentUpdatedAt 
       ? (Date.now() - new Date(owner.enrichmentUpdatedAt).getTime()) / (1000 * 60 * 60)
       : 0;
     
-    console.log(`[CACHE HIT] Owner "${owner.name}" has complete enrichment (${cacheAge.toFixed(1)}h old)`);
+    console.log(`[CACHE HIT] Owner "${owner.name}" has complete enrichment (${cacheAge.toFixed(1)}h old, ${contacts.length} contacts)`);
     
     return {
       enrichment: {
@@ -568,6 +571,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Auth middleware
   await setupAuth(app);
 
+  // Initialize LLC lookup function for chain resolver (breaks circular dependency)
+  setLlcLookupFunction(getCachedLlcData);
 
   // Dashboard stats
   app.get("/api/dashboard/stats", isAuthenticated, async (req: any, res) => {

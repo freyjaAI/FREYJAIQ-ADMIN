@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { eq, ilike, or } from "drizzle-orm";
+import { eq, ilike, or, inArray } from "drizzle-orm";
 import {
   owners,
   properties,
@@ -414,33 +414,45 @@ async function buildNetworkSection(entityType: EntityType, record: Owner | Prope
   if (entityType === "entity") {
     const links = await db.select().from(ownerLlcLinks).where(eq(ownerLlcLinks.llcOwnerId, owner.id));
     
-    for (const link of links) {
-      const individual = await db.select().from(owners).where(eq(owners.id, link.ownerId)).limit(1);
-      if (individual[0]) {
-        result.linkedIndividuals.push({
-          id: individual[0].id,
-          name: individual[0].name,
-          type: "individual",
-          relationship: link.relationship || "linked",
-          confidence: link.confidenceScore || undefined,
-          route: getRoute("individual", individual[0].id),
-        });
+    if (links.length > 0) {
+      const ownerIds = links.map(link => link.ownerId);
+      const individuals = await db.select().from(owners).where(inArray(owners.id, ownerIds));
+      const individualsMap = new Map(individuals.map(ind => [ind.id, ind]));
+      
+      for (const link of links) {
+        const individual = individualsMap.get(link.ownerId);
+        if (individual) {
+          result.linkedIndividuals.push({
+            id: individual.id,
+            name: individual.name,
+            type: "individual",
+            relationship: link.relationship || "linked",
+            confidence: link.confidenceScore || undefined,
+            route: getRoute("individual", individual.id),
+          });
+        }
       }
     }
   } else {
     const links = await db.select().from(ownerLlcLinks).where(eq(ownerLlcLinks.ownerId, owner.id));
     
-    for (const link of links) {
-      const llc = await db.select().from(owners).where(eq(owners.id, link.llcOwnerId)).limit(1);
-      if (llc[0]) {
-        result.relatedEntities.push({
-          id: llc[0].id,
-          name: llc[0].name,
-          type: "entity",
-          relationship: link.relationship || "linked",
-          confidence: link.confidenceScore || undefined,
-          route: getRoute("entity", llc[0].id),
-        });
+    if (links.length > 0) {
+      const llcIds = links.map(link => link.llcOwnerId);
+      const llcs = await db.select().from(owners).where(inArray(owners.id, llcIds));
+      const llcsMap = new Map(llcs.map(llc => [llc.id, llc]));
+      
+      for (const link of links) {
+        const llc = llcsMap.get(link.llcOwnerId);
+        if (llc) {
+          result.relatedEntities.push({
+            id: llc.id,
+            name: llc.name,
+            type: "entity",
+            relationship: link.relationship || "linked",
+            confidence: link.confidenceScore || undefined,
+            route: getRoute("entity", llc.id),
+          });
+        }
       }
     }
   }

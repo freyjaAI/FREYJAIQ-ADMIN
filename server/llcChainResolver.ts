@@ -1,4 +1,3 @@
-import { getCachedLlcData } from "./routes";
 import { trackProviderCall } from "./providerConfig";
 
 export interface ChainNode {
@@ -20,6 +19,17 @@ export interface OwnershipChain {
   totalApiCalls: number;
 }
 
+export type LlcLookupFn = (
+  companyName: string,
+  jurisdiction?: string
+) => Promise<{ llc: any; fromCache: boolean; cacheAge?: number } | null>;
+
+let _llcLookupFn: LlcLookupFn | null = null;
+
+export function setLlcLookupFunction(fn: LlcLookupFn): void {
+  _llcLookupFn = fn;
+}
+
 const MAX_CHAIN_DEPTH = 5;
 const ENTITY_KEYWORDS = ["LLC", "INC", "CORP", "LP", "LLP", "TRUST", "COMPANY", "HOLDINGS", "PROPERTIES", "INVESTMENTS", "CAPITAL", "PARTNERS", "GROUP", "VENTURES", "MANAGEMENT", "ENTERPRISES", "SERVICES", "REALTY", "DEVELOPMENT", "ASSOCIATES"];
 
@@ -36,6 +46,10 @@ export async function resolveOwnershipChain(
   entityName: string,
   jurisdiction?: string
 ): Promise<OwnershipChain> {
+  if (!_llcLookupFn) {
+    throw new Error("LLC lookup function not initialized. Call setLlcLookupFunction first.");
+  }
+
   const visited = new Set<string>();
   const chain: ChainNode[] = [];
   const ultimateBeneficialOwners: ChainNode[] = [];
@@ -80,7 +94,7 @@ export async function resolveOwnershipChain(
     console.log(`[LLC Chain] Researching entity: "${name}" at depth ${depth}`);
     
     try {
-      const llcData = await getCachedLlcData(name, jurisdiction);
+      const llcData = await _llcLookupFn!(name, jurisdiction);
       apiCalls++;
 
       if (!llcData) {
