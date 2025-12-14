@@ -424,6 +424,18 @@ async function getCachedOwnerEnrichment(
   return null; // Signal to caller that enrichment API calls are needed
 }
 
+// Normalize LLC name for consistent cache key matching
+// Strips common suffixes like ", LLC", ", INC", etc. to match different variations
+function normalizeLlcNameForCache(name: string): string {
+  let normalized = name.toUpperCase().trim();
+  // Remove trailing punctuation and common entity suffixes for cache matching
+  // This ensures "NEE CAPITAL GROUP" and "NEE CAPITAL GROUP, LLC" match the same cache entry
+  normalized = normalized
+    .replace(/[,\s]+(LLC|L\.L\.C\.|INC|INC\.|CORP|CORP\.|LTD|LTD\.|LP|L\.P\.|LLP|L\.L\.P\.|PLLC|PC|PA)\.?\s*$/i, '')
+    .trim();
+  return normalized;
+}
+
 // Cached LLC lookup - checks database cache before making OpenCorporates API calls
 // Returns cached data if available and not expired, otherwise fetches from API and caches
 export async function getCachedLlcData(
@@ -432,9 +444,15 @@ export async function getCachedLlcData(
   forceRefresh: boolean = false
 ): Promise<{ llc: any; fromCache: boolean; cacheAge?: number } | null> {
   const normalizedName = companyName.toUpperCase().trim();
+  const cacheKeyName = normalizeLlcNameForCache(companyName);
   
-  // Check llcs table for cached data
-  const cachedLlc = await storage.getLlcByName(normalizedName, jurisdiction);
+  // Check llcs table for cached data - try exact name first, then normalized (without suffix)
+  let cachedLlc = await storage.getLlcByName(normalizedName, jurisdiction);
+  if (!cachedLlc && cacheKeyName !== normalizedName) {
+    // Try without the LLC/INC suffix (e.g., "NEE CAPITAL GROUP" instead of "NEE CAPITAL GROUP, LLC")
+    console.log(`[CACHE] Trying normalized name "${cacheKeyName}" instead of "${normalizedName}"`);
+    cachedLlc = await storage.getLlcByName(cacheKeyName, jurisdiction);
+  }
   
   if (cachedLlc && !forceRefresh) {
     // Check if cache is still valid (within TTL)
