@@ -95,16 +95,36 @@ function setCachedLlcSearchResults(query: string, jurisdiction: string | undefin
   }
 }
 
+/**
+ * Normalize spaced letter sequences to their compact form.
+ * Examples: "L L C" -> "LLC", "L.L.C." -> "LLC", "C O R P" -> "CORP"
+ */
+function normalizeSpacedLetters(name: string): string {
+  // Handle periods between letters: "L.L.C." -> "LLC", "C.O.R.P." -> "CORP"
+  let normalized = name.replace(/\b([A-Z])(?:\.\s*)+([A-Z])(?:\.\s*)+([A-Z])(?:\.\s*)+([A-Z])\.?\b/gi, '$1$2$3$4');
+  normalized = normalized.replace(/\b([A-Z])(?:\.\s*)+([A-Z])(?:\.\s*)+([A-Z])\.?\b/gi, '$1$2$3');
+  normalized = normalized.replace(/\b([A-Z])(?:\.\s*)+([A-Z])\.?\b/gi, '$1$2');
+  
+  // Handle spaced single letters: "L L C" -> "LLC", "C O R P" -> "CORP"
+  // Match sequences of 2+ single letters separated by spaces
+  normalized = normalized.replace(/\b([A-Z])\s+([A-Z])\s+([A-Z])\s+([A-Z])\b/gi, '$1$2$3$4');
+  normalized = normalized.replace(/\b([A-Z])\s+([A-Z])\s+([A-Z])\b/gi, '$1$2$3');
+  normalized = normalized.replace(/\b([A-Z])\s+([A-Z])\b/gi, '$1$2');
+  
+  return normalized;
+}
+
 // Helper to detect if a name looks like an entity/company rather than an individual
 function isEntityName(name: string): boolean {
-  const upperName = name.toUpperCase();
+  // Normalize spaced letters before checking (e.g., "L L C" -> "LLC")
+  const normalizedName = normalizeSpacedLetters(name.toUpperCase());
   // Use word boundary matching to avoid false positives like "PARADOWSKI" matching "PA"
   return ENTITY_KEYWORDS.some(keyword => {
     // Create a regex that matches the keyword as a whole word
     // For keywords with periods (like L.L.C.), escape the periods
     const escapedKeyword = keyword.replace(/\./g, '\\.');
     const regex = new RegExp(`\\b${escapedKeyword}\\b`, 'i');
-    return regex.test(upperName);
+    return regex.test(normalizedName);
   });
 }
 

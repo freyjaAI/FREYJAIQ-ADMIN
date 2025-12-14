@@ -37,9 +37,29 @@ export function setLlcLookupFunction(fn: LlcLookupFn): void {
 const MAX_CHAIN_DEPTH = 5;
 const ENTITY_KEYWORDS = ["LLC", "INC", "CORP", "LP", "LLP", "TRUST", "COMPANY", "HOLDINGS", "PROPERTIES", "INVESTMENTS", "CAPITAL", "PARTNERS", "GROUP", "VENTURES", "MANAGEMENT", "ENTERPRISES", "SERVICES", "REALTY", "DEVELOPMENT", "ASSOCIATES"];
 
+/**
+ * Normalize spaced letter sequences to their compact form.
+ * Examples: "L L C" -> "LLC", "L.L.C." -> "LLC", "C O R P" -> "CORP"
+ */
+function normalizeSpacedLetters(name: string): string {
+  // Handle periods between letters: "L.L.C." -> "LLC", "C.O.R.P." -> "CORP"
+  let normalized = name.replace(/\b([A-Z])(?:\.\s*)+([A-Z])(?:\.\s*)+([A-Z])(?:\.\s*)+([A-Z])\.?\b/gi, '$1$2$3$4');
+  normalized = normalized.replace(/\b([A-Z])(?:\.\s*)+([A-Z])(?:\.\s*)+([A-Z])\.?\b/gi, '$1$2$3');
+  normalized = normalized.replace(/\b([A-Z])(?:\.\s*)+([A-Z])\.?\b/gi, '$1$2');
+  
+  // Handle spaced single letters: "L L C" -> "LLC", "C O R P" -> "CORP"
+  // Match sequences of 2+ single letters separated by spaces
+  normalized = normalized.replace(/\b([A-Z])\s+([A-Z])\s+([A-Z])\s+([A-Z])\b/gi, '$1$2$3$4');
+  normalized = normalized.replace(/\b([A-Z])\s+([A-Z])\s+([A-Z])\b/gi, '$1$2$3');
+  normalized = normalized.replace(/\b([A-Z])\s+([A-Z])\b/gi, '$1$2');
+  
+  return normalized;
+}
+
 function isEntityName(name: string): boolean {
-  const upperName = name.toUpperCase();
-  return ENTITY_KEYWORDS.some(keyword => upperName.includes(keyword));
+  // Normalize spaced letters before checking (e.g., "L L C" -> "LLC")
+  const normalizedName = normalizeSpacedLetters(name.toUpperCase());
+  return ENTITY_KEYWORDS.some(keyword => normalizedName.includes(keyword));
 }
 
 function normalizeEntityName(name: string): string {

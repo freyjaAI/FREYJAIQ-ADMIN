@@ -495,9 +495,32 @@ export class OpenCorporatesProvider {
     );
   }
 
+  /**
+   * Normalize spaced letter sequences for better search matching.
+   * Examples: "JOHNSTON JAKE L L C" -> "JOHNSTON JAKE LLC", "ACME C O R P" -> "ACME CORP"
+   */
+  private normalizeSearchQuery(query: string): string {
+    // Handle periods between letters: "L.L.C." -> "LLC", "C.O.R.P." -> "CORP"
+    let normalized = query.replace(/\b([A-Z])(?:\.\s*)+([A-Z])(?:\.\s*)+([A-Z])(?:\.\s*)+([A-Z])\.?\b/gi, '$1$2$3$4');
+    normalized = normalized.replace(/\b([A-Z])(?:\.\s*)+([A-Z])(?:\.\s*)+([A-Z])\.?\b/gi, '$1$2$3');
+    normalized = normalized.replace(/\b([A-Z])(?:\.\s*)+([A-Z])\.?\b/gi, '$1$2');
+    
+    // Normalize spaced letters: "L L C" -> "LLC", "C O R P" -> "CORP"
+    normalized = normalized.replace(/\b([A-Z])\s+([A-Z])\s+([A-Z])\s+([A-Z])\b/gi, '$1$2$3$4');
+    normalized = normalized.replace(/\b([A-Z])\s+([A-Z])\s+([A-Z])\b/gi, '$1$2$3');
+    normalized = normalized.replace(/\b([A-Z])\s+([A-Z])\b/gi, '$1$2');
+    // Collapse multiple spaces
+    normalized = normalized.replace(/\s+/g, ' ').trim();
+    return normalized;
+  }
+
   async searchCompanies(query: string, jurisdiction?: string): Promise<OpenCorporatesCompany[]> {
     try {
-      const params: Record<string, string> = { q: query, per_page: "30" };
+      // Normalize the query to handle "L L C" -> "LLC" style variations
+      const normalizedQuery = this.normalizeSearchQuery(query);
+      console.log(`OpenCorporates: Searching for "${query}" (normalized: "${normalizedQuery}")`);
+      
+      const params: Record<string, string> = { q: normalizedQuery, per_page: "30" };
       if (jurisdiction) params.jurisdiction_code = jurisdiction;
 
       const data = await this.request<any>("/companies/search", params);
