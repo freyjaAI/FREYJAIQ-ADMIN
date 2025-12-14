@@ -163,6 +163,41 @@ function looksLikePersonName(name: string): boolean {
   return true;
 }
 
+// Helper to validate officer names and filter out parsing artifacts
+function isValidOfficerName(name: string): boolean {
+  if (!name || name.trim().length === 0) return false;
+  
+  const upperName = name.toUpperCase().trim();
+  
+  // Reject parsing artifacts that contain unexpected words
+  const badPatterns = [
+    /\bOR\s+(OFFICER|MEMBER)/i,      // "or officer of", "or member of"
+    /\bTHAT\s+\w+/i,                  // "that Jake", "that person"
+    /^(AND|OR|THE|A|AN|OF|IN|FOR|OR)\b/i, // Starts with conjunction
+    /\b(AND|OR|OF|OR OFFICER)\s*$/i,  // Ends with conjunction
+    /^(OFFICER|MEMBER)\s+(OF|OF|TO)/i, // "OFFICER OF", "MEMBER OF"
+  ];
+  
+  if (badPatterns.some(pattern => pattern.test(name))) {
+    console.log(`[OFFICER FILTER] Rejected parsing artifact: "${name}"`);
+    return false;
+  }
+  
+  // Reject if name contains unusual combinations (e.g., "or officer of")
+  if (name.toLowerCase().includes("or officer") || name.toLowerCase().includes("that ")) {
+    console.log(`[OFFICER FILTER] Rejected suspicious name fragment: "${name}"`);
+    return false;
+  }
+  
+  // Must look like a valid person name
+  if (!looksLikePersonName(name)) {
+    console.log(`[OFFICER FILTER] Name doesn't match person pattern: "${name}"`);
+    return false;
+  }
+  
+  return true;
+}
+
 // Centralized helper to determine if an owner should be treated as an entity
 // This considers both the ATTOM type and name analysis
 function shouldTreatAsEntity(ownerType: string, ownerName: string): boolean {
@@ -1026,10 +1061,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           
           // If LLC has officers from OpenCorporates, search Data Axle and A-Leads for officer contacts
           if (llcUnmasking?.officers?.length && contactEnrichment) {
-            // Filter out corporate entities to only search for real people
+            // Filter to only valid officer names (reject entities and parsing artifacts)
             const realOfficers = llcUnmasking.officers.filter((o: any) => {
-              const upperName = o.name.toUpperCase();
-              return !['LLC', 'INC', 'CORP', 'COMPANY', 'SERVICE', 'TRUST', 'NETWORK', 'REGISTERED'].some(kw => upperName.includes(kw));
+              return isValidOfficerName(o.name);
             });
             
             console.log(`Searching Data Axle + A-Leads for ${realOfficers.length} real officers (filtered from ${llcUnmasking.officers.length})...`);
