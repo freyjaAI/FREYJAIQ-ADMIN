@@ -124,17 +124,25 @@ export async function discoverLlcOwnership(params: {
 
 Focus on finding:
 1. Individual owners, managers, members, or principals
-2. Officers like President, CEO, Managing Member
+2. Officers like President, CEO, Managing Member, Franchisee
 3. Related parent companies or holding entities
 4. Business affiliations and connections
+5. For franchises (McDonald's, Subway, Wendy's, etc.): Find the LOCAL FRANCHISEE who owns this specific location, not the corporate parent
 
 Use sources like:
-- BBB (Better Business Bureau) profiles
+- BBB (Better Business Bureau) profiles - often lists franchise owners
 - State Secretary of State filings
-- News articles and press releases
+- News articles and press releases mentioning local ownership
 - LinkedIn company pages
 - Court records and legal filings
-- Business directories
+- Business directories and Yelp business info
+- Local news articles about franchise openings
+- Franchise disclosure documents (FDD)
+
+For franchise businesses:
+- The corporate parent (e.g., McDonald's Corporation) is NOT the owner we're looking for
+- Look for the individual or company that operates this SPECIFIC location
+- Search for "[Business Name] + [City] + owner" or "franchisee"
 
 Always cite your sources. If you cannot find definitive ownership information, say so clearly.
 
@@ -143,7 +151,7 @@ IMPORTANT: Respond in valid JSON format only, with this exact structure:
   "owners": [
     {
       "name": "Person or Entity Name",
-      "role": "Title/Role (e.g., President, Managing Member, Owner)",
+      "role": "Title/Role (e.g., President, Managing Member, Owner, Franchisee)",
       "confidence": "high|medium|low",
       "reasoning": "Brief explanation of why this person is connected"
     }

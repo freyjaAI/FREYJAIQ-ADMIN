@@ -593,8 +593,19 @@ export async function runFullEnrichment(id: string): Promise<{ success: boolean;
     if (resolved.entityType === "entity") {
       console.log(`[Enrichment] Running LLC chain resolution for ${owner.name}`);
       try {
-        const chain = await resolveOwnershipChain(owner.name);
+        // Get property address for context (helps with privacy-protected LLC research)
+        const ownedProperties = await db.select().from(properties).where(eq(properties.ownerId, id)).limit(1);
+        const propertyAddress = ownedProperties[0] 
+          ? `${ownedProperties[0].address}${ownedProperties[0].city ? `, ${ownedProperties[0].city}` : ""}${ownedProperties[0].state ? `, ${ownedProperties[0].state}` : ""}`
+          : undefined;
+        
+        const chain = await resolveOwnershipChain(owner.name, undefined, propertyAddress);
         providersUsed.push("gemini_deep_research");
+        
+        // Track if Perplexity was used for privacy-protected LLC resolution
+        if (chain.perplexityUsed) {
+          providersUsed.push("perplexity_ai_search");
+        }
         
         await db.insert(llcOwnershipChains).values({
           rootEntityName: owner.name,

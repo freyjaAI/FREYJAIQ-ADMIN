@@ -1,4 +1,5 @@
 import { trackProviderCall } from "./providerConfig";
+import * as PerplexityProvider from "./providers/PerplexityProvider";
 
 export interface ChainNode {
   name: string;
@@ -16,7 +17,10 @@ export interface OwnershipChain {
   ultimateBeneficialOwners: ChainNode[];
   maxDepthReached: boolean;
   resolvedAt: Date;
+  /** Total API calls made (includes LLC lookups and Perplexity searches) */
   totalApiCalls: number;
+  /** Whether Perplexity AI search was triggered for privacy-protected entities */
+  perplexityUsed: boolean;
 }
 
 export type LlcLookupFn = (
@@ -44,7 +48,8 @@ function normalizeEntityName(name: string): string {
 
 export async function resolveOwnershipChain(
   entityName: string,
-  jurisdiction?: string
+  jurisdiction?: string,
+  propertyAddress?: string
 ): Promise<OwnershipChain> {
   if (!_llcLookupFn) {
     throw new Error("LLC lookup function not initialized. Call setLlcLookupFunction first.");
@@ -55,6 +60,8 @@ export async function resolveOwnershipChain(
   const ultimateBeneficialOwners: ChainNode[] = [];
   let apiCalls = 0;
   let maxDepthReached = false;
+  let perplexityUsed = false;
+  const perplexitySearchedEntities = new Set<string>(); // Track per-entity Perplexity usage
 
   async function traverse(
     name: string,
@@ -109,6 +116,55 @@ export async function resolveOwnershipChain(
       const officers = llc.officers || [];
       console.log(`[LLC Chain] Found ${officers.length} officers for "${name}"`);
 
+      // Check if this entity is privacy-protected (only corporate agents as officers)
+      const entityKey = normalizeEntityName(name);
+      if (hasOnlyPrivacyProtectedOfficers(officers) && !perplexitySearchedEntities.has(entityKey)) {
+        console.log(`[LLC Chain] Privacy-protected entity detected: "${name}" - triggering Perplexity AI search`);
+        perplexitySearchedEntities.add(entityKey); // Track per-entity to allow nested privacy-protected entities
+        perplexityUsed = true;
+        
+        const discoveredOwners = await discoverOwnershipWithPerplexity(
+          name,
+          llc.agentName,
+          llc.agentAddress || llc.principalAddress,
+          llc.jurisdictionCode,
+          propertyAddress
+        );
+        
+        apiCalls++;
+        
+        if (discoveredOwners.length > 0) {
+          console.log(`[LLC Chain] Perplexity found ${discoveredOwners.length} owners for privacy-protected "${name}"`);
+          
+          for (const discoveredOwner of discoveredOwners) {
+            const normalizedDiscoveredName = normalizeEntityName(discoveredOwner.name);
+            
+            // Skip if already visited (prevents duplicates when same person appears as officer)
+            if (visited.has(normalizedDiscoveredName)) {
+              console.log(`[LLC Chain] Skipping Perplexity result "${discoveredOwner.name}" - already visited`);
+              continue;
+            }
+            
+            if (discoveredOwner.type === "individual") {
+              // Mark as visited and add individual owners directly to chain and UBOs
+              visited.add(normalizedDiscoveredName);
+              const ownerNode: ChainNode = {
+                ...discoveredOwner,
+                depth: depth + 1,
+              };
+              chain.push(ownerNode);
+              ultimateBeneficialOwners.push(ownerNode);
+            } else {
+              // For entities, let traverse handle chain insertion to avoid duplicates
+              await traverse(discoveredOwner.name, depth + 1, discoveredOwner.role);
+            }
+          }
+          // Continue to process officers as well for additional data
+        } else {
+          console.log(`[LLC Chain] Perplexity found no owners, falling back to normal officer processing`);
+        }
+      }
+
       for (const officer of officers) {
         if (!officer.name) continue;
         
@@ -146,6 +202,7 @@ export async function resolveOwnershipChain(
     maxDepthReached,
     resolvedAt: new Date(),
     totalApiCalls: apiCalls,
+    perplexityUsed,
   };
 }
 
@@ -167,6 +224,71 @@ const PRIVACY_AGENTS = [
 function isPrivacyAgent(agentName: string): boolean {
   const upper = agentName.toUpperCase();
   return PRIVACY_AGENTS.some(agent => upper.includes(agent));
+}
+
+// Check if all officers are privacy agents/corporate service companies
+function hasOnlyPrivacyProtectedOfficers(officers: Array<{ name: string; position?: string; role?: string }>): boolean {
+  if (!officers || officers.length === 0) return true;
+  
+  const validOfficers = officers.filter(o => o.name && o.name.trim().length > 0);
+  if (validOfficers.length === 0) return true;
+  
+  // Check if all officers are privacy agents or entities (no real people)
+  const realPersonOfficers = validOfficers.filter(o => {
+    const name = o.name.toUpperCase();
+    if (isPrivacyAgent(name)) return false;
+    if (isEntityName(name)) return false;
+    return true;
+  });
+  
+  return realPersonOfficers.length === 0;
+}
+
+// Use Perplexity AI search to discover ownership for privacy-protected entities
+async function discoverOwnershipWithPerplexity(
+  entityName: string,
+  registeredAgent?: string,
+  registeredAddress?: string,
+  jurisdiction?: string,
+  propertyAddress?: string
+): Promise<ChainNode[]> {
+  if (!PerplexityProvider.isProviderAvailable()) {
+    console.log(`[LLC Chain] Perplexity not available for privacy-protected entity "${entityName}"`);
+    return [];
+  }
+
+  console.log(`[LLC Chain] Using Perplexity AI search for privacy-protected entity "${entityName}"`);
+  trackProviderCall("perplexity");
+
+  try {
+    const result = await PerplexityProvider.discoverLlcOwnership({
+      entityName,
+      registeredAgent,
+      registeredAddress,
+      jurisdiction,
+      propertyAddress,
+    });
+
+    if (!result || result.discoveredOwners.length === 0) {
+      console.log(`[LLC Chain] Perplexity found no owners for "${entityName}"`);
+      return [];
+    }
+
+    console.log(`[LLC Chain] Perplexity discovered ${result.discoveredOwners.length} potential owners for "${entityName}"`);
+
+    const nodes: ChainNode[] = result.discoveredOwners.map(owner => ({
+      name: owner.name,
+      type: isEntityName(owner.name) ? "entity" : "individual",
+      role: owner.role,
+      confidence: owner.confidence === "high" ? 90 : owner.confidence === "medium" ? 70 : 50,
+      depth: 1, // Direct ownership from root
+    }));
+
+    return nodes;
+  } catch (error) {
+    console.error(`[LLC Chain] Perplexity search failed for "${entityName}":`, error);
+    return [];
+  }
 }
 
 export function formatChainForDisplay(chain: OwnershipChain): {
