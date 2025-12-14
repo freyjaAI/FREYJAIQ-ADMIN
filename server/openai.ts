@@ -88,7 +88,9 @@ Respond in JSON format:
 }`;
 
   try {
-    const response = await callOpenAI(prompt);
+    let response = await callOpenAI(prompt);
+    // Strip markdown code fences if present (```json ... ```)
+    response = response.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
     const parsed = JSON.parse(response);
     return {
       confidenceScore: parsed.confidenceScore || 0,

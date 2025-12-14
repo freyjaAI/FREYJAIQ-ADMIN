@@ -183,11 +183,31 @@ function parseResearchResponse(text: string, llcName: string): DeepResearchResul
     /([A-Z][a-z]+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+(?:is|serves as|acts as)\s+(?:the\s+)?(?:owner|member|manager|officer)/gi,
   ];
 
+  // Invalid name patterns - fragments that get falsely matched
+  const invalidNames = [
+    /^or\s/i,           // "or officer of"
+    /^and\s/i,          // "and something"
+    /^the\s/i,          // "the company"
+    /^that\s/i,         // "that Jake Johnston"
+    /^this\s/i,         // "this person"
+    /^a\s/i,            // "a manager"
+    /^an\s/i,           // "an officer"
+    /^is\s/i,           // "is the owner"
+    /^as\s/i,           // "as a member"
+    /^of\s/i,           // "of the company"
+    /officer\s*of$/i,   // ends with "officer of"
+    /member\s*of$/i,    // ends with "member of"
+    /manager\s*of$/i,   // ends with "manager of"
+    /owner\s*of$/i,     // ends with "owner of"
+  ];
+
   for (const pattern of namePatterns) {
     let match;
     while ((match = pattern.exec(text)) !== null) {
       const name = match[1]?.trim();
-      if (name && name.length > 3 && !name.includes(llcName)) {
+      // Validate the name is actually a person name, not a text fragment
+      const isInvalidName = invalidNames.some(inv => inv.test(name));
+      if (name && name.length > 3 && !name.includes(llcName) && !isInvalidName) {
         owners.push({
           name,
           role: "Officer/Member",
