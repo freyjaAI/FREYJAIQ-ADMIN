@@ -164,18 +164,17 @@ function looksLikePersonName(name: string): boolean {
 }
 
 // Helper to validate officer names and filter out parsing artifacts
+// NOTE: This accepts BOTH person names AND entity names as valid officers
 function isValidOfficerName(name: string): boolean {
   if (!name || name.trim().length === 0) return false;
-  
-  const upperName = name.toUpperCase().trim();
   
   // Reject parsing artifacts that contain unexpected words
   const badPatterns = [
     /\bOR\s+(OFFICER|MEMBER)/i,      // "or officer of", "or member of"
     /\bTHAT\s+\w+/i,                  // "that Jake", "that person"
-    /^(AND|OR|THE|A|AN|OF|IN|FOR|OR)\b/i, // Starts with conjunction
+    /^(AND|OR|THE|A|AN|OF|IN|FOR)\b/i, // Starts with conjunction
     /\b(AND|OR|OF|OR OFFICER)\s*$/i,  // Ends with conjunction
-    /^(OFFICER|MEMBER)\s+(OF|OF|TO)/i, // "OFFICER OF", "MEMBER OF"
+    /^(OFFICER|MEMBER)\s+(OF|TO)/i,   // "OFFICER OF", "MEMBER OF"
   ];
   
   if (badPatterns.some(pattern => pattern.test(name))) {
@@ -189,7 +188,13 @@ function isValidOfficerName(name: string): boolean {
     return false;
   }
   
-  // Must look like a valid person name
+  // Accept both entity names AND person names as valid officers
+  // Entities are valid officers (e.g., "ABC Holdings LLC" can be an officer of another LLC)
+  if (isEntityName(name)) {
+    return true;
+  }
+  
+  // For non-entities, must look like a valid person name
   if (!looksLikePersonName(name)) {
     console.log(`[OFFICER FILTER] Name doesn't match person pattern: "${name}"`);
     return false;

@@ -229,7 +229,12 @@ export async function resolveOwnershipChain(
               
               if (officerLlcData?.llc?.branch?.parentName) {
                 const officerParent = officerLlcData.llc.branch.parentName;
-                console.log(`[LLC Chain] Entity officer "${officerName}" has parent: "${officerParent}"`);
+                const parentNormalized = normalizeEntityName(officerParent);
+                
+                if (!visited.has(parentNormalized)) {
+                  console.log(`[LLC Chain] Entity officer "${officerName}" has parent: "${officerParent}" - traversing...`);
+                  await traverse(officerParent, depth + 2, "parent_of_officer");
+                }
               }
             } catch (err) {
               console.log(`[LLC Chain] Could not lookup entity officer "${officerName}"`);
