@@ -1059,11 +1059,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             
             console.log(`Building enriched officer data for ${uniqueOfficers.size} unique officers...`);
             
+            // Parse LLC's registered address to constrain officer searches geographically
+            // This prevents finding wrong people with same name in different locations
+            const llcAddress = llcUnmasking.agentAddress || llcUnmasking.principalAddress;
+            const llcLocation = llcAddress ? parseAddress(llcAddress) : { line1: undefined, city: undefined, state: undefined, zip: undefined };
+            console.log(`Using LLC location for officer search: city="${llcLocation.city || 'unknown'}", state="${llcLocation.state || 'unknown'}"`);
+            
             for (const officer of Array.from(uniqueOfficers.values()).slice(0, 8)) { // Limit to first 8 unique officers
               const normalizedOfficerName = normalizeName(officer.name);
               if (!normalizedOfficerName) continue;
               
-              console.log(`Officer search: "${normalizedOfficerName}"`);
+              // Use officer's own address if available, otherwise fall back to LLC address
+              const officerAddress = officer.address ? parseAddress(officer.address) : llcLocation;
+              console.log(`Officer search: "${normalizedOfficerName}" in ${officerAddress.city || llcLocation.city}, ${officerAddress.state || llcLocation.state}`);
               
               // Build enriched officer record
               const enrichedOfficer: any = {
@@ -1076,8 +1084,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                 confidenceScore: 85,
               };
               
-              // Search Data Axle People v2 for the officer
-              const people = await dataProviders.searchPeopleV2(normalizedOfficerName);
+              // Search Data Axle People v2 for the officer with location constraint
+              const searchLocation = {
+                city: officerAddress.city || llcLocation.city,
+                state: officerAddress.state || llcLocation.state,
+                zip: officerAddress.zip || llcLocation.zip,
+              };
+              const people = await dataProviders.searchPeopleV2(normalizedOfficerName, searchLocation);
               for (const person of (people || []).slice(0, 3)) { // Limit matches per officer
                 const fullName = `${person.firstName || ''} ${person.lastName || ''}`.trim();
                 const cellPhones = person.cellPhones || [];
@@ -1152,8 +1165,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                 }
               }
               
-              // Also search A-Leads
-              const aLeadsResults = await dataProviders.searchALeadsByName(normalizedOfficerName);
+              // Also search A-Leads with location constraint
+              const aLeadsResults = await dataProviders.searchALeadsByName(normalizedOfficerName, {
+                city: searchLocation.city,
+                state: searchLocation.state,
+              });
               for (const result of (aLeadsResults || []).slice(0, 3)) {
                 if (result.email && !enrichedOfficer.emails.some((e: any) => e.email === result.email)) {
                   enrichedOfficer.emails.push({
@@ -1198,7 +1214,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                 }
               }
               
-              // Search Pacific East for officer contact enrichment
+              // Search Pacific East for officer contact enrichment with location constraint
               const officerNameParts = normalizedOfficerName.split(/\s+/);
               const officerFirstName = officerNameParts.length > 1 ? officerNameParts[0] : undefined;
               const officerLastName = officerNameParts.length > 1 ? officerNameParts[officerNameParts.length - 1] : officerNameParts[0];
@@ -1206,6 +1222,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               const pacificEastOfficerResult = await dataProviders.enrichContactWithPacificEast({
                 firstName: officerFirstName,
                 lastName: officerLastName,
+                address: officerAddress.line1 || llcLocation.line1,
+                city: searchLocation.city,
+                state: searchLocation.state,
+                zip: searchLocation.zip,
               });
               
               if (pacificEastOfficerResult) {
