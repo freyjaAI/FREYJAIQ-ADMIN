@@ -1,0 +1,63 @@
+I need to implement critical fixes to the LLC ownership chain resolution logic. Based on my analysis, the current system has several gaps:
+
+**CRITICAL ISSUES:**
+1. No parent company discovery - system doesn't query OpenCorporates for parent/holding companies
+2. Limited entity detection - only keyword-based, misses entities without LLC/INC suffix
+3. Chain resolution stops at first person found - doesn't verify if they're the true beneficial owner
+4. No recursive parent entity lookup
+
+**IMPLEMENTATION PLAN:**
+
+**Phase 1: Enhance llcChainResolver.ts**
+1. Add parent company field extraction after getting LLC data from OpenCorporates
+2. When an officer is identified as an entity, recursively query for THEIR parent company
+3. Continue traversing until finding individuals (Ultimate Beneficial Owners)
+
+**Phase 2: Improve dataProviders.ts - fetchLlcUnmasking function**
+1. After getting company data, explicitly query for parent companies/corporate network
+2. Add logic to search across ALL jurisdictions to find the "home state" filing (has real officers) vs "foreign state" filings (only agents)
+3. When officers are found to be entities, recursively resolve them
+
+**Phase 3: Better entity detection**
+1. Instead of just keyword matching, verify entities by actually querying OpenCorporates
+2. Check if officer name appears in OpenCorporates database as a registered company
+3. Extract parent_company and controlled_by relationships
+
+**KEY CODE CHANGES NEEDED:**
+
+In llcChainResolver.ts after getting llcData:
+```typescript
+// Check for parent company
+if (llc.parent_company) {
+  console.log(`Found parent company: ${llc.parent_company}`);
+  await traverse(llc.parent_company, depth + 1, "parent_company");
+}
+
+// For each officer that's an entity, check for THEIR parent
+for (const officer of officers) {
+  if (isEntityName(officer.name)) {
+    // Query OpenCorporates to see if THIS entity has a parent
+    const officerLlcData = await getCachedLlcData(officer.name, jurisdiction);
+    if (officerLlcData?.llc?.parent_company) {
+      await traverse(officerLlcData.llc.parent_company, depth + 1, "parent_of_officer");
+    }
+  }
+}
+```
+
+In dataProviders.ts fetchLlcUnmasking:
+```typescript
+// After getting fullCompany, check for parent companies
+if (fullCompany.parent_company || fullCompany.controlled_by) {
+  console.log(`Entity has parent: ${fullCompany.parent_company || fullCompany.controlled_by}`);
+  // Store parent company info in the result
+}
+
+// When officers are entities, note them for recursive resolution
+const entityOfficers = officers.filter(o => isEntityName(o.name));
+if (entityOfficers.length > 0) {
+  console.log(`Found ${entityOfficers.length} entity officers that need recursive resolution`);
+}
+```
+
+Can you implement these changes? The goal is to properly traverse corporate structures to find the ACTUAL beneficial owners, not just stop at the first entity or person we find.
