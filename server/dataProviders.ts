@@ -1447,6 +1447,20 @@ export class DataProviderManager {
       company.status = company.currentStatus;
       company.entityType = company.companyType;
       company.opencorporatesUrl = `https://opencorporates.com/companies/${company.jurisdictionCode}/${company.companyNumber}`;
+      
+      // If company has no officers and is a branch (foreign registration), get parent company officers
+      if (company.officers.length === 0 && company.branch) {
+        console.log(`lookupLlc: No officers for "${company.name}", checking parent company via branch...`);
+        const parentCompany = await this.openCorporates.getParentCompanyWithOfficers(company);
+        if (parentCompany && parentCompany.officers.length > 0) {
+          company.officers = parentCompany.officers;
+          if (parentCompany.agentName && !company.agentName) {
+            company.agentName = parentCompany.agentName;
+            company.agentAddress = parentCompany.agentAddress;
+          }
+          console.log(`lookupLlc: Got ${company.officers.length} officers from parent company "${parentCompany.name}"`);
+        }
+      }
     }
     return company;
   }
