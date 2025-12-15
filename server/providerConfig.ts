@@ -104,6 +104,12 @@ const DEFAULT_PRICING: Record<string, Omit<ProviderPricing, 'name'>> = {
     category: 'contact',
     description: 'RealEstateAPI Skip Engine - Property skip tracing with bulk support',
   },
+  email_sleuth: {
+    costPerCall: 0,             // Free - local email pattern generation and SMTP verification
+    priority: 0,                // Highest priority (free)
+    category: 'contact',
+    description: 'Email Sleuth - Email discovery via pattern generation and SMTP verification',
+  },
 
   // Address Validation
   google_address: {
