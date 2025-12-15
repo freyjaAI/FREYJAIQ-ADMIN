@@ -69,6 +69,8 @@ Preferred communication style: Simple, everyday language.
 - `server/vite.ts` - Vite dev server integration
 - `server/addressNormalizer.ts` - Universal address normalization for provider compatibility
 - `server/dossierService.ts` - Unified dossier generation with entity resolution
+- `server/providers/HomeHarvestProvider.ts` - Property data fallback via Realtor.com
+- `server/python/homeharvest_lookup.py` - Python script for HomeHarvest library integration
 
 **Build Process**: Custom esbuild-based bundling with allowlist for specific dependencies to optimize cold starts
 
