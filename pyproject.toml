@@ -5,4 +5,5 @@ description = "Add your description here"
 requires-python = ">=3.11"
 dependencies = [
     "homeharvest>=0.8.9",
+    "usaddress>=0.5.16",
 ]
