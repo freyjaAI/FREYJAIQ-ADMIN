@@ -77,6 +77,8 @@ Preferred communication style: Simple, everyday language.
 - `server/python/address_parser.py` - Python script for address parsing and entity name normalization
 - `server/python/opencorporates_lookup.py` - Python script for OpenCorporates lookups via opyncorporates wrapper
 - `server/providers/OpenCorporatesPythonProvider.ts` - Node.js provider for OpenCorporates Python integration
+- `server/python/usps_lookup.py` - Python script for USPS address validation via usps-api wrapper
+- `server/providers/USPSProvider.ts` - Node.js provider for USPS address validation and standardization
 
 **Build Process**: Custom esbuild-based bundling with allowlist for specific dependencies to optimize cold starts
 
@@ -219,6 +221,7 @@ Preferred communication style: Simple, everyday language.
 - `ISSUER_URL` - OIDC issuer URL
 - `REPL_ID` - Replit application ID
 - `GOOGLE_AI_API_KEY` - Google Gemini API key for LLC research
+- `USPS_USER_ID` - USPS Web Tools API user ID for address validation (free, register at usps.com/business/web-tools-apis)
 
 ### Cost Configuration (optional overrides)
 Provider costs and priorities can be tuned via environment variables:
@@ -226,7 +229,7 @@ Provider costs and priorities can be tuned via environment variables:
 - `PROVIDER_PRIORITY_<NAME>` - Override priority order (e.g., `PROVIDER_PRIORITY_OPENCORPORATES=3`)
 - `PROVIDER_QUOTA_<NAME>` - Set monthly call quota (e.g., `PROVIDER_QUOTA_ATTOM=1000`)
 
-Available provider names: `gemini`, `opencorporates`, `perplexity`, `attom`, `apify_skip_trace`, `dataaxle`, `melissa`, `pacificeast`, `aleads`, `google_address`, `openai`
+Available provider names: `gemini`, `opencorporates`, `perplexity`, `attom`, `apify_skip_trace`, `dataaxle`, `melissa`, `pacificeast`, `aleads`, `google_address`, `usps`, `openai`
 
 ### Cost Metrics API
 - `GET /api/admin/provider-metrics` - Returns provider usage, costs, and cache statistics

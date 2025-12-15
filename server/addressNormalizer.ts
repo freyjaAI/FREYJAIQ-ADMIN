@@ -318,6 +318,136 @@ export function normalizeAddressString(input: string): AddressComponents | null 
 }
 
 import { parseAddress as usAddressParse, normalizeEntityName as usNormalizeEntityName } from "./providers/AddressParserProvider";
+import { 
+  validateAddress as uspsValidate, 
+  validateFullAddress as uspsValidateFull,
+  isProviderAvailable as isUSPSAvailable,
+  type USPSValidatedAddress 
+} from "./providers/USPSProvider";
+
+export interface USPSEnhancedAddress extends AddressComponents {
+  uspsValidated: boolean;
+  zip4?: string;
+  dpvConfirmation?: string;
+  returnText?: string;
+}
+
+/**
+ * Validate an address using USPS API and return standardized address with ZIP+4
+ * Falls back to input address if USPS validation fails
+ */
+export async function validateWithUSPS(addr: AddressComponents): Promise<USPSEnhancedAddress> {
+  const baseResult: USPSEnhancedAddress = {
+    ...addr,
+    uspsValidated: false,
+  };
+
+  if (!isUSPSAvailable()) {
+    console.log('[AddressNormalizer] USPS not available (USPS_USER_ID not set)');
+    return baseResult;
+  }
+
+  // USPS requires line1, state, and either city OR zip
+  if (!addr.line1 || !addr.stateCode || (!addr.city && !addr.postalCode)) {
+    console.log('[AddressNormalizer] Insufficient address components for USPS validation');
+    return baseResult;
+  }
+
+  try {
+    // Pass city if available, otherwise USPS can infer from ZIP
+    const result = await uspsValidate(
+      addr.line1,
+      addr.city || '', // USPS can work with ZIP alone
+      addr.stateCode,
+      addr.postalCode || ''
+    );
+
+    if (result.success && result.validated) {
+      const validated = result.validated;
+      // Normalize USPS output to uppercase for consistency with rest of normalizer
+      return {
+        line1: (validated.address1 || addr.line1).toUpperCase(),
+        line2: validated.address2 ? validated.address2.toUpperCase() : addr.line2,
+        city: (validated.city || addr.city).toUpperCase(),
+        stateCode: (validated.state || addr.stateCode).toUpperCase(),
+        postalCode: validated.zipFull || validated.zip5 || addr.postalCode,
+        zip4: validated.zip4,
+        countryCode: 'US',
+        latitude: addr.latitude,
+        longitude: addr.longitude,
+        raw: addr.raw,
+        uspsValidated: true,
+        dpvConfirmation: validated.dpvConfirmation,
+        returnText: validated.returnText,
+      };
+    }
+
+    console.log(`[AddressNormalizer] USPS validation failed: ${result.error || 'Unknown error'}`);
+    return baseResult;
+  } catch (error) {
+    console.error('[AddressNormalizer] USPS validation error:', error);
+    return baseResult;
+  }
+}
+
+/**
+ * Parse and validate a full address string using USPS
+ */
+export async function parseAndValidateWithUSPS(input: string): Promise<USPSEnhancedAddress | null> {
+  if (!input) return null;
+
+  // First parse the address
+  const parsed = await parseAddressAsync(input);
+  if (!parsed) return null;
+
+  // Then validate with USPS
+  return validateWithUSPS(parsed);
+}
+
+/**
+ * Direct USPS validation from a full address string (bypasses local parsing)
+ */
+export async function validateFullAddressWithUSPS(fullAddress: string): Promise<USPSEnhancedAddress | null> {
+  if (!fullAddress) return null;
+
+  if (!isUSPSAvailable()) {
+    console.log('[AddressNormalizer] USPS not available, falling back to local parsing');
+    const parsed = await parseAddressAsync(fullAddress);
+    return parsed ? { ...parsed, uspsValidated: false } : null;
+  }
+
+  try {
+    const result = await uspsValidateFull(fullAddress);
+
+    if (result.success && result.validated) {
+      const validated = result.validated;
+      // Normalize USPS output to uppercase for consistency with rest of normalizer
+      // Add null guards for safety
+      return {
+        line1: (validated.address1 || '').toUpperCase(),
+        line2: validated.address2 ? validated.address2.toUpperCase() : undefined,
+        city: (validated.city || '').toUpperCase(),
+        stateCode: (validated.state || '').toUpperCase(),
+        postalCode: validated.zipFull || validated.zip5 || undefined,
+        zip4: validated.zip4,
+        countryCode: 'US',
+        raw: fullAddress,
+        uspsValidated: true,
+        dpvConfirmation: validated.dpvConfirmation,
+        returnText: validated.returnText,
+      };
+    }
+
+    // Fall back to local parsing if USPS fails
+    console.log(`[AddressNormalizer] USPS full validation failed: ${result.error}, falling back`);
+    const parsed = await parseAddressAsync(fullAddress);
+    return parsed ? { ...parsed, uspsValidated: false } : null;
+  } catch (error) {
+    console.error('[AddressNormalizer] USPS full validation error:', error);
+    const parsed = await parseAddressAsync(fullAddress);
+    return parsed ? { ...parsed, uspsValidated: false } : null;
+  }
+}
 
 export async function parseAddressAsync(input: string): Promise<AddressComponents | null> {
   if (!input) return null;

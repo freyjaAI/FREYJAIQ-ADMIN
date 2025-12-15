@@ -45,8 +45,27 @@ def validate_address(address_1: str, city: str, state: str, zipcode: str = '', a
         validation = usps.validate_address(address)
         result = validation.result
         
-        if 'Error' in result.get('AddressValidateResponse', {}).get('Address', {}):
-            error_info = result['AddressValidateResponse']['Address']['Error']
+        # Check for errors in multiple possible envelope structures
+        avr = result.get('AddressValidateResponse', {})
+        
+        # Top-level error (e.g., invalid API key)
+        if 'Error' in avr:
+            error_info = avr['Error']
+            return {
+                'success': False,
+                'error': error_info.get('Description', 'USPS API error'),
+                'errorCode': error_info.get('Number'),
+                'validated': None,
+            }
+        
+        # Address can be a single object or a list
+        address_data = avr.get('Address', {})
+        if isinstance(address_data, list):
+            address_data = address_data[0] if address_data else {}
+        
+        # Error within the address object
+        if 'Error' in address_data:
+            error_info = address_data['Error']
             return {
                 'success': False,
                 'error': error_info.get('Description', 'Address validation failed'),
@@ -54,7 +73,7 @@ def validate_address(address_1: str, city: str, state: str, zipcode: str = '', a
                 'validated': None,
             }
         
-        validated_address = result.get('AddressValidateResponse', {}).get('Address', {})
+        validated_address = address_data
         
         return {
             'success': True,
