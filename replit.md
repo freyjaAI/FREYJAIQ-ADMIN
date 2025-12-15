@@ -75,6 +75,8 @@ Preferred communication style: Simple, everyday language.
 - `server/providers/MultiPlatformPropertyProvider.ts` - Multi-platform property scraper with Walk Score integration
 - `server/python/homeharvest_lookup.py` - Python script for HomeHarvest library integration
 - `server/python/address_parser.py` - Python script for address parsing and entity name normalization
+- `server/python/opencorporates_lookup.py` - Python script for OpenCorporates lookups via opyncorporates wrapper
+- `server/providers/OpenCorporatesPythonProvider.ts` - Node.js provider for OpenCorporates Python integration
 
 **Build Process**: Custom esbuild-based bundling with allowlist for specific dependencies to optimize cold starts
 
