@@ -17,6 +17,7 @@ import { resolveOwnershipChain, formatChainForDisplay } from "./llcChainResolver
 import { findRelatedHoldingsForPerson } from "./personPropertyLinker";
 import { dataProviders } from "./dataProviders";
 import { trackProviderCall } from "./providerConfig";
+import { discoverEmail } from "./providers/EmailSleuthProvider";
 
 export type EntityType = "individual" | "entity" | "property";
 
@@ -806,5 +807,57 @@ async function runContactWaterfall(name: string, address?: string): Promise<Wate
     console.error("[Waterfall] A-Leads failed:", err);
   }
 
+  // Note: Email Sleuth is available via discoverEmailForOwner() for cases where
+  // we have both an individual name AND a verified company domain.
+  // It's not suitable for the generic waterfall since we need both pieces.
+
   return result;
+}
+
+/**
+ * Discover professional email for an owner using Email Sleuth.
+ * Requires an individual person name AND a known company domain.
+ * 
+ * @param personName - Individual name (e.g., "John Smith")
+ * @param companyDomain - Verified company domain (e.g., "example.com")
+ * @returns Email discovery result or null if validation fails
+ */
+export async function discoverEmailForOwner(
+  personName: string,
+  companyDomain: string
+): Promise<{ email: string; confidence: number } | null> {
+  try {
+    // Validate the domain has MX records before attempting discovery
+    const sleuthResult = await discoverEmail(personName, companyDomain, false);
+    
+    if (!sleuthResult.success) {
+      console.log(`[EmailSleuth] Discovery failed for ${personName}@${companyDomain}: ${sleuthResult.error}`);
+      return null;
+    }
+    
+    // Only accept results if the domain has valid MX records
+    if (!sleuthResult.hasMxRecords) {
+      console.log(`[EmailSleuth] Skipping ${companyDomain} - no MX records found`);
+      return null;
+    }
+    
+    if (sleuthResult.bestMatch) {
+      // Lower confidence for pattern-based guesses (not SMTP verified)
+      const adjustedConfidence = sleuthResult.bestMatch.verified 
+        ? sleuthResult.bestMatch.confidence 
+        : Math.min(sleuthResult.bestMatch.confidence, 50);
+      
+      console.log(`[EmailSleuth] Found email for ${personName}: ${sleuthResult.bestMatch.email} (confidence: ${adjustedConfidence})`);
+      
+      return {
+        email: sleuthResult.bestMatch.email,
+        confidence: adjustedConfidence,
+      };
+    }
+    
+    return null;
+  } catch (err) {
+    console.error(`[EmailSleuth] Error discovering email for ${personName}@${companyDomain}:`, err);
+    return null;
+  }
 }
