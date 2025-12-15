@@ -14,6 +14,7 @@ import { z } from "zod";
 import { db } from "./db";
 import { eq, sql } from "drizzle-orm";
 import * as GeminiDeepResearch from "./providers/GeminiDeepResearchProvider";
+import * as HomeHarvest from "./providers/HomeHarvestProvider";
 import { buildUnifiedDossier, runFullEnrichment, resolveEntityById, UnifiedDossier } from "./dossierService";
 import { 
   trackProviderCall, 
@@ -356,6 +357,109 @@ async function getCachedPropertyData(
   // Need to fetch from ATTOM
   console.log(`[API CALL] ATTOM: Looking up property "${normalizedAddress}"`);
   return null; // Signal to caller that API call is needed
+}
+
+// Check if property data has missing building/physical info that HomeHarvest could fill
+function isPropertyDataIncomplete(property: any): boolean {
+  if (!property) return true;
+  
+  const building = property.building;
+  if (!building) return true;
+  
+  // Check for missing key building details
+  const missingSqft = !building.sqft || building.sqft === 0;
+  const missingYearBuilt = !building.yearBuilt || building.yearBuilt === 0;
+  const missingBedrooms = !building.bedrooms || building.bedrooms === 0;
+  const missingBathrooms = !building.bathrooms || building.bathrooms === 0;
+  
+  // If missing multiple key fields, consider it incomplete
+  const missingFields = [missingSqft, missingYearBuilt, missingBedrooms, missingBathrooms].filter(Boolean).length;
+  
+  if (missingFields >= 2) {
+    console.log(`[PROPERTY INCOMPLETE] Missing ${missingFields} building fields (sqft: ${building.sqft || 'N/A'}, yearBuilt: ${building.yearBuilt || 'N/A'})`);
+    return true;
+  }
+  
+  return false;
+}
+
+// Enrich property data with HomeHarvest if ATTOM data is incomplete
+async function enrichPropertyWithHomeHarvest(address: string, attomData: any): Promise<any> {
+  if (!attomData) return null;
+  if (!isPropertyDataIncomplete(attomData)) {
+    console.log(`[HOMEHARVEST SKIP] ATTOM data is complete for "${address}"`);
+    return attomData;
+  }
+  
+  console.log(`[HOMEHARVEST FALLBACK] Enriching incomplete property data for "${address}"`);
+  trackProviderCall('homeharvest', false);
+  
+  try {
+    const hhResult = await HomeHarvest.lookupProperty(address);
+    
+    if (!hhResult.success || !hhResult.data) {
+      console.log(`[HOMEHARVEST] No data found for "${address}"`);
+      return attomData;
+    }
+    
+    const hhProperty = hhResult.data.property;
+    const enriched = { ...attomData };
+    
+    // Fill in missing building data
+    if (!enriched.building) {
+      enriched.building = {};
+    }
+    
+    if ((!enriched.building.sqft || enriched.building.sqft === 0) && hhProperty.sqft) {
+      enriched.building.sqft = hhProperty.sqft;
+      console.log(`[HOMEHARVEST] Added sqft: ${hhProperty.sqft}`);
+    }
+    
+    if ((!enriched.building.yearBuilt || enriched.building.yearBuilt === 0) && hhProperty.yearBuilt) {
+      enriched.building.yearBuilt = hhProperty.yearBuilt;
+      console.log(`[HOMEHARVEST] Added yearBuilt: ${hhProperty.yearBuilt}`);
+    }
+    
+    if ((!enriched.building.bedrooms || enriched.building.bedrooms === 0) && hhProperty.beds) {
+      enriched.building.bedrooms = hhProperty.beds;
+      console.log(`[HOMEHARVEST] Added bedrooms: ${hhProperty.beds}`);
+    }
+    
+    if ((!enriched.building.bathrooms || enriched.building.bathrooms === 0) && hhProperty.baths) {
+      enriched.building.bathrooms = hhProperty.baths;
+      console.log(`[HOMEHARVEST] Added bathrooms: ${hhProperty.baths}`);
+    }
+    
+    if (!enriched.building.propertyType && hhProperty.propertyType) {
+      enriched.building.propertyType = hhProperty.propertyType;
+    }
+    
+    // Add HomeHarvest-specific data that ATTOM may not have
+    if (hhResult.data.pricing) {
+      enriched.homeHarvestPricing = {
+        listPrice: hhResult.data.pricing.listPrice,
+        soldPrice: hhResult.data.pricing.soldPrice,
+        estimatedValue: hhResult.data.pricing.estimatedValue,
+      };
+    }
+    
+    if (hhResult.data.listing) {
+      enriched.homeHarvestListing = {
+        status: hhResult.data.listing.status,
+        listDate: hhResult.data.listing.listDate,
+        soldDate: hhResult.data.listing.soldDate,
+        daysOnMls: hhResult.data.listing.daysOnMls,
+      };
+    }
+    
+    enriched.enrichedWithHomeHarvest = true;
+    console.log(`[HOMEHARVEST SUCCESS] Enriched property data for "${address}"`);
+    
+    return enriched;
+  } catch (error) {
+    console.error(`[HOMEHARVEST ERROR] Failed to enrich "${address}":`, error);
+    return attomData;
+  }
 }
 
 // Check if owner has complete enrichment and return cached data if available
@@ -2706,6 +2810,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       if (!result) {
         return res.status(404).json({ message: "Property not found" });
+      }
+
+      // Enrich with HomeHarvest if ATTOM data is incomplete
+      if (address && typeof address === "string") {
+        result = await enrichPropertyWithHomeHarvest(address, result);
       }
 
       // Cache the result for future lookups

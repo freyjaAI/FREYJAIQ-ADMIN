@@ -60,6 +60,12 @@ const DEFAULT_PRICING: Record<string, Omit<ProviderPricing, 'name'>> = {
     category: 'property',
     description: 'ATTOM - Property ownership and assessment data',
   },
+  homeharvest: {
+    costPerCall: 0,             // Free - scrapes Realtor.com
+    priority: 2,
+    category: 'property',
+    description: 'HomeHarvest - Property data fallback via Realtor.com scraping',
+  },
 
   // Contact Enrichment Providers (cost hierarchy: cheapest first)
   apify_skip_trace: {
