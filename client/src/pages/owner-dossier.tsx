@@ -46,6 +46,7 @@ import { EntityTypeBadge, RiskBadge } from "@/components/risk-badge";
 import { PropertyCard } from "@/components/property-card";
 import { LegalEventsTimeline } from "@/components/legal-events-timeline";
 import { LlcNetwork } from "@/components/llc-network";
+import { FranchiseInfoCard } from "@/components/franchise-badge";
 import type { Owner, Property, ContactInfo, LegalEvent, OwnerLlcLink } from "@shared/schema";
 
 interface LlcUnmaskingData {
@@ -1849,6 +1850,12 @@ export default function OwnerDossierPage() {
           )}
 
           <LlcNetwork owner={owner} linkedLlcs={linkedLlcs} />
+
+          <FranchiseInfoCard
+            propertyName={properties[0]?.address || null}
+            ownerName={owner.name}
+            ownerType={owner.type as "individual" | "entity"}
+          />
 
           <LegalEventsTimeline events={legalEvents} />
         </div>
