@@ -317,6 +317,48 @@ export function normalizeAddressString(input: string): AddressComponents | null 
   return parseFromDescription(input);
 }
 
+import { parseAddress as usAddressParse, normalizeEntityName as usNormalizeEntityName } from "./providers/AddressParserProvider";
+
+export async function parseAddressAsync(input: string): Promise<AddressComponents | null> {
+  if (!input) return null;
+  
+  try {
+    const result = await usAddressParse(input);
+    
+    if (result.success && result.normalized) {
+      const normalized = result.normalized;
+      return {
+        line1: normalized.line1,
+        line2: normalized.line2 || undefined,
+        city: normalized.city,
+        stateCode: normalizeStateCode(normalized.stateCode),
+        postalCode: normalized.postalCode || undefined,
+        countryCode: normalized.countryCode || 'US',
+        raw: input,
+      };
+    }
+  } catch (error) {
+    console.error('[AddressNormalizer] usaddress parse failed, falling back to regex:', error);
+  }
+  
+  return parseFromDescription(input);
+}
+
+export async function normalizeEntityNameAsync(name: string): Promise<string> {
+  if (!name) return '';
+  
+  try {
+    const result = await usNormalizeEntityName(name);
+    if (result.success) {
+      return result.normalized;
+    }
+  } catch (error) {
+    console.error('[AddressNormalizer] Entity name normalization failed:', error);
+  }
+  
+  return name;
+}
+
 export function isValidForSearch(addr: AddressComponents): boolean {
   return !!(addr.line1 && addr.stateCode);
 }
