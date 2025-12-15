@@ -8,4 +8,5 @@ dependencies = [
     "homeharvest>=0.8.9",
     "opyncorporates>=0.1",
     "usaddress>=0.5.16",
+    "usps-api>=0.5",
 ]

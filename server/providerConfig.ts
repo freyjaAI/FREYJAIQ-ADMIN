@@ -114,9 +114,15 @@ const DEFAULT_PRICING: Record<string, Omit<ProviderPricing, 'name'>> = {
   // Address Validation
   google_address: {
     costPerCall: 0.005,         // Google Address Validation
-    priority: 1,
+    priority: 2,
     category: 'address',
     description: 'Google - Address geocoding and validation',
+  },
+  usps: {
+    costPerCall: 0,             // Free - USPS Web Tools API
+    priority: 1,                // Highest priority (free, official)
+    category: 'address',
+    description: 'USPS - Official address validation and standardization',
   },
 
   // AI Providers for insights
