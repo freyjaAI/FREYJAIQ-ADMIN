@@ -70,7 +70,9 @@ Preferred communication style: Simple, everyday language.
 - `server/addressNormalizer.ts` - Universal address normalization for provider compatibility
 - `server/dossierService.ts` - Unified dossier generation with entity resolution
 - `server/providers/HomeHarvestProvider.ts` - Property data fallback via Realtor.com
+- `server/providers/AddressParserProvider.ts` - Address parsing via usaddress Python library
 - `server/python/homeharvest_lookup.py` - Python script for HomeHarvest library integration
+- `server/python/address_parser.py` - Python script for address parsing and entity name normalization
 
 **Build Process**: Custom esbuild-based bundling with allowlist for specific dependencies to optimize cold starts
 
