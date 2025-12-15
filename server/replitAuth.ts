@@ -1,5 +1,7 @@
 import * as client from "openid-client";
 import { Strategy, type VerifyFunction } from "openid-client/passport";
+import { Strategy as LocalStrategy } from "passport-local";
+import bcrypt from "bcrypt";
 
 import passport from "passport";
 import session from "express-session";
@@ -126,6 +128,61 @@ export async function setupAuth(app: Express) {
       );
     });
   });
+
+  // Local password authentication strategy
+  passport.use(
+    new LocalStrategy(
+      { usernameField: "email", passwordField: "password" },
+      async (email, password, done) => {
+        try {
+          const user = await storage.getUserByEmail(email);
+          if (!user) {
+            return done(null, false, { message: "Invalid email or password" });
+          }
+          if (!user.passwordHash) {
+            return done(null, false, { message: "Password login not enabled for this account" });
+          }
+          const isValid = await bcrypt.compare(password, user.passwordHash);
+          if (!isValid) {
+            return done(null, false, { message: "Invalid email or password" });
+          }
+          // Create session-compatible user object
+          const sessionUser = {
+            claims: { sub: user.id, email: user.email },
+            expires_at: Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60, // 1 week
+          };
+          return done(null, sessionUser);
+        } catch (error) {
+          return done(error);
+        }
+      }
+    )
+  );
+
+  // Local login endpoint
+  app.post("/api/auth/login", (req, res, next) => {
+    passport.authenticate("local", (err: any, user: any, info: any) => {
+      if (err) {
+        return res.status(500).json({ message: "Authentication error" });
+      }
+      if (!user) {
+        return res.status(401).json({ message: info?.message || "Invalid credentials" });
+      }
+      req.logIn(user, (loginErr) => {
+        if (loginErr) {
+          return res.status(500).json({ message: "Login error" });
+        }
+        return res.json({ success: true, message: "Logged in successfully" });
+      });
+    })(req, res, next);
+  });
+
+  // Local logout endpoint
+  app.post("/api/auth/logout", (req, res) => {
+    req.logout(() => {
+      res.json({ success: true, message: "Logged out successfully" });
+    });
+  });
 }
 
 export const isAuthenticated: RequestHandler = async (req, res, next) => {
@@ -140,9 +197,11 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
     return next();
   }
 
+  // Local auth sessions don't have refresh tokens - just check expiry
   const refreshToken = user.refresh_token;
   if (!refreshToken) {
-    res.status(401).json({ message: "Unauthorized" });
+    // For local auth, session is expired - require re-login
+    res.status(401).json({ message: "Session expired" });
     return;
   }
 
