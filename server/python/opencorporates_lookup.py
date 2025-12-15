@@ -42,6 +42,63 @@ def get_engine():
         return create_engine(api_version='0.4')
 
 
+def is_valid_officer_name(name):
+    """
+    Filter out garbage/placeholder entries from OpenCorporates.
+    Returns True if the name appears to be a real person/entity name.
+    """
+    if not name or not isinstance(name, str):
+        return False
+    
+    name_lower = name.lower().strip()
+    
+    # Skip empty or very short names
+    if len(name_lower) < 2:
+        return False
+    
+    # List of garbage patterns commonly returned by OpenCorporates
+    garbage_patterns = [
+        'positions include',
+        'information on file',
+        'see document',
+        'refer to',
+        'available upon request',
+        'not available',
+        'n/a',
+        'none',
+        'unknown',
+        'various',
+        'multiple',
+        'as per',
+        'listed in',
+        'filed with',
+        'registered agent',
+        'same as',
+        'see above',
+        'see below',
+        'to be updated',
+        'pending',
+        'the company',
+        'this company',
+        'corporate officer',
+        'director services',
+        'nominee',
+        'designated agent',
+    ]
+    
+    for pattern in garbage_patterns:
+        if pattern in name_lower:
+            return False
+    
+    # Skip if it looks like a description rather than a name (starts with articles/prepositions)
+    description_starters = ['the ', 'a ', 'an ', 'as ', 'per ', 'see ', 'for ']
+    for starter in description_starters:
+        if name_lower.startswith(starter):
+            return False
+    
+    return True
+
+
 def parse_officer(officer_data):
     """Parse officer data from OpenCorporates response"""
     return {
@@ -103,7 +160,9 @@ def parse_company(company_data):
         for o in company_data['officers']:
             if isinstance(o, dict):
                 officer = o.get('officer', o) if 'officer' in o else o
-                officers.append(parse_officer(officer))
+                officer_name = officer.get('name', '') if isinstance(officer, dict) else ''
+                if is_valid_officer_name(officer_name):
+                    officers.append(parse_officer(officer))
     
     filings = []
     if company_data.get('filings') and isinstance(company_data['filings'], list):
@@ -213,9 +272,12 @@ def search_officers(name, jurisdiction=None, per_page=30):
         if results:
             for item in results:
                 officer_data = item.get('officer', item) if isinstance(item, dict) else item
+                officer_name = officer_data.get('name', '') if isinstance(officer_data, dict) else ''
+                if not is_valid_officer_name(officer_name):
+                    continue
                 company_data = officer_data.get('company', {}) if isinstance(officer_data, dict) else {}
                 officers.append({
-                    'name': officer_data.get('name', ''),
+                    'name': officer_name,
                     'position': officer_data.get('position', ''),
                     'startDate': officer_data.get('start_date'),
                     'address': officer_data.get('address'),
