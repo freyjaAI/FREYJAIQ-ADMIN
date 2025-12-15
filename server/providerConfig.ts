@@ -98,6 +98,12 @@ const DEFAULT_PRICING: Record<string, Omit<ProviderPricing, 'name'>> = {
     category: 'contact',
     description: 'A-Leads - Professional skip tracing',
   },
+  realestateapi: {
+    costPerCall: 0.04,          // RealEstateAPI Skip Engine
+    priority: 6,
+    category: 'contact',
+    description: 'RealEstateAPI Skip Engine - Property skip tracing with bulk support',
+  },
 
   // Address Validation
   google_address: {

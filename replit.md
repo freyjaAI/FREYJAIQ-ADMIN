@@ -71,6 +71,7 @@ Preferred communication style: Simple, everyday language.
 - `server/dossierService.ts` - Unified dossier generation with entity resolution
 - `server/providers/HomeHarvestProvider.ts` - Property data fallback via Realtor.com
 - `server/providers/AddressParserProvider.ts` - Address parsing via usaddress Python library
+- `server/providers/RealEstateApiProvider.ts` - Skip Engine API for property skip tracing with bulk support
 - `server/python/homeharvest_lookup.py` - Python script for HomeHarvest library integration
 - `server/python/address_parser.py` - Python script for address parsing and entity name normalization
 
