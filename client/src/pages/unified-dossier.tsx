@@ -17,6 +17,9 @@ import {
   Clock,
   Database,
   Zap,
+  DollarSign,
+  Plus,
+  ChevronDown,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -290,8 +293,11 @@ function CoreInfoCard({ core, entityType }: { core: CoreSection; entityType: Ent
             )}
             {core.propertyDetails.assessedValue && (
               <div className="dossier-stat">
-                <span className="dossier-label">Assessed Value</span>
-                <span className="dossier-value">${core.propertyDetails.assessedValue.toLocaleString()}</span>
+                <div className="flex items-center gap-1.5 text-muted-foreground">
+                  <DollarSign className="h-3.5 w-3.5" />
+                  <span className="text-xs">Value</span>
+                </div>
+                <span className="dossier-value font-semibold">${core.propertyDetails.assessedValue.toLocaleString()}</span>
               </div>
             )}
           </div>
@@ -308,17 +314,19 @@ function ContactCard({ contact }: { contact: ContactSection }) {
 
   if (allContacts.length === 0 && !contact.relatives?.length && !contact.associates?.length) {
     return (
-      <Card data-testid="card-contact">
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Phone className="h-4 w-4" />
-            Contact Information
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">No contact information available</p>
-        </CardContent>
-      </Card>
+      <div 
+        className="flex items-center justify-between p-3 rounded-lg border border-dashed border-border/50 bg-muted/20"
+        data-testid="card-contact-empty"
+      >
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <Phone className="h-4 w-4" />
+          <span className="text-sm">No contacts found</span>
+        </div>
+        <Button variant="ghost" size="sm" data-testid="button-add-contacts">
+          <Plus className="h-4 w-4" />
+          Add
+        </Button>
+      </div>
     );
   }
 

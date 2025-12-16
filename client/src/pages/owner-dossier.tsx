@@ -29,6 +29,7 @@ import {
   Database,
   Clock,
   Loader2,
+  DollarSign,
 } from "lucide-react";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -822,36 +823,46 @@ export default function OwnerDossierPage() {
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-6">
           <div className="grid gap-4 sm:grid-cols-3">
-            <Card>
-              <CardContent className="py-4">
-                <div className="text-sm text-muted-foreground">Properties</div>
-                <div className="text-2xl font-semibold mt-1">
-                  {properties.length}
+            <div className="glass-card-static p-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+                  <Building2 className="h-5 w-5 text-primary" />
                 </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="py-4">
-                <div className="text-sm text-muted-foreground">Total Value</div>
-                <div className="text-2xl font-semibold mt-1">
-                  {new Intl.NumberFormat("en-US", {
-                    style: "currency",
-                    currency: "USD",
-                    maximumFractionDigits: 0,
-                  }).format(totalPropertyValue)}
+                <div>
+                  <div className="text-2xl font-bold">{properties.length}</div>
+                  <div className="text-xs text-muted-foreground">Properties</div>
                 </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="py-4">
-                <div className="text-sm text-muted-foreground">
-                  LLC Connections
+              </div>
+            </div>
+            <div className="glass-card-static p-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-green-500/10">
+                  <DollarSign className="h-5 w-5 text-green-500" />
                 </div>
-                <div className="text-2xl font-semibold mt-1">
-                  {linkedLlcs.length}
+                <div>
+                  <div className="text-2xl font-bold">
+                    {new Intl.NumberFormat("en-US", {
+                      style: "currency",
+                      currency: "USD",
+                      maximumFractionDigits: 0,
+                      notation: totalPropertyValue >= 1000000 ? "compact" : "standard",
+                    }).format(totalPropertyValue)}
+                  </div>
+                  <div className="text-xs text-muted-foreground">Value</div>
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
+            <div className="glass-card-static p-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-500/10">
+                  <GitBranch className="h-5 w-5 text-blue-500" />
+                </div>
+                <div>
+                  <div className="text-2xl font-bold">{linkedLlcs.length}</div>
+                  <div className="text-xs text-muted-foreground">LLCs</div>
+                </div>
+              </div>
+            </div>
           </div>
 
           {owner.type === "entity" && (
@@ -1878,10 +1889,8 @@ export default function OwnerDossierPage() {
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base flex items-center gap-2">
                     <Building2 className="h-4 w-4" />
-                    Properties Owned
-                    <Badge variant="secondary" className="text-xs">
-                      {properties.length}
-                    </Badge>
+                    Properties
+                    <span className="text-muted-foreground font-normal">({properties.length})</span>
                   </CardTitle>
                 </CardHeader>
                 <CardContent>

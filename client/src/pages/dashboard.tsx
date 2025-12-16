@@ -88,28 +88,24 @@ export default function Dashboard() {
         ) : (
           <>
             <StatCard
-              title="Total Owners"
+              title="Owners"
               value={stats?.totalOwners ?? 0}
               icon={Users}
-              description="In database"
             />
             <StatCard
-              title="Total Properties"
+              title="Properties"
               value={stats?.totalProperties ?? 0}
               icon={Building2}
-              description="Tracked"
             />
             <StatCard
-              title="Dossiers Generated"
+              title="Dossiers"
               value={stats?.dossiersGenerated ?? 0}
               icon={FileText}
-              description="This month"
             />
             <StatCard
-              title="Recent Searches"
+              title="Searches"
               value={stats?.recentSearches?.length ?? 0}
               icon={Search}
-              description="Today"
             />
           </>
         )}

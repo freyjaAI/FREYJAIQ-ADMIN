@@ -309,16 +309,18 @@ export function EnrichmentPipelineBar({
       data-testid="enrichment-pipeline-bar"
     >
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2">
+          <div className={`
+            flex items-center justify-center h-8 w-8 rounded-md
+            ${entityType === "entity" ? "bg-blue-500/10 text-blue-500" : 
+              entityType === "property" ? "bg-amber-500/10 text-amber-500" : 
+              "bg-emerald-500/10 text-emerald-500"}
+          `}>
             <EntityIcon type={entityType} />
-            <span className="font-medium truncate max-w-[200px] sm:max-w-none">
-              {entityName}
-            </span>
           </div>
-          <Badge variant="outline" className="text-xs">
-            {getEntityTypeLabel(entityType)}
-          </Badge>
+          <span className="font-medium truncate max-w-[200px] sm:max-w-none">
+            {entityName}
+          </span>
         </div>
 
         <Button

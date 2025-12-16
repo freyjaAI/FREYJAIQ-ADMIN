@@ -36,23 +36,29 @@ export function RiskBadge({ type, className }: RiskBadgeProps) {
 interface EntityTypeBadgeProps {
   type: "individual" | "entity" | string;
   className?: string;
+  showLabel?: boolean;
 }
 
-export function EntityTypeBadge({ type, className }: EntityTypeBadgeProps) {
+import { Building2, User } from "lucide-react";
+
+export function EntityTypeBadge({ type, className, showLabel = false }: EntityTypeBadgeProps) {
   const isEntity = type === "entity";
+  const Icon = isEntity ? Building2 : User;
   
   return (
-    <Badge
-      variant="outline"
+    <div
       className={cn(
-        "font-medium",
+        "inline-flex items-center justify-center rounded-md",
         isEntity
-          ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
-          : "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300",
+          ? "text-blue-600 dark:text-blue-400"
+          : "text-emerald-600 dark:text-emerald-400",
+        showLabel ? "gap-1.5 px-2 py-1 bg-muted/50" : "h-6 w-6",
         className
       )}
+      title={isEntity ? "LLC / Entity" : "Individual"}
     >
-      {isEntity ? "LLC / Entity" : "Individual"}
-    </Badge>
+      <Icon className="h-4 w-4" />
+      {showLabel && <span className="text-xs font-medium">{isEntity ? "Entity" : "Person"}</span>}
+    </div>
   );
 }
