@@ -853,10 +853,10 @@ export default function OwnerDossierPage() {
           </div>
 
           {owner.type === "entity" && (
-            <Card data-testid="card-llc-unmasking">
+            <Card data-testid="card-llc-unmasking" role="region" aria-labelledby="llc-info-heading">
               <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Shield className="h-4 w-4" />
+                <CardTitle id="llc-info-heading" className="text-base flex items-center gap-2">
+                  <Shield className="h-4 w-4" aria-hidden="true" />
                   Business / LLC Owner Info
                   {llcUnmasking && llcUnmasking.officers && (
                     <Badge variant="secondary" className="text-xs">
@@ -1237,11 +1237,11 @@ export default function OwnerDossierPage() {
 
           {/* Ownership Chain Visualization - shows nested LLC structure */}
           {owner.type === "entity" && (
-            <Card data-testid="card-ownership-chain">
+            <Card data-testid="card-ownership-chain" role="region" aria-labelledby="ownership-chain-heading">
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between gap-2">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <GitBranch className="h-4 w-4" />
+                  <CardTitle id="ownership-chain-heading" className="text-base flex items-center gap-2">
+                    <GitBranch className="h-4 w-4" aria-hidden="true" />
                     Ownership Chain
                     {ownershipChainQuery.data?.ultimateBeneficialOwners && (
                       <Badge variant="secondary" className="text-xs">
@@ -1368,10 +1368,10 @@ export default function OwnerDossierPage() {
 
           {/* Related Holdings Section - for individual owners, shows other properties they own through LLCs */}
           {owner.type === "individual" && (
-            <Card data-testid="card-related-holdings">
+            <Card data-testid="card-related-holdings" role="region" aria-labelledby="related-holdings-heading">
               <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Home className="h-4 w-4" />
+                <CardTitle id="related-holdings-heading" className="text-base flex items-center gap-2">
+                  <Home className="h-4 w-4" aria-hidden="true" />
                   Related Holdings
                   {relatedHoldingsQuery.data && (
                     <Badge variant="secondary" className="text-xs">
@@ -1488,10 +1488,10 @@ export default function OwnerDossierPage() {
 
           {/* Linked Individuals Section - for LLC/entity owners, shows individuals connected to this entity */}
           {owner.type === "entity" && (
-            <Card data-testid="card-linked-individuals">
+            <Card data-testid="card-linked-individuals" role="region" aria-labelledby="linked-individuals-heading">
               <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Users className="h-4 w-4" />
+                <CardTitle id="linked-individuals-heading" className="text-base flex items-center gap-2">
+                  <Users className="h-4 w-4" aria-hidden="true" />
                   Linked Individuals
                   {linkedIndividualsQuery.data && linkedIndividualsQuery.data.linkedIndividuals.length > 0 && (
                     <Badge variant="secondary" className="text-xs">
@@ -1555,11 +1555,11 @@ export default function OwnerDossierPage() {
               updateKey={(contactEnrichment.directDials?.length || 0) + (contactEnrichment.companyEmails?.length || 0)} 
               className="rounded-md"
             >
-            <Card data-testid="card-contact-enrichment">
+            <Card data-testid="card-contact-enrichment" role="region" aria-labelledby="contact-info-heading">
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between gap-2">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Phone className="h-4 w-4" />
+                  <CardTitle id="contact-info-heading" className="text-base flex items-center gap-2">
+                    <Phone className="h-4 w-4" aria-hidden="true" />
                     Contact Information
                     <Badge variant="secondary" className="text-xs">
                       {(contactEnrichment.directDials?.length || 0) + (contactEnrichment.companyEmails?.length || 0)}
@@ -1692,11 +1692,11 @@ export default function OwnerDossierPage() {
             </HighlightOnUpdate>
           ) : (
             /* Show empty state when no contact data found */
-            <Card data-testid="card-contact-enrichment-empty">
+            <Card data-testid="card-contact-enrichment-empty" role="region" aria-labelledby="contact-info-empty-heading">
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between gap-2">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Phone className="h-4 w-4" />
+                  <CardTitle id="contact-info-empty-heading" className="text-base flex items-center gap-2">
+                    <Phone className="h-4 w-4" aria-hidden="true" />
                     Contact Information
                   </CardTitle>
                   <TargetedEnrichmentDropdown
@@ -1718,10 +1718,10 @@ export default function OwnerDossierPage() {
           ))}
 
           {melissaEnrichment && (
-            <Card data-testid="card-melissa-enrichment">
+            <Card data-testid="card-melissa-enrichment" role="region" aria-labelledby="verification-heading">
               <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Home className="h-4 w-4" />
+                <CardTitle id="verification-heading" className="text-base flex items-center gap-2">
+                  <Home className="h-4 w-4" aria-hidden="true" />
                   Address & Identity Verification
                 </CardTitle>
               </CardHeader>
