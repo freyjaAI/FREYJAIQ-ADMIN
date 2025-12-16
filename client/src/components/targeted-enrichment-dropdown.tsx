@@ -88,9 +88,28 @@ export function TargetedEnrichmentDropdown({
     onSuccess: (data, target) => {
       const config = TARGET_CONFIG[target];
       
+      // Build detailed description with counts and cost
+      const parts: string[] = [];
+      if (data.summary) {
+        if (data.summary.newPhones > 0) parts.push(`${data.summary.newPhones} phone(s)`);
+        if (data.summary.newEmails > 0) parts.push(`${data.summary.newEmails} email(s)`);
+        if (data.summary.newPrincipals > 0) parts.push(`${data.summary.newPrincipals} principal(s)`);
+        if (data.summary.newProperties > 0) parts.push(`${data.summary.newProperties} property(ies)`);
+      }
+      
+      let description = data.message || `Successfully enriched ${target}`;
+      if (parts.length > 0) {
+        description = `Found ${parts.join(", ")}`;
+      }
+      // Check both top-level and summary.estimatedCost for flexibility
+      const cost = data.estimatedCost ?? data.summary?.estimatedCost;
+      if (cost && cost > 0) {
+        description += ` (~$${cost.toFixed(3)})`;
+      }
+      
       toast({
         title: `${config.label} Complete`,
-        description: data.message || `Successfully enriched ${target}`,
+        description,
       });
 
       queryClient.invalidateQueries({ queryKey: ["/api/dossier", entityId] });

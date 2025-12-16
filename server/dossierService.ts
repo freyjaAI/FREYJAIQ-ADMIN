@@ -22,7 +22,7 @@ import {
 import { resolveOwnershipChain, formatChainForDisplay } from "./llcChainResolver";
 import { findRelatedHoldingsForPerson } from "./personPropertyLinker";
 import { dataProviders } from "./dataProviders";
-import { trackProviderCall } from "./providerConfig";
+import { trackProviderCall, getProviderPricing } from "./providerConfig";
 import { discoverEmail } from "./providers/EmailSleuthProvider";
 
 export type EntityType = "individual" | "entity" | "property";
@@ -639,7 +639,7 @@ export async function runFullEnrichment(id: string): Promise<{ success: boolean;
   }
 }
 
-interface WaterfallResult {
+export interface WaterfallResult {
   contacts: Array<{ type: "phone" | "email"; value: string; source: string; confidence: number }>;
   personData?: {
     age?: number;
@@ -652,7 +652,7 @@ interface WaterfallResult {
   primaryProvider?: string;
 }
 
-async function runContactWaterfall(name: string, address?: string): Promise<WaterfallResult> {
+export async function runContactWaterfall(name: string, address?: string): Promise<WaterfallResult> {
   const result: WaterfallResult = {
     contacts: [],
     providersUsed: [],
@@ -874,6 +874,8 @@ export async function discoverEmailForOwner(
 
 export interface EnrichmentChangeSummary {
   newContacts: number;
+  newPhones: number;
+  newEmails: number;
   newPrincipals: number;
   newProperties: number;
   llcChainResolved: boolean;
@@ -881,6 +883,7 @@ export interface EnrichmentChangeSummary {
   franchiseType?: "corporate" | "franchised";
   aiSummaryGenerated: boolean;
   addressValidated: boolean;
+  estimatedCost: number;
 }
 
 export interface PhasedEnrichmentResult {
@@ -905,15 +908,19 @@ function updateStep(
 export async function runPhasedEnrichment(id: string): Promise<PhasedEnrichmentResult> {
   const startTime = Date.now();
   const providersUsed: string[] = [];
+  let estimatedCost = 0;
   
   const summary: EnrichmentChangeSummary = {
     newContacts: 0,
+    newPhones: 0,
+    newEmails: 0,
     newPrincipals: 0,
     newProperties: 0,
     llcChainResolved: false,
     franchiseDetected: false,
     aiSummaryGenerated: false,
     addressValidated: false,
+    estimatedCost: 0,
   };
 
   const resolved = await resolveEntityById(id);
@@ -957,6 +964,7 @@ export async function runPhasedEnrichment(id: string): Promise<PhasedEnrichmentR
       if (addressResult) {
         providersUsed.push("usps");
         trackProviderCall("usps");
+        estimatedCost += getProviderPricing("usps")?.costPerCall || 0;
         summary.addressValidated = true;
       }
     }
@@ -984,6 +992,7 @@ export async function runPhasedEnrichment(id: string): Promise<PhasedEnrichmentR
         if (propertyResult && propertyResult.length > 0) {
           providersUsed.push("attom");
           trackProviderCall("attom");
+          estimatedCost += getProviderPricing("attom")?.costPerCall || 0;
           summary.newProperties = propertyResult.length;
         }
       }
@@ -1012,9 +1021,11 @@ export async function runPhasedEnrichment(id: string): Promise<PhasedEnrichmentR
 
       const chain = await resolveOwnershipChain(owner.name, undefined, propertyAddress);
       providersUsed.push("gemini_deep_research");
+      estimatedCost += getProviderPricing("gemini")?.costPerCall || 0.002;
       
       if (chain.perplexityUsed) {
         providersUsed.push("perplexity_ai_search");
+        estimatedCost += getProviderPricing("perplexity")?.costPerCall || 0.05;
       }
 
       await db.insert(llcOwnershipChains).values({
@@ -1067,6 +1078,14 @@ export async function runPhasedEnrichment(id: string): Promise<PhasedEnrichmentR
     if (owner && !isProperty) {
       const waterfallResult = await runContactWaterfall(owner.name, owner.primaryAddress || undefined);
       providersUsed.push(...waterfallResult.providersUsed);
+      
+      // Track estimated costs for contact providers used
+      for (const provider of waterfallResult.providersUsed) {
+        const pricing = getProviderPricing(provider);
+        if (pricing) {
+          estimatedCost += pricing.costPerCall;
+        }
+      }
 
       if (waterfallResult.contacts.length > 0) {
         for (const contact of waterfallResult.contacts) {
@@ -1093,9 +1112,18 @@ export async function runPhasedEnrichment(id: string): Promise<PhasedEnrichmentR
         }).where(eq(owners.id, id));
       }
 
-      // Count new contacts
+      // Count new contacts (phones and emails separately)
       const updatedContacts = await db.select().from(contactInfos).where(eq(contactInfos.ownerId, id));
-      summary.newContacts = updatedContacts.length - existingContactCount;
+      const newContacts = updatedContacts.length - existingContactCount;
+      summary.newContacts = newContacts;
+      
+      // Count phones and emails from new contacts
+      const existingPhoneCount = existingContacts.filter(c => c.kind === "phone").length;
+      const existingEmailCount = existingContacts.filter(c => c.kind === "email").length;
+      const updatedPhoneCount = updatedContacts.filter(c => c.kind === "phone").length;
+      const updatedEmailCount = updatedContacts.filter(c => c.kind === "email").length;
+      summary.newPhones = updatedPhoneCount - existingPhoneCount;
+      summary.newEmails = updatedEmailCount - existingEmailCount;
     }
     updateStep(steps, "contacts", { 
       status: isProperty ? "skipped" : "done", 
@@ -1151,6 +1179,9 @@ export async function runPhasedEnrichment(id: string): Promise<PhasedEnrichmentR
       completedAt: new Date().toISOString() 
     });
   }
+
+  // Update summary with final estimated cost
+  summary.estimatedCost = Math.round(estimatedCost * 1000) / 1000; // Round to 3 decimal places
 
   // Determine overall status
   const errorCount = steps.filter((s) => s.status === "error").length;

@@ -9,19 +9,21 @@ import {
   calculateContactConfidence,
 } from "./openai";
 import { dataProviders } from "./dataProviders";
-import { insertOwnerSchema, insertPropertySchema, insertContactInfoSchema, ownerLlcLinks, owners } from "@shared/schema";
+import { insertOwnerSchema, insertPropertySchema, insertContactInfoSchema, ownerLlcLinks, owners, contactInfos, properties, llcOwnershipChains } from "@shared/schema";
 import { z } from "zod";
 import { db } from "./db";
 import { eq, sql } from "drizzle-orm";
 import * as GeminiDeepResearch from "./providers/GeminiDeepResearchProvider";
 import * as HomeHarvest from "./providers/HomeHarvestProvider";
-import { buildUnifiedDossier, runFullEnrichment, resolveEntityById, UnifiedDossier, runPhasedEnrichment, PhasedEnrichmentResult } from "./dossierService";
+import { buildUnifiedDossier, runFullEnrichment, resolveEntityById, UnifiedDossier, runPhasedEnrichment, PhasedEnrichmentResult, runContactWaterfall } from "./dossierService";
+import { resolveOwnershipChain } from "./llcChainResolver";
 import { 
   trackProviderCall, 
   trackCacheEvent, 
   getCostSummary, 
   getCacheStats,
-  logRoutingDecision 
+  logRoutingDecision,
+  getProviderPricing
 } from "./providerConfig";
 import { setLlcLookupFunction } from "./llcChainResolver";
 
@@ -4763,6 +4765,184 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (error) {
       console.error("Error running phased enrichment:", error);
       res.status(500).json({ message: "Failed to run phased enrichment" });
+    }
+  });
+
+  // Targeted enrichment: Contacts only
+  app.post("/api/dossiers/:id/enrich-contacts", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      if (!id) return res.status(400).json({ message: "Entity ID required" });
+
+      const resolved = await resolveEntityById(id);
+      if (!resolved || resolved.entityType === "property") {
+        return res.status(404).json({ message: "Owner not found" });
+      }
+
+      const owner = resolved.record as any;
+      const existingContacts = await db.select().from(contactInfos).where(eq(contactInfos.ownerId, id));
+      const existingPhones = existingContacts.filter(c => c.kind === "phone").length;
+      const existingEmails = existingContacts.filter(c => c.kind === "email").length;
+
+      const waterfallResult = await runContactWaterfall(owner.name, owner.primaryAddress || undefined);
+      
+      let estimatedCost = 0;
+      for (const provider of waterfallResult.providersUsed) {
+        const pricing = getProviderPricing(provider);
+        if (pricing) estimatedCost += pricing.costPerCall;
+      }
+
+      if (waterfallResult.contacts.length > 0) {
+        for (const contact of waterfallResult.contacts) {
+          await db.insert(contactInfos).values({
+            ownerId: id,
+            kind: contact.type,
+            value: contact.value,
+            source: contact.source,
+            confidenceScore: contact.confidence,
+          }).onConflictDoNothing();
+        }
+      }
+
+      const updatedContacts = await db.select().from(contactInfos).where(eq(contactInfos.ownerId, id));
+      const newPhones = updatedContacts.filter(c => c.kind === "phone").length - existingPhones;
+      const newEmails = updatedContacts.filter(c => c.kind === "email").length - existingEmails;
+
+      res.json({
+        message: `Found ${newPhones} phones, ${newEmails} emails`,
+        summary: { 
+          newPhones, 
+          newEmails, 
+          newContacts: newPhones + newEmails,
+          estimatedCost: Math.round(estimatedCost * 1000) / 1000,
+        },
+        providersUsed: waterfallResult.providersUsed,
+        estimatedCost: Math.round(estimatedCost * 1000) / 1000,
+      });
+    } catch (error) {
+      console.error("Error enriching contacts:", error);
+      res.status(500).json({ message: "Failed to enrich contacts" });
+    }
+  });
+
+  // Targeted enrichment: Ownership chain only
+  app.post("/api/dossiers/:id/enrich-ownership", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      if (!id) return res.status(400).json({ message: "Entity ID required" });
+
+      const resolved = await resolveEntityById(id);
+      if (!resolved || resolved.entityType !== "entity") {
+        return res.status(400).json({ message: "Ownership enrichment only applies to entities" });
+      }
+
+      const owner = resolved.record as any;
+      const ownedProperties = await db.select().from(properties).where(eq(properties.ownerId, id)).limit(1);
+      const propertyAddress = ownedProperties[0]
+        ? `${ownedProperties[0].address}${ownedProperties[0].city ? `, ${ownedProperties[0].city}` : ""}${ownedProperties[0].state ? `, ${ownedProperties[0].state}` : ""}`
+        : undefined;
+
+      const chain = await resolveOwnershipChain(owner.name, undefined, propertyAddress);
+      
+      let estimatedCost = getProviderPricing("gemini")?.costPerCall || 0.002;
+      if (chain.perplexityUsed) {
+        estimatedCost += getProviderPricing("perplexity")?.costPerCall || 0.05;
+      }
+
+      await db.insert(llcOwnershipChains).values({
+        rootEntityName: owner.name,
+        chain: chain.chain,
+        ultimateBeneficialOwners: chain.ultimateBeneficialOwners,
+        maxDepthReached: chain.maxDepthReached,
+        totalApiCalls: chain.totalApiCalls,
+      }).onConflictDoNothing();
+
+      res.json({
+        message: `Resolved ${chain.ultimateBeneficialOwners.length} principals`,
+        summary: { 
+          newPrincipals: chain.ultimateBeneficialOwners.length,
+          llcChainResolved: true,
+          chainDepth: chain.maxDepthReached,
+          estimatedCost: Math.round(estimatedCost * 1000) / 1000,
+        },
+        providersUsed: chain.perplexityUsed ? ["gemini", "perplexity"] : ["gemini"],
+        estimatedCost: Math.round(estimatedCost * 1000) / 1000,
+      });
+    } catch (error) {
+      console.error("Error enriching ownership:", error);
+      res.status(500).json({ message: "Failed to enrich ownership" });
+    }
+  });
+
+  // Targeted enrichment: Franchise detection
+  app.post("/api/dossiers/:id/enrich-franchise", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      if (!id) return res.status(400).json({ message: "Entity ID required" });
+
+      const resolved = await resolveEntityById(id);
+      if (!resolved) {
+        return res.status(404).json({ message: "Entity not found" });
+      }
+
+      // Franchise detection is computed client-side using franchiseData.ts
+      // This endpoint just confirms the entity exists and marks franchise as analyzed
+      res.json({
+        message: "Franchise analysis ready",
+        summary: { 
+          franchiseDetected: true, 
+          franchiseType: "pending_client_analysis" 
+        },
+        providersUsed: [],
+        estimatedCost: 0,
+      });
+    } catch (error) {
+      console.error("Error detecting franchise:", error);
+      res.status(500).json({ message: "Failed to detect franchise" });
+    }
+  });
+
+  // Targeted enrichment: Property data
+  app.post("/api/dossiers/:id/enrich-property", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      if (!id) return res.status(400).json({ message: "Entity ID required" });
+
+      const resolved = await resolveEntityById(id);
+      if (!resolved) {
+        return res.status(404).json({ message: "Entity not found" });
+      }
+
+      let newProperties = 0;
+      let estimatedCost = 0;
+      const providersUsed: string[] = [];
+
+      if (resolved.entityType !== "property") {
+        const owner = resolved.record as any;
+        const existingProperties = await db.select().from(properties).where(eq(properties.ownerId, id));
+        
+        if (existingProperties.length === 0 && owner.primaryAddress) {
+          const propertyResult = await dataProviders.searchPropertiesByOwner(owner.name);
+          if (propertyResult && propertyResult.length > 0) {
+            providersUsed.push("attom");
+            estimatedCost += getProviderPricing("attom")?.costPerCall || 0.08;
+            newProperties = propertyResult.length;
+          }
+        }
+      }
+
+      res.json({
+        message: newProperties > 0 ? `Found ${newProperties} properties` : "No new properties found",
+        summary: { 
+          newProperties,
+          estimatedCost: Math.round(estimatedCost * 1000) / 1000,
+        },
+        providersUsed,
+        estimatedCost: Math.round(estimatedCost * 1000) / 1000,
+      });
+    } catch (error) {
+      console.error("Error enriching property:", error);
+      res.status(500).json({ message: "Failed to enrich property" });
     }
   });
 

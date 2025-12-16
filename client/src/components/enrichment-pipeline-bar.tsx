@@ -27,6 +27,8 @@ type EntityType = "individual" | "entity" | "property";
 
 interface EnrichmentChangeSummary {
   newContacts: number;
+  newPhones?: number;
+  newEmails?: number;
   newPrincipals: number;
   newProperties: number;
   llcChainResolved: boolean;
@@ -34,6 +36,7 @@ interface EnrichmentChangeSummary {
   franchiseType?: "corporate" | "franchised";
   aiSummaryGenerated: boolean;
   addressValidated: boolean;
+  estimatedCost?: number;
 }
 
 interface PhasedEnrichmentResponse {
@@ -144,9 +147,18 @@ function StepChip({
 function formatSummary(summary: EnrichmentChangeSummary): string {
   const parts: string[] = [];
 
-  if (summary.newContacts > 0) {
+  // Show detailed phone/email counts if available, otherwise fall back to newContacts
+  if (summary.newPhones !== undefined && summary.newEmails !== undefined) {
+    if (summary.newPhones > 0 || summary.newEmails > 0) {
+      const contactParts: string[] = [];
+      if (summary.newPhones > 0) contactParts.push(`${summary.newPhones} phone${summary.newPhones > 1 ? "s" : ""}`);
+      if (summary.newEmails > 0) contactParts.push(`${summary.newEmails} email${summary.newEmails > 1 ? "s" : ""}`);
+      parts.push(contactParts.join(", "));
+    }
+  } else if (summary.newContacts > 0) {
     parts.push(`${summary.newContacts} new contact${summary.newContacts > 1 ? "s" : ""}`);
   }
+  
   if (summary.newPrincipals > 0) {
     parts.push(`${summary.newPrincipals} principal${summary.newPrincipals > 1 ? "s" : ""} discovered`);
   }
@@ -164,7 +176,14 @@ function formatSummary(summary: EnrichmentChangeSummary): string {
     return "No new data found";
   }
 
-  return parts.join(", ");
+  let result = parts.join(", ");
+  
+  // Add estimated cost if available
+  if (summary.estimatedCost && summary.estimatedCost > 0) {
+    result += ` (~$${summary.estimatedCost.toFixed(3)})`;
+  }
+
+  return result;
 }
 
 export function EnrichmentPipelineBar({
