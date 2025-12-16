@@ -173,10 +173,10 @@ export default function SearchPage() {
   const hasResults = hasLocalResults || hasExternalResults;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <div className="space-y-2">
-        <h1 className="text-3xl font-semibold">Search</h1>
-        <p className="text-muted-foreground">
+        <h1 className="text-2xl sm:text-3xl font-semibold">Search</h1>
+        <p className="text-sm sm:text-base text-muted-foreground">
           Find property owners, LLCs, and properties across the country.
         </p>
       </div>
@@ -188,22 +188,22 @@ export default function SearchPage() {
       </Card>
 
       {currentQuery && (
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">Results for:</span>
-            <Badge variant="secondary" className="font-medium">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs sm:text-sm text-muted-foreground">Results for:</span>
+            <Badge variant="secondary" className="font-medium text-xs sm:text-sm max-w-[200px] truncate">
               {currentQuery}
             </Badge>
-            <Badge variant="outline">{currentType}</Badge>
+            <Badge variant="outline" className="text-xs sm:text-sm">{currentType}</Badge>
             {results && (
-              <span className="text-sm text-muted-foreground">
+              <span className="text-xs sm:text-sm text-muted-foreground">
                 ({results.total} found)
               </span>
             )}
           </div>
           <div className="flex items-center gap-2">
             <Select value={sortBy} onValueChange={setSortBy}>
-              <SelectTrigger className="w-40" data-testid="select-sort">
+              <SelectTrigger className="w-full sm:w-40 min-h-[44px]" data-testid="select-sort">
                 <SortAsc className="h-4 w-4 mr-2" />
                 <SelectValue />
               </SelectTrigger>

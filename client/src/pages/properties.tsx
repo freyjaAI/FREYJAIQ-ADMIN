@@ -62,10 +62,10 @@ export default function PropertiesPage() {
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <div className="space-y-2">
-        <h1 className="text-3xl font-semibold">Properties</h1>
-        <p className="text-muted-foreground">
+        <h1 className="text-2xl sm:text-3xl font-semibold">Properties</h1>
+        <p className="text-sm sm:text-base text-muted-foreground">
           Browse properties in your database and view ownership details.
         </p>
       </div>
@@ -83,9 +83,9 @@ export default function PropertiesPage() {
                 data-testid="input-filter-properties"
               />
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 w-full sm:w-auto">
               <Select value={typeFilter} onValueChange={setTypeFilter}>
-                <SelectTrigger className="w-40" data-testid="select-property-type">
+                <SelectTrigger className="flex-1 sm:w-40 min-h-[44px]" data-testid="select-property-type">
                   <Filter className="h-4 w-4 mr-2" />
                   <SelectValue />
                 </SelectTrigger>
@@ -98,7 +98,7 @@ export default function PropertiesPage() {
                 </SelectContent>
               </Select>
               <Select value={sortBy} onValueChange={setSortBy}>
-                <SelectTrigger className="w-36" data-testid="select-sort-properties">
+                <SelectTrigger className="flex-1 sm:w-36 min-h-[44px]" data-testid="select-sort-properties">
                   <SortAsc className="h-4 w-4 mr-2" />
                   <SelectValue />
                 </SelectTrigger>

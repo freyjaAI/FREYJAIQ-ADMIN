@@ -54,11 +54,11 @@ export default function OwnersPage() {
     });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="space-y-2">
-          <h1 className="text-3xl font-semibold">Owners</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-2xl sm:text-3xl font-semibold">Owners</h1>
+          <p className="text-sm sm:text-base text-muted-foreground">
             Browse and manage property owners in your database.
           </p>
         </div>
@@ -77,9 +77,9 @@ export default function OwnersPage() {
                 data-testid="input-filter-owners"
               />
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 w-full sm:w-auto">
               <Select value={typeFilter} onValueChange={setTypeFilter}>
-                <SelectTrigger className="w-36" data-testid="select-type-filter">
+                <SelectTrigger className="flex-1 sm:w-36 min-h-[44px]" data-testid="select-type-filter">
                   <Filter className="h-4 w-4 mr-2" />
                   <SelectValue />
                 </SelectTrigger>
@@ -90,7 +90,7 @@ export default function OwnersPage() {
                 </SelectContent>
               </Select>
               <Select value={sortBy} onValueChange={setSortBy}>
-                <SelectTrigger className="w-36" data-testid="select-sort-owners">
+                <SelectTrigger className="flex-1 sm:w-36 min-h-[44px]" data-testid="select-sort-owners">
                   <SortAsc className="h-4 w-4 mr-2" />
                   <SelectValue />
                 </SelectTrigger>

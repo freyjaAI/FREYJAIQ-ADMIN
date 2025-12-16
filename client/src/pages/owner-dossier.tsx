@@ -598,16 +598,16 @@ export default function OwnerDossierPage() {
       />
       
       <FadeIn>
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div className="flex items-start gap-4">
-            <Button variant="ghost" size="icon" asChild data-testid="button-back">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-start gap-3 sm:gap-4">
+            <Button variant="ghost" size="icon" className="min-h-[44px] min-w-[44px] shrink-0" asChild data-testid="button-back">
               <Link href="/owners">
                 <ArrowLeft className="h-4 w-4" />
               </Link>
             </Button>
-            <div>
-              <div className="flex items-center gap-3 flex-wrap">
-                <h1 className="text-3xl font-semibold">{owner.name}</h1>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+                <h1 className="text-xl sm:text-2xl lg:text-3xl font-semibold break-words">{owner.name}</h1>
                 <EntityTypeBadge type={owner.type} />
                 {owner.riskFlags?.map((flag) => (
                   <RiskBadge key={flag} type={flag} />
@@ -791,9 +791,10 @@ export default function OwnerDossierPage() {
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex flex-wrap gap-2 w-full sm:w-auto">
           <Button
             variant="outline"
+            className="min-h-[44px] flex-1 sm:flex-none"
             onClick={() => generateDossierMutation.mutate()}
             disabled={generateDossierMutation.isPending}
             data-testid="button-refresh-dossier"
@@ -806,6 +807,7 @@ export default function OwnerDossierPage() {
             Refresh Data
           </Button>
           <Button
+            className="min-h-[44px] flex-1 sm:flex-none"
             onClick={() => exportPdfMutation.mutate()}
             disabled={exportPdfMutation.isPending}
             data-testid="button-export-pdf"

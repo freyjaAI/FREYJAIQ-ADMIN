@@ -63,7 +63,7 @@ export default function Landing() {
           </div>
           <div className="flex items-center gap-2">
             <ThemeToggle />
-            <Button asChild data-testid="button-login">
+            <Button asChild className="min-h-[44px]" data-testid="button-login">
               <Link href="/login">
                 Sign In
                 <ArrowRight className="ml-1 h-4 w-4" />
