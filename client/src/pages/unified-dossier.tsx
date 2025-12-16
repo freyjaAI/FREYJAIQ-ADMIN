@@ -679,12 +679,75 @@ export default function UnifiedDossierPage() {
   if (isLoading) {
     return (
       <div className="p-6 space-y-6" data-testid="dossier-loading">
-        <Skeleton className="h-8 w-64" />
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <Skeleton className="h-64" />
-          <Skeleton className="h-64" />
-          <Skeleton className="h-64" />
-          <Skeleton className="h-64" />
+        {/* Header skeleton */}
+        <div className="flex items-center gap-4">
+          <Skeleton className="h-11 w-11 rounded-lg" />
+          <div className="space-y-2">
+            <Skeleton className="h-7 w-64" />
+            <Skeleton className="h-4 w-32" />
+          </div>
+        </div>
+        
+        {/* Stats row skeleton */}
+        <div className="grid grid-cols-3 gap-4">
+          <div className="glass-card-static p-4 space-y-3">
+            <Skeleton className="h-10 w-20" />
+            <Skeleton className="h-3 w-16" />
+          </div>
+          <div className="glass-card-static p-4 space-y-3">
+            <Skeleton className="h-10 w-24" />
+            <Skeleton className="h-3 w-20" />
+          </div>
+          <div className="glass-card-static p-4 space-y-3">
+            <Skeleton className="h-10 w-16" />
+            <Skeleton className="h-3 w-12" />
+          </div>
+        </div>
+        
+        {/* Main content skeleton */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 space-y-6">
+            <Card>
+              <CardHeader>
+                <Skeleton className="h-5 w-32" />
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <Skeleton className="h-20" />
+                <Skeleton className="h-20" />
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <Skeleton className="h-5 w-40" />
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <Skeleton className="h-12" />
+                <Skeleton className="h-12" />
+                <Skeleton className="h-12" />
+              </CardContent>
+            </Card>
+          </div>
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <Skeleton className="h-5 w-28" />
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <Skeleton className="h-10" />
+                <Skeleton className="h-10" />
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <Skeleton className="h-5 w-24" />
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-3/4" />
+                <Skeleton className="h-4 w-1/2" />
+              </CardContent>
+            </Card>
+          </div>
         </div>
       </div>
     );
