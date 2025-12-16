@@ -389,6 +389,271 @@ No decorative images needed - this is a data-focused application. All visuals sh
 
 ---
 
+## Enrichment Pipeline System
+
+### Pipeline Overview
+
+The enrichment pipeline is a 7-step sequential process that enriches owner/entity data from multiple providers. There is **one primary way to trigger enrichment**: the "Run Full Enrichment" button in the `EnrichmentPipelineBar` component.
+
+### Enrichment Steps (in order)
+
+| Step | ID | Label | Description | Providers |
+|------|-----|-------|-------------|-----------|
+| 1 | `address` | Address Validation | Standardize and validate addresses | USPS, Melissa, Google Address |
+| 2 | `property` | Property Data | Lookup property details and valuations | ATTOM, HomeHarvest |
+| 3 | `llc_chain` | LLC Chain Resolution | Trace ownership through LLC structures | OpenCorporates, Gemini, Perplexity |
+| 4 | `principals` | Principal Discovery | Identify owners/officers from LLCs | OpenCorporates |
+| 5 | `contacts` | Contact Enrichment | Find phone numbers and email addresses | Melissa, Data Axle, Pacific East, A-Leads |
+| 6 | `franchise` | Franchise Detection | Determine corporate vs franchised locations | AI Analysis |
+| 7 | `ai_summary` | AI Summary & Scoring | Generate outreach suggestions and scoring | OpenAI |
+
+### Step Status Values
+
+| Status | Visual | Description |
+|--------|--------|-------------|
+| `idle` | Gray circle | Not yet started |
+| `running` | Spinning loader | Currently executing |
+| `done` | Green checkmark | Completed successfully |
+| `error` | Red alert icon | Failed (may retry) |
+| `skipped` | Gray skip icon | Intentionally skipped |
+
+### UI Components
+
+**EnrichmentPipelineBar** (`client/src/components/enrichment-pipeline-bar.tsx`)
+- Primary enrichment trigger with "Run Full Enrichment" button
+- Displays step-by-step progress with animated chips
+- Shows change summary (new contacts, principals, etc.) after completion
+- Announces status changes via ARIA live region for accessibility
+
+**TargetedEnrichmentDropdown** (`client/src/components/targeted-enrichment-dropdown.tsx`)
+- Secondary enrichment control for re-running specific phases
+- Available targets: `contacts`, `ownership`, `franchise`, `property`
+- Useful for refreshing stale data without full re-enrichment
+
+### Usage Pattern
+
+```tsx
+// Main dossier pages should include the pipeline bar at top
+<EnrichmentPipelineBar
+  entityId={ownerId}
+  entityName={owner.name}
+  entityType="entity" // or "individual" | "property"
+  onEnrichmentComplete={() => refetch()}
+/>
+
+// Targeted enrichment for specific sections
+<TargetedEnrichmentDropdown
+  entityId={ownerId}
+  entityType="entity"
+  targets={["contacts"]}
+  onEnrichmentComplete={() => refetch()}
+/>
+```
+
+---
+
+## Provider Status & Freshness Tracking
+
+### SourcesStrip Component
+
+Displays data provenance with status chips showing which providers contributed data.
+
+**Status Icons:**
+| Status | Icon | Color | Meaning |
+|--------|------|-------|---------|
+| `success` | CheckCircle | Emerald | Fresh data retrieved |
+| `cached` | Database | Sky | Using cached data |
+| `stale` | Clock | Amber | Data may be outdated |
+| `fallback` | Clock | Orange | Used as fallback source |
+| `error` | AlertCircle | Red | Provider failed |
+
+**Freshness Labels:**
+- `fresh` - Retrieved within last hour
+- `2h`, `6h`, `12h` - Hours since last update
+- `1d`, `2d`, `3d` - Days since last update
+- `1w+` - More than a week old
+
+```tsx
+<SourcesStrip 
+  sources={dossier.sources}
+  onRetry={(target) => targetedEnrich(target)}
+  isRetrying={isRetrying}
+/>
+```
+
+---
+
+## Visual System
+
+### Color Palette
+
+**Primary:** Blue (HSL 217 91% 35%) - Used for primary actions, active states
+**Secondary:** Muted blue-gray - Used for secondary content, badges
+**Destructive:** Red (HSL 0 84% 42%) - Used for errors, risk flags
+**Muted:** Light gray - Used for labels, metadata
+
+### Typography Hierarchy
+
+| Element | Classes | Usage |
+|---------|---------|-------|
+| Page Title | `text-2xl font-semibold` | Owner/entity name headers |
+| Section Title | `text-base font-semibold` + icon | Card headers |
+| Subsection | `text-sm font-medium` | Within-card groupings |
+| Labels | `text-xs text-muted-foreground uppercase tracking-wide` | Field names |
+| Values | `text-sm text-foreground` | Data display |
+| Technical | `font-mono text-sm text-muted-foreground` | APNs, IDs, numbers |
+| Metadata | `text-xs text-muted-foreground` | Timestamps, sources |
+
+### Card Pattern
+
+All dossier sections use the shadcn Card component with consistent structure:
+
+```tsx
+<Card role="region" aria-labelledby="section-id">
+  <CardHeader className="pb-3">
+    <CardTitle id="section-id" className="text-base flex items-center gap-2">
+      <Icon className="h-4 w-4" aria-hidden="true" />
+      Section Title
+      <Badge variant="secondary" className="text-xs">count</Badge>
+    </CardTitle>
+  </CardHeader>
+  <CardContent className="space-y-4">
+    {/* Content */}
+  </CardContent>
+</Card>
+```
+
+**Key Rules:**
+- Icons are `h-4 w-4` in headers
+- Badge counts are `variant="secondary"` with `text-xs`
+- CardHeader uses `pb-3` for tighter spacing
+- CardContent uses `space-y-4` for section spacing
+- Add `role="region"` and `aria-labelledby` for accessibility
+
+---
+
+## Component Usage Rules
+
+### Buttons
+
+| Variant | When to Use |
+|---------|------------|
+| `default` (primary) | Primary actions: "Run Full Enrichment", "Export PDF" |
+| `outline` | Secondary actions: "Refresh Data", navigation |
+| `ghost` | Tertiary actions: icon buttons, menu items |
+| `destructive` | Dangerous actions: delete, remove |
+
+**Size Rules:**
+- `default` - Standard buttons with text
+- `sm` - Compact contexts, inline actions
+- `icon` - Icon-only buttons (use `size="icon"`, never set custom h/w)
+
+**Accessibility:**
+- Always include `data-testid` for testing
+- Add `aria-label` for icon-only buttons
+- Disable during loading with spinner icon
+
+### Toasts
+
+Use the `useToast` hook for notifications:
+
+```tsx
+const { toast } = useToast();
+
+// Success
+toast({
+  title: "Enrichment complete",
+  description: `Found ${newContacts} new contacts`,
+});
+
+// Error
+toast({
+  title: "Enrichment failed",
+  description: error.message,
+  variant: "destructive",
+});
+```
+
+**Toast Guidelines:**
+- Keep titles under 5 words
+- Descriptions should be actionable when possible
+- Use `variant="destructive"` only for actual errors
+- Auto-dismiss after 5 seconds (default)
+
+### Badges
+
+| Variant | Usage |
+|---------|-------|
+| `default` | Active/positive status (Active, Verified) |
+| `secondary` | Counts, neutral info |
+| `outline` | Provider chips, tags |
+| `destructive` | Risk flags, errors |
+
+**Provider Chips (SourcesStrip):**
+- Use `outline` variant as base
+- Add status icons inline
+- Show freshness label when relevant
+- Error chips get `border-destructive/50`
+
+---
+
+## Micro-Interactions
+
+### Animation Guidelines
+
+- Use framer-motion for transitions
+- Duration: 200-300ms for UI, 400-500ms for content
+- Easing: `ease-out` for enters, `ease-in` for exits
+
+**Available Animation Components:**
+
+```tsx
+// Fade in on mount
+<FadeIn>{content}</FadeIn>
+
+// Staggered list items
+<StaggerContainer>
+  {items.map(item => <StaggerItem key={item.id}>{item}</StaggerItem>)}
+</StaggerContainer>
+
+// Highlight when data changes
+<HighlightOnUpdate updateKey={dataVersion}>
+  {content}
+</HighlightOnUpdate>
+```
+
+### Loading States
+
+- Use `Skeleton` component for placeholder content
+- Match skeleton dimensions to actual content
+- Group related skeletons (e.g., `ContactsSectionSkeleton`)
+
+---
+
+## Accessibility Requirements
+
+### ARIA Patterns
+
+- Cards use `role="region"` with `aria-labelledby` pointing to CardTitle id
+- Decorative icons include `aria-hidden="true"`
+- Interactive elements have descriptive `aria-label`
+- Live regions announce enrichment progress
+
+### Keyboard Navigation
+
+- Skip-to-content link in header (visible on focus)
+- Tab order follows visual order
+- Focus indicators use `ring-2 ring-ring ring-offset-2`
+- All interactive elements are focusable
+
+### Screen Reader Support
+
+- Enrichment status changes announced via `aria-live="polite"`
+- Counts and badges provide context in element labels
+- Error states have clear error messages
+
+---
+
 ### Priority Improvements
 
 1. **Data Flow Gap:** LLC Dossier needs links to associated properties and parent owners

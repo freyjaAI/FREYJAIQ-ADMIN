@@ -1250,7 +1250,7 @@ export default function OwnerDossierPage() {
                     )}
                   </CardTitle>
                   <TargetedEnrichmentDropdown
-                    entityId={id!}
+                    entityId={ownerId!}
                     entityType="entity"
                     targets={["ownership"]}
                     onEnrichmentComplete={() => {
@@ -1566,7 +1566,7 @@ export default function OwnerDossierPage() {
                     </Badge>
                   </CardTitle>
                   <TargetedEnrichmentDropdown
-                    entityId={id!}
+                    entityId={ownerId!}
                     entityType={owner.type === "individual" ? "individual" : "entity"}
                     targets={["contacts"]}
                     onEnrichmentComplete={() => refetch()}
@@ -1700,7 +1700,7 @@ export default function OwnerDossierPage() {
                     Contact Information
                   </CardTitle>
                   <TargetedEnrichmentDropdown
-                    entityId={id!}
+                    entityId={ownerId!}
                     entityType={owner.type === "individual" ? "individual" : "entity"}
                     targets={["contacts"]}
                     onEnrichmentComplete={() => refetch()}
@@ -1907,7 +1907,7 @@ export default function OwnerDossierPage() {
             ownerType={owner.type as "individual" | "entity"}
             headerAction={
               <TargetedEnrichmentDropdown
-                entityId={id!}
+                entityId={ownerId!}
                 entityType={owner.type as "individual" | "entity"}
                 targets={["franchise"]}
                 onEnrichmentComplete={() => refetch()}
