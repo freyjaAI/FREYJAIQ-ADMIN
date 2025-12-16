@@ -30,7 +30,7 @@ import {
   Clock,
   Loader2,
 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -50,6 +50,9 @@ import { FranchiseInfoCard } from "@/components/franchise-badge";
 import { EnrichmentPipelineBar } from "@/components/enrichment-pipeline-bar";
 import { TargetedEnrichmentDropdown } from "@/components/targeted-enrichment-dropdown";
 import { SourcesStrip } from "@/components/sources-strip";
+import { ErrorBannerContainer } from "@/components/error-banner";
+import { FadeIn, StaggerContainer, StaggerItem, HighlightOnUpdate, AnimatedList } from "@/components/animated-list";
+import { FullDossierSkeleton, ContactsSectionSkeleton, PropertiesSectionSkeleton, LlcCardSkeleton, InlineListSkeleton } from "@/components/dossier-skeletons";
 import type { Owner, Property, ContactInfo, LegalEvent, OwnerLlcLink, ProviderSource } from "@shared/schema";
 
 interface LlcUnmaskingData {
@@ -409,16 +412,51 @@ function DossierLoadingProgress() {
   );
 }
 
+interface EnrichmentError {
+  id: string;
+  title: string;
+  message: string;
+  onRetry?: () => void;
+}
+
 export default function OwnerDossierPage() {
   const [, params] = useRoute("/owners/:id");
   const ownerId = params?.id;
   const { toast } = useToast();
   const [copiedText, setCopiedText] = useState<string | null>(null);
+  const [enrichmentErrors, setEnrichmentErrors] = useState<EnrichmentError[]>([]);
+  const [retryingIds, setRetryingIds] = useState<string[]>([]);
 
-  const { data: dossier, isLoading } = useQuery<DossierData>({
+  const { data: dossier, isLoading, refetch, dataUpdatedAt } = useQuery<DossierData>({
     queryKey: ["/api/owners", ownerId, "dossier"],
     enabled: !!ownerId,
   });
+
+  const dismissError = useCallback((errorId: string) => {
+    setEnrichmentErrors(prev => prev.filter(e => e.id !== errorId));
+  }, []);
+
+  const addEnrichmentError = useCallback((error: EnrichmentError) => {
+    setEnrichmentErrors(prev => {
+      if (prev.some(e => e.id === error.id)) return prev;
+      return [...prev, error];
+    });
+  }, []);
+
+  const handleEnrichmentComplete = useCallback((result: any) => {
+    refetch();
+    if (result?.overallStatus === "failed" || result?.overallStatus === "partial") {
+      const failedSteps = result?.steps?.filter((s: any) => s.status === "error") || [];
+      failedSteps.forEach((step: any) => {
+        addEnrichmentError({
+          id: `enrichment-${step.id}`,
+          title: `${step.label} failed`,
+          message: step.error || "An error occurred during enrichment",
+          onRetry: () => refetch(),
+        });
+      });
+    }
+  }, [refetch, addEnrichmentError]);
 
   const generateDossierMutation = useMutation({
     mutationFn: async () => {
@@ -522,7 +560,11 @@ export default function OwnerDossierPage() {
   });
 
   if (isLoading) {
-    return <DossierLoadingProgress />;
+    return (
+      <div className="p-6">
+        <FullDossierSkeleton />
+      </div>
+    );
   }
 
   if (!dossier) {
@@ -549,33 +591,40 @@ export default function OwnerDossierPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div className="flex items-start gap-4">
-          <Button variant="ghost" size="icon" asChild data-testid="button-back">
-            <Link href="/owners">
-              <ArrowLeft className="h-4 w-4" />
-            </Link>
-          </Button>
-          <div>
-            <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-3xl font-semibold">{owner.name}</h1>
-              <EntityTypeBadge type={owner.type} />
-              {owner.riskFlags?.map((flag) => (
-                <RiskBadge key={flag} type={flag} />
-              ))}
-            </div>
-            {owner.primaryAddress && (
-              <p className="text-muted-foreground mt-1">{owner.primaryAddress}</p>
-            )}
+      <ErrorBannerContainer
+        errors={enrichmentErrors}
+        onDismiss={dismissError}
+        retryingIds={retryingIds}
+      />
+      
+      <FadeIn>
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div className="flex items-start gap-4">
+            <Button variant="ghost" size="icon" asChild data-testid="button-back">
+              <Link href="/owners">
+                <ArrowLeft className="h-4 w-4" />
+              </Link>
+            </Button>
+            <div>
+              <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="text-3xl font-semibold">{owner.name}</h1>
+                <EntityTypeBadge type={owner.type} />
+                {owner.riskFlags?.map((flag) => (
+                  <RiskBadge key={flag} type={flag} />
+                ))}
+              </div>
+              {owner.primaryAddress && (
+                <p className="text-muted-foreground mt-1">{owner.primaryAddress}</p>
+              )}
 
-            <div className="mt-4">
-              <EnrichmentPipelineBar
-                entityId={owner.id}
-                entityName={owner.name}
-                entityType={owner.type as "individual" | "entity"}
-                onEnrichmentComplete={() => refetch()}
-              />
-            </div>
+              <div className="mt-4">
+                <EnrichmentPipelineBar
+                  entityId={owner.id}
+                  entityName={owner.name}
+                  entityType={owner.type as "individual" | "entity"}
+                  onEnrichmentComplete={handleEnrichmentComplete}
+                />
+              </div>
             
             {sources && sources.length > 0 && (
               <div className="mt-3">
@@ -765,7 +814,8 @@ export default function OwnerDossierPage() {
             Export PDF
           </Button>
         </div>
-      </div>
+        </div>
+      </FadeIn>
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-6">
@@ -1212,10 +1262,7 @@ export default function OwnerDossierPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 {ownershipChainQuery.isLoading ? (
-                  <div className="flex items-center gap-2 py-4">
-                    <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />
-                    <span className="text-sm text-muted-foreground">Resolving ownership chain...</span>
-                  </div>
+                  <InlineListSkeleton count={2} />
                 ) : ownershipChainQuery.data ? (
                   <>
                     <div className="text-xs text-muted-foreground mb-3">
@@ -1335,10 +1382,7 @@ export default function OwnerDossierPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 {relatedHoldingsQuery.isLoading ? (
-                  <div className="flex items-center gap-2 py-4">
-                    <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />
-                    <span className="text-sm text-muted-foreground">Searching for related properties...</span>
-                  </div>
+                  <InlineListSkeleton count={3} />
                 ) : relatedHoldingsQuery.data && (relatedHoldingsQuery.data.llcHoldings.length > 0 || relatedHoldingsQuery.data.directProperties.length > 0) ? (
                   <>
                     {/* LLC Holdings */}
@@ -1458,10 +1502,7 @@ export default function OwnerDossierPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 {linkedIndividualsQuery.isLoading ? (
-                  <div className="flex items-center gap-2 py-4">
-                    <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />
-                    <span className="text-sm text-muted-foreground">Loading linked individuals...</span>
-                  </div>
+                  <InlineListSkeleton count={3} />
                 ) : linkedIndividualsQuery.data && linkedIndividualsQuery.data.linkedIndividuals.length > 0 ? (
                   <div className="space-y-2">
                     {linkedIndividualsQuery.data.linkedIndividuals.map((person, idx) => (
@@ -1510,6 +1551,10 @@ export default function OwnerDossierPage() {
           {/* Contact Information Section - show for both individual and entity owners */}
           {contactEnrichment && (
             (contactEnrichment.companyEmails?.length > 0 || contactEnrichment.directDials?.length > 0 || contactEnrichment.employeeProfiles?.length > 0) ? (
+            <HighlightOnUpdate 
+              updateKey={(contactEnrichment.directDials?.length || 0) + (contactEnrichment.companyEmails?.length || 0)} 
+              className="rounded-md"
+            >
             <Card data-testid="card-contact-enrichment">
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between gap-2">
@@ -1644,6 +1689,7 @@ export default function OwnerDossierPage() {
                 )}
               </CardContent>
             </Card>
+            </HighlightOnUpdate>
           ) : (
             /* Show empty state when no contact data found */
             <Card data-testid="card-contact-enrichment-empty">
@@ -1825,27 +1871,32 @@ export default function OwnerDossierPage() {
           )}
 
           {properties.length > 0 && (
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Building2 className="h-4 w-4" />
-                  Properties Owned
-                  <Badge variant="secondary" className="text-xs">
-                    {properties.length}
-                  </Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {properties.map((property) => (
-                  <PropertyCard
-                    key={property.id}
-                    property={property}
-                    compact
-                    showOwnerLink={false}
-                  />
-                ))}
-              </CardContent>
-            </Card>
+            <HighlightOnUpdate updateKey={properties.length} className="rounded-md">
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Building2 className="h-4 w-4" />
+                    Properties Owned
+                    <Badge variant="secondary" className="text-xs">
+                      {properties.length}
+                    </Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <StaggerContainer className="space-y-3">
+                    {properties.map((property) => (
+                      <StaggerItem key={property.id}>
+                        <PropertyCard
+                          property={property}
+                          compact
+                          showOwnerLink={false}
+                        />
+                      </StaggerItem>
+                    ))}
+                  </StaggerContainer>
+                </CardContent>
+              </Card>
+            </HighlightOnUpdate>
           )}
 
           <LlcNetwork owner={owner} linkedLlcs={linkedLlcs} />
