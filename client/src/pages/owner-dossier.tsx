@@ -47,6 +47,7 @@ import { PropertyCard } from "@/components/property-card";
 import { LegalEventsTimeline } from "@/components/legal-events-timeline";
 import { LlcNetwork } from "@/components/llc-network";
 import { FranchiseInfoCard } from "@/components/franchise-badge";
+import { EnrichmentPipelineBar } from "@/components/enrichment-pipeline-bar";
 import type { Owner, Property, ContactInfo, LegalEvent, OwnerLlcLink } from "@shared/schema";
 
 interface LlcUnmaskingData {
@@ -597,6 +598,15 @@ export default function OwnerDossierPage() {
             {owner.primaryAddress && (
               <p className="text-muted-foreground mt-1">{owner.primaryAddress}</p>
             )}
+
+            <div className="mt-4">
+              <EnrichmentPipelineBar
+                entityId={owner.id}
+                entityName={owner.name}
+                entityType={owner.type as "individual" | "entity"}
+              />
+            </div>
+            
             {/* Person Details for Individual Owners - uses owner record data or skipTraceData fallback */}
             {owner.type === "individual" && (
               (owner as any).age || (owner as any).relatives?.length > 0 || (owner as any).associates?.length > 0 || 
