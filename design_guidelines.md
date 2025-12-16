@@ -120,6 +120,43 @@
 
 ---
 
+## Dossier Visual System
+
+**Utility Classes (defined in index.css):**
+
+| Class | Purpose | Tailwind Equivalent |
+|-------|---------|---------------------|
+| `.dossier-card` | Container for dossier sections | `bg-card rounded-md border border-card-border p-6` |
+| `.dossier-card-compact` | Tighter container variant | `bg-card rounded-md border border-card-border p-4` |
+| `.dossier-section-title` | Section headings | `text-base font-semibold text-foreground flex items-center gap-2` |
+| `.dossier-subsection-title` | Subsection headings | `text-sm font-medium text-foreground` |
+| `.dossier-label` | Field labels | `text-xs font-medium text-muted-foreground uppercase tracking-wide` |
+| `.dossier-value` | Data values | `text-sm font-normal text-foreground` |
+| `.dossier-value-emphasis` | Important values | `text-sm font-medium text-foreground` |
+| `.dossier-mono` | Technical data (APNs, IDs) | `font-mono text-sm text-muted-foreground` |
+| `.dossier-meta` | Timestamps, sources | `text-xs text-muted-foreground` |
+| `.dossier-grid` | 2-column layout | `grid grid-cols-1 sm:grid-cols-2 gap-4` |
+| `.dossier-stat` | Key-value display | `flex flex-col gap-1` |
+| `.dossier-divider` | Section separator | `border-t border-border my-4` |
+
+**Usage Pattern:**
+```tsx
+<div className="dossier-card">
+  <h2 className="dossier-section-title">
+    <Icon className="h-4 w-4" />
+    Section Title
+  </h2>
+  <div className="dossier-grid mt-4">
+    <div className="dossier-stat">
+      <span className="dossier-label">Field Name</span>
+      <span className="dossier-value">Value</span>
+    </div>
+  </div>
+</div>
+```
+
+---
+
 ## Images
 
 No decorative images needed - this is a data-focused application. All visuals should be:

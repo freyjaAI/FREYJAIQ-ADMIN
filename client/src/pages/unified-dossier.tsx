@@ -212,54 +212,54 @@ function CoreInfoCard({ core, entityType }: { core: CoreSection; entityType: Ent
       </CardHeader>
       <CardContent className="space-y-4">
         <div>
-          <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Type</div>
+          <div className="dossier-label mb-1">Type</div>
           <Badge variant="outline">{core.typeLabel}</Badge>
         </div>
 
         {core.addresses.primary && (
           <div>
-            <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Primary Address</div>
+            <div className="dossier-label mb-1">Primary Address</div>
             <div className="flex items-start gap-2">
               <MapPin className="h-4 w-4 mt-0.5 text-muted-foreground" />
-              <span className="text-sm">{core.addresses.primary}</span>
+              <span className="dossier-value">{core.addresses.primary}</span>
             </div>
           </div>
         )}
 
         {core.addresses.mailing && core.addresses.mailing !== core.addresses.primary && (
           <div>
-            <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Mailing Address</div>
+            <div className="dossier-label mb-1">Mailing Address</div>
             <div className="flex items-start gap-2">
               <MapPin className="h-4 w-4 mt-0.5 text-muted-foreground" />
-              <span className="text-sm">{core.addresses.mailing}</span>
+              <span className="dossier-value">{core.addresses.mailing}</span>
             </div>
           </div>
         )}
 
         {core.identifiers.apn && (
           <div>
-            <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1">APN</div>
-            <span className="text-sm font-mono">{core.identifiers.apn}</span>
+            <div className="dossier-label mb-1">APN</div>
+            <span className="dossier-mono">{core.identifiers.apn}</span>
           </div>
         )}
 
         {core.demographics?.age && (
           <div>
-            <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Age</div>
-            <span className="text-sm">{core.demographics.age} years old</span>
+            <div className="dossier-label mb-1">Age</div>
+            <span className="dossier-value">{core.demographics.age} years old</span>
           </div>
         )}
 
         {core.scoring.sellerIntent !== undefined && (
           <div>
-            <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Seller Intent Score</div>
+            <div className="dossier-label mb-1">Seller Intent Score</div>
             <ScoreBadge score={core.scoring.sellerIntent} label="Intent" />
           </div>
         )}
 
         {core.scoring.riskFlags && core.scoring.riskFlags.length > 0 && (
           <div>
-            <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Risk Flags</div>
+            <div className="dossier-label mb-1">Risk Flags</div>
             <div className="flex flex-wrap gap-1">
               {core.scoring.riskFlags.map((flag, i) => (
                 <RiskBadge key={i} type={flag} />
@@ -269,29 +269,29 @@ function CoreInfoCard({ core, entityType }: { core: CoreSection; entityType: Ent
         )}
 
         {core.propertyDetails && (
-          <div className="grid grid-cols-2 gap-3 pt-2">
+          <div className="dossier-grid pt-2">
             {core.propertyDetails.propertyType && (
-              <div>
-                <div className="text-xs text-muted-foreground">Type</div>
-                <span className="text-sm">{core.propertyDetails.propertyType}</span>
+              <div className="dossier-stat">
+                <span className="dossier-label">Type</span>
+                <span className="dossier-value">{core.propertyDetails.propertyType}</span>
               </div>
             )}
             {core.propertyDetails.sqFt && (
-              <div>
-                <div className="text-xs text-muted-foreground">Size</div>
-                <span className="text-sm">{core.propertyDetails.sqFt.toLocaleString()} sqft</span>
+              <div className="dossier-stat">
+                <span className="dossier-label">Size</span>
+                <span className="dossier-value">{core.propertyDetails.sqFt.toLocaleString()} sqft</span>
               </div>
             )}
             {core.propertyDetails.yearBuilt && (
-              <div>
-                <div className="text-xs text-muted-foreground">Year Built</div>
-                <span className="text-sm">{core.propertyDetails.yearBuilt}</span>
+              <div className="dossier-stat">
+                <span className="dossier-label">Year Built</span>
+                <span className="dossier-value">{core.propertyDetails.yearBuilt}</span>
               </div>
             )}
             {core.propertyDetails.assessedValue && (
-              <div>
-                <div className="text-xs text-muted-foreground">Assessed Value</div>
-                <span className="text-sm">${core.propertyDetails.assessedValue.toLocaleString()}</span>
+              <div className="dossier-stat">
+                <span className="dossier-label">Assessed Value</span>
+                <span className="dossier-value">${core.propertyDetails.assessedValue.toLocaleString()}</span>
               </div>
             )}
           </div>
@@ -333,13 +333,13 @@ function ContactCard({ contact }: { contact: ContactSection }) {
       <CardContent className="space-y-4">
         {phones.length > 0 && (
           <div>
-            <div className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Phone Numbers</div>
+            <div className="dossier-label mb-2">Phone Numbers</div>
             <div className="space-y-2">
               {phones.map((phone, i) => (
                 <div key={i} className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Phone className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm font-mono">{phone.value}</span>
+                    <span className="dossier-mono">{phone.value}</span>
                   </div>
                   {phone.confidence && <ScoreBadge score={phone.confidence} size="sm" showLabel={false} />}
                 </div>
@@ -350,13 +350,13 @@ function ContactCard({ contact }: { contact: ContactSection }) {
 
         {emails.length > 0 && (
           <div>
-            <div className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Email Addresses</div>
+            <div className="dossier-label mb-2">Email Addresses</div>
             <div className="space-y-2">
               {emails.map((email, i) => (
                 <div key={i} className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Mail className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm">{email.value}</span>
+                    <span className="dossier-value">{email.value}</span>
                   </div>
                   {email.confidence && <ScoreBadge score={email.confidence} size="sm" showLabel={false} />}
                 </div>
@@ -367,7 +367,7 @@ function ContactCard({ contact }: { contact: ContactSection }) {
 
         {contact.relatives && contact.relatives.length > 0 && (
           <div>
-            <div className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Relatives</div>
+            <div className="dossier-label mb-2">Relatives</div>
             <div className="flex flex-wrap gap-2">
               {contact.relatives.slice(0, 5).map((rel, i) => (
                 <Badge key={i} variant="secondary" className="text-xs">
@@ -386,7 +386,7 @@ function ContactCard({ contact }: { contact: ContactSection }) {
 
         {contact.associates && contact.associates.length > 0 && (
           <div>
-            <div className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Associates</div>
+            <div className="dossier-label mb-2">Associates</div>
             <div className="flex flex-wrap gap-2">
               {contact.associates.slice(0, 5).map((assoc, i) => (
                 <Badge key={i} variant="secondary" className="text-xs">
@@ -427,7 +427,7 @@ function OwnershipCard({ ownership, entityType }: { ownership: OwnershipSection;
       <CardContent className="space-y-4">
         {hasOwners && (
           <div>
-            <div className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Owners</div>
+            <div className="dossier-label mb-2">Owners</div>
             <div className="space-y-2">
               {ownership.owners.map((owner) => (
                 <EntityLink key={owner.id} entity={owner} />
@@ -438,7 +438,7 @@ function OwnershipCard({ ownership, entityType }: { ownership: OwnershipSection;
 
         {hasUbos && (
           <div>
-            <div className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Ultimate Beneficial Owners</div>
+            <div className="dossier-label mb-2">Ultimate Beneficial Owners</div>
             <div className="space-y-2">
               {ownership.ultimateBeneficialOwners.map((ubo) => (
                 <div key={ubo.id} className="flex items-center justify-between">
@@ -456,7 +456,7 @@ function OwnershipCard({ ownership, entityType }: { ownership: OwnershipSection;
 
         {hasHoldings && (
           <div>
-            <div className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Holdings</div>
+            <div className="dossier-label mb-2">Holdings</div>
             <div className="space-y-3">
               {ownership.holdings.map((holding, i) => (
                 <div key={i} className="border rounded-md p-3 bg-muted/30">

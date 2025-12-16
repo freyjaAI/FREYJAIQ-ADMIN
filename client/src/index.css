@@ -202,6 +202,71 @@
     @apply hidden;
   }
 
+  /* ============================================
+   * DOSSIER VISUAL SYSTEM
+   * Consistent styling for all dossier sections
+   * ============================================ */
+
+  /* Dossier Card - consistent container for all dossier sections */
+  .dossier-card {
+    @apply bg-card rounded-md border border-card-border p-6;
+  }
+
+  /* Compact variant for tighter spaces */
+  .dossier-card-compact {
+    @apply bg-card rounded-md border border-card-border p-4;
+  }
+
+  /* Dossier section header - consistent title styling */
+  .dossier-section-title {
+    @apply text-base font-semibold text-foreground flex items-center gap-2;
+  }
+
+  /* Dossier subsection header */
+  .dossier-subsection-title {
+    @apply text-sm font-medium text-foreground;
+  }
+
+  /* Dossier label - for field names and metadata */
+  .dossier-label {
+    @apply text-xs font-medium text-muted-foreground uppercase tracking-wide;
+  }
+
+  /* Dossier value - for data display */
+  .dossier-value {
+    @apply text-sm font-normal text-foreground;
+  }
+
+  /* Dossier value emphasized - for important data */
+  .dossier-value-emphasis {
+    @apply text-sm font-medium text-foreground;
+  }
+
+  /* Dossier monospace - for APNs, IDs, technical data */
+  .dossier-mono {
+    @apply font-mono text-sm text-muted-foreground;
+  }
+
+  /* Dossier metadata - for timestamps, sources, etc */
+  .dossier-meta {
+    @apply text-xs text-muted-foreground;
+  }
+
+  /* Dossier grid layout - consistent 2-column layout */
+  .dossier-grid {
+    @apply grid grid-cols-1 sm:grid-cols-2 gap-4;
+  }
+
+  /* Dossier stat item - for key-value displays */
+  .dossier-stat {
+    @apply flex flex-col gap-1;
+  }
+
+  /* Dossier divider - subtle section separator */
+  .dossier-divider {
+    @apply border-t border-border my-4;
+  }
+
   /* Placeholder styling for contentEditable div */
   [contenteditable][data-placeholder]:empty::before {
     content: attr(data-placeholder);
