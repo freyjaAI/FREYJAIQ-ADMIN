@@ -45,16 +45,39 @@
 ## Typography
 
 **Font Families:**
-- **Primary:** Inter (headings, UI elements, data labels)
-- **Secondary:** JetBrains Mono (APNs, IDs, technical data)
+- **Primary:** Inter (imported via Google Fonts) - modern, highly legible
+- **Monospace:** JetBrains Mono (APNs, IDs, technical data)
 
-**Hierarchy:**
-- **Page Titles:** text-3xl font-semibold (Owner name, "Search Properties")
-- **Section Headers:** text-xl font-semibold
-- **Subsection Headers:** text-base font-semibold
-- **Body/Labels:** text-sm font-medium
-- **Data Values:** text-sm font-normal
-- **Metadata/Helper Text:** text-xs text-gray-500
+**Font Loading:**
+```css
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+```
+
+**Hierarchy Utility Classes:**
+- `.heading-1` - Page titles: `text-4xl font-bold tracking-tight`
+- `.heading-2` - Section headers: `text-2xl font-semibold tracking-tight`
+- `.heading-3` - Subsection headers: `text-xl font-semibold`
+- `.heading-4` - Card/component titles: `text-lg font-semibold`
+- `.body-dense` - Dense body text: `text-sm font-normal leading-relaxed`
+- `.label-uppercase` - Category labels: `text-xs font-medium uppercase tracking-wide`
+- `.mono-data` - Technical data: `font-mono text-sm`
+
+**Body Text Rendering:**
+```css
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+```
+
+**Usage Guidelines:**
+- Use bold (`font-bold`) for H1 page titles for maximum impact
+- Use semibold (`font-semibold`) for section/subsection headers
+- Use `tracking-tight` on larger headings for tighter letter-spacing
+- Body text should be `text-sm` for information-dense interfaces
+- Labels use `uppercase tracking-wide` sparingly for categorization
 
 ---
 

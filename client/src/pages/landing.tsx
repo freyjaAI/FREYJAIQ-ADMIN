@@ -81,7 +81,7 @@ export default function Landing() {
               <Zap className="h-3.5 w-3.5" />
               <span>AI-Powered Intelligence</span>
             </div>
-            <h1 className="text-4xl font-semibold tracking-tight md:text-5xl lg:text-6xl">
+            <h1 className="text-4xl font-bold tracking-tight md:text-5xl lg:text-6xl">
               CRE Prospecting,
               <br />
               <span className="bg-gradient-to-r from-primary via-ai to-ai-secondary bg-clip-text text-transparent">Supercharged</span>
@@ -125,7 +125,7 @@ export default function Landing() {
         <section className="py-20 relative">
           <div className="container mx-auto px-4">
             <div className="text-center">
-              <h2 className="text-3xl font-semibold">
+              <h2 className="heading-2">
                 Everything You Need to Close Deals
               </h2>
               <p className="mx-auto mt-4 max-w-xl text-muted-foreground">
@@ -147,8 +147,8 @@ export default function Landing() {
                         idx < 2 ? 'text-ai' : idx < 4 ? 'text-primary' : 'text-ai-secondary'
                       }`} />
                     </div>
-                    <h3 className="mt-4 text-lg font-semibold">{feature.title}</h3>
-                    <p className="mt-2 text-sm text-muted-foreground">
+                    <h3 className="mt-4 heading-4">{feature.title}</h3>
+                    <p className="mt-2 body-dense text-muted-foreground">
                       {feature.description}
                     </p>
                   </CardContent>
@@ -161,7 +161,7 @@ export default function Landing() {
         <section className="border-t border-border/50 bg-card/50 py-20 relative overflow-hidden">
           <div className="absolute inset-0 bg-grid-pattern opacity-20" />
           <div className="container mx-auto px-4 text-center relative z-10">
-            <h2 className="text-3xl font-semibold">
+            <h2 className="heading-2">
               Ready to Transform Your Prospecting?
             </h2>
             <p className="mx-auto mt-4 max-w-xl text-muted-foreground">

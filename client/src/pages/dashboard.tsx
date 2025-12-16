@@ -51,10 +51,10 @@ export default function Dashboard() {
   return (
     <div className="space-y-6 sm:space-y-8">
       <div className="space-y-2">
-        <h1 className="text-2xl sm:text-3xl font-semibold">
+        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
           {greeting()}, {user?.firstName || "there"}
         </h1>
-        <p className="text-sm sm:text-base text-muted-foreground">
+        <p className="body-dense text-muted-foreground">
           Find your next deal with powerful property intelligence.
         </p>
       </div>
@@ -63,7 +63,7 @@ export default function Dashboard() {
         <div className="absolute inset-0 bg-grid-pattern opacity-10" />
         <CardContent className="py-8 relative z-10">
           <div className="max-w-2xl mx-auto">
-            <h2 className="text-xl font-semibold text-center mb-4">
+            <h2 className="heading-3 text-center mb-4">
               Search Properties & Owners
             </h2>
             <SearchBar onSearch={handleSearch} size="large" />
