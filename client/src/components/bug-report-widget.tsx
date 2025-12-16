@@ -151,6 +151,11 @@ export function BugReportWidget() {
     return () => window.removeEventListener("keydown", handleKeyPress);
   }, [isOpen]);
 
+  // Only render for authenticated users
+  if (!user) {
+    return null;
+  }
+
   return (
     <>
       {/* Floating Action Button */}
@@ -273,7 +278,7 @@ export function BugReportWidget() {
 
           {/* Footer */}
           <div className="flex justify-end gap-3 p-6 pt-0">
-            <Button variant="ghost" onClick={handleClose}>
+            <Button variant="ghost" onClick={handleClose} data-testid="button-bug-cancel">
               Cancel
             </Button>
             <Button
