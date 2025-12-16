@@ -1,8 +1,22 @@
 import { Link } from "wouter";
-import { Building2, Search, Users, FileText, ArrowRight, Shield, Zap, Target } from "lucide-react";
+import { Building2, Search, Users, FileText, ArrowRight, Shield, Zap, Target, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { Badge } from "@/components/ui/badge";
+
+function FloatingParticles() {
+  return (
+    <div className="absolute inset-0 overflow-hidden pointer-events-none">
+      <div className="particle" style={{ top: '10%', left: '10%' }} />
+      <div className="particle" style={{ top: '20%', left: '80%' }} />
+      <div className="particle" style={{ top: '60%', left: '15%' }} />
+      <div className="particle" style={{ top: '40%', left: '70%' }} />
+      <div className="particle" style={{ top: '70%', left: '85%' }} />
+      <div className="particle" style={{ top: '80%', left: '25%' }} />
+    </div>
+  );
+}
 
 export default function Landing() {
   const features = [
@@ -75,16 +89,22 @@ export default function Landing() {
 
       <main>
         <section className="relative py-20 md:py-32 overflow-hidden">
-          <div className="absolute inset-0 bg-grid-pattern opacity-30" />
+          <div className="absolute inset-0 animated-grid" />
+          <FloatingParticles />
           <div className="container mx-auto px-4 text-center relative z-10">
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-ai/30 bg-ai/10 text-sm text-ai mb-6">
-              <Zap className="h-3.5 w-3.5" />
-              <span>AI-Powered Intelligence</span>
+            <div className="hero-glow inline-block">
+              <Badge 
+                variant="outline" 
+                className="mb-6 px-4 py-1.5 border-ai/40 bg-ai/10 text-ai gap-2"
+              >
+                <Sparkles className="h-3.5 w-3.5 sparkle-icon" />
+                Powered by AI
+              </Badge>
             </div>
             <h1 className="text-4xl font-bold tracking-tight md:text-5xl lg:text-6xl">
               CRE Prospecting,
               <br />
-              <span className="bg-gradient-to-r from-primary via-ai to-ai-secondary bg-clip-text text-transparent">Supercharged</span>
+              <span className="gradient-text-hero">Supercharged</span>
             </h1>
             <p className="mx-auto mt-6 max-w-2xl text-lg text-muted-foreground">
               Find property owners, unmask LLCs, and close more deals. The modern
