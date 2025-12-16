@@ -15,7 +15,7 @@ import { db } from "./db";
 import { eq, sql } from "drizzle-orm";
 import * as GeminiDeepResearch from "./providers/GeminiDeepResearchProvider";
 import * as HomeHarvest from "./providers/HomeHarvestProvider";
-import { buildUnifiedDossier, runFullEnrichment, resolveEntityById, UnifiedDossier } from "./dossierService";
+import { buildUnifiedDossier, runFullEnrichment, resolveEntityById, UnifiedDossier, runPhasedEnrichment, PhasedEnrichmentResult } from "./dossierService";
 import { 
   trackProviderCall, 
   trackCacheEvent, 
@@ -4722,6 +4722,47 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (error) {
       console.error("Error running enrichment:", error);
       res.status(500).json({ message: "Failed to run enrichment" });
+    }
+  });
+
+  // Run phased enrichment with step-by-step tracking
+  app.post("/api/dossiers/:id/enrich-full", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      
+      if (!id) {
+        return res.status(400).json({ message: "Entity ID required" });
+      }
+
+      console.log(`[PhasedEnrichment] Starting enrichment for entity ${id}`);
+      const result = await runPhasedEnrichment(id);
+      
+      if (result.overallStatus === "failed") {
+        return res.status(404).json({
+          message: "Enrichment failed - entity not found or all phases errored",
+          steps: result.steps,
+          summary: result.summary,
+          providersUsed: result.providersUsed,
+          durationMs: result.durationMs,
+        });
+      }
+
+      // Fetch the updated dossier after enrichment
+      const dossier = await buildUnifiedDossier(id);
+      
+      console.log(`[PhasedEnrichment] Completed for ${id} in ${result.durationMs}ms - status: ${result.overallStatus}`);
+      
+      res.json({
+        steps: result.steps,
+        summary: result.summary,
+        providersUsed: result.providersUsed,
+        overallStatus: result.overallStatus,
+        durationMs: result.durationMs,
+        dossier,
+      });
+    } catch (error) {
+      console.error("Error running phased enrichment:", error);
+      res.status(500).json({ message: "Failed to run phased enrichment" });
     }
   });
 
