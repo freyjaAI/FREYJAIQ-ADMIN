@@ -9,7 +9,7 @@ import {
   calculateContactConfidence,
 } from "./openai";
 import { dataProviders } from "./dataProviders";
-import { insertOwnerSchema, insertPropertySchema, insertContactInfoSchema, ownerLlcLinks, owners, contactInfos, properties, llcOwnershipChains } from "@shared/schema";
+import { insertOwnerSchema, insertPropertySchema, insertContactInfoSchema, ownerLlcLinks, owners, contactInfos, properties, llcOwnershipChains, ProviderSource, PROVIDER_DISPLAY_NAMES } from "@shared/schema";
 import { z } from "zod";
 import { db } from "./db";
 import { eq, sql } from "drizzle-orm";
@@ -96,6 +96,224 @@ function setCachedLlcSearchResults(query: string, jurisdiction: string | undefin
       }
     }
   }
+}
+
+/**
+ * Calculate freshness label from a date
+ */
+function calculateFreshnessLabel(date: Date | string | null | undefined): string {
+  if (!date) return "unknown";
+  const now = Date.now();
+  const then = new Date(date).getTime();
+  const diffMs = now - then;
+  const diffHours = diffMs / (1000 * 60 * 60);
+  const diffDays = diffHours / 24;
+  
+  if (diffHours < 1) return "fresh";
+  if (diffHours < 24) return "today";
+  if (diffDays < 2) return "1d";
+  if (diffDays < 7) return `${Math.floor(diffDays)}d`;
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)}w`;
+  if (diffDays < 365) return `${Math.floor(diffDays / 30)}mo`;
+  return `${Math.floor(diffDays / 365)}y`;
+}
+
+/**
+ * Build provider sources array from dossier data
+ */
+function buildProviderSources(
+  owner: any,
+  existingCache: any,
+  llcUnmasking: any,
+  contactEnrichment: any,
+  melissaEnrichment: any,
+  contacts: any[],
+  properties: any[],
+  isCached: boolean
+): ProviderSource[] {
+  const sources: ProviderSource[] = [];
+  const cacheUpdatedAt = existingCache?.updatedAt;
+  const now = new Date();
+  
+  // Helper to get timestamp from various enrichment sources
+  const getEnrichmentTimestamp = (enrichment: any): Date | null => {
+    if (!enrichment) return null;
+    if (enrichment.lastUpdated) return new Date(enrichment.lastUpdated);
+    if (enrichment.timestamp) return new Date(enrichment.timestamp);
+    if (enrichment.updatedAt) return new Date(enrichment.updatedAt);
+    return cacheUpdatedAt ? new Date(cacheUpdatedAt) : null;
+  };
+  
+  // ATTOM - detect from properties or enrichmentSource
+  const hasAttomProperty = properties.some((p: any) => p.metadata?.source === "attom" || p.apn);
+  const hasAttomEnrichment = owner.enrichmentSource === "attom" || owner.metadata?.attomData;
+  if (hasAttomProperty || hasAttomEnrichment) {
+    const propertyUpdateTime = properties[0]?.updatedAt || owner.updatedAt;
+    sources.push({
+      name: "attom",
+      displayName: PROVIDER_DISPLAY_NAMES["attom"] || "ATTOM",
+      status: isCached ? "cached" : "success",
+      lastUpdated: propertyUpdateTime,
+      freshnessLabel: calculateFreshnessLabel(propertyUpdateTime),
+      retryTarget: "property",
+      canRetry: true,
+    });
+  }
+  
+  // OpenCorporates - detected from llcUnmasking or owner type
+  if (llcUnmasking && !llcUnmasking.error) {
+    const llcTimestamp = getEnrichmentTimestamp(llcUnmasking) || cacheUpdatedAt;
+    sources.push({
+      name: "opencorporates",
+      displayName: PROVIDER_DISPLAY_NAMES["opencorporates"] || "OpenCorporates",
+      status: llcUnmasking.fromCache ? "cached" : "success",
+      lastUpdated: llcTimestamp,
+      freshnessLabel: calculateFreshnessLabel(llcTimestamp),
+      retryTarget: "ownership",
+      canRetry: true,
+    });
+  } else if (llcUnmasking?.error) {
+    sources.push({
+      name: "opencorporates",
+      displayName: PROVIDER_DISPLAY_NAMES["opencorporates"] || "OpenCorporates",
+      status: "error",
+      lastUpdated: cacheUpdatedAt,
+      freshnessLabel: calculateFreshnessLabel(cacheUpdatedAt),
+      error: llcUnmasking.error,
+      retryTarget: "ownership",
+      canRetry: true,
+    });
+  }
+  
+  // Gemini - detected from llcUnmasking AI fields or owner metadata
+  const hasGeminiData = llcUnmasking?.aiInferredOwners?.length > 0 || 
+                        llcUnmasking?.aiRelatedEntities?.length > 0 ||
+                        owner.metadata?.llcChain || 
+                        owner.metadata?.geminiResearch;
+  if (hasGeminiData) {
+    const geminiTimestamp = getEnrichmentTimestamp(llcUnmasking) || cacheUpdatedAt;
+    sources.push({
+      name: "gemini",
+      displayName: PROVIDER_DISPLAY_NAMES["gemini"] || "Gemini AI",
+      status: isCached ? "cached" : "success",
+      lastUpdated: geminiTimestamp,
+      freshnessLabel: calculateFreshnessLabel(geminiTimestamp),
+      retryTarget: "ownership",
+      canRetry: true,
+    });
+  }
+  
+  // Perplexity fallback
+  if (owner.metadata?.perplexityFallback || llcUnmasking?.perplexityFallback) {
+    sources.push({
+      name: "perplexity",
+      displayName: PROVIDER_DISPLAY_NAMES["perplexity"] || "Perplexity",
+      status: "fallback",
+      lastUpdated: cacheUpdatedAt,
+      freshnessLabel: calculateFreshnessLabel(cacheUpdatedAt),
+      retryTarget: "ownership",
+      canRetry: true,
+    });
+  }
+  
+  // Build contact source set from actual contacts
+  const contactSourceSet = new Set<string>();
+  for (const contact of contacts) {
+    if (contact.source) {
+      contactSourceSet.add(contact.source.toLowerCase());
+    }
+  }
+  
+  // Data Axle - from contactEnrichment or contact sources
+  const hasDataAxle = contactEnrichment?.dataAxle || 
+                      contactEnrichment?.companyEmails?.length > 0 ||
+                      contactEnrichment?.directDials?.length > 0 ||
+                      contactSourceSet.has("data_axle") || 
+                      contactSourceSet.has("dataaxle");
+  if (hasDataAxle) {
+    const dataAxleTimestamp = getEnrichmentTimestamp(contactEnrichment) || cacheUpdatedAt;
+    const hasError = contactEnrichment?.dataAxleError;
+    sources.push({
+      name: "data_axle",
+      displayName: PROVIDER_DISPLAY_NAMES["data_axle"] || "Data Axle",
+      status: hasError ? "error" : (isCached ? "cached" : "success"),
+      lastUpdated: dataAxleTimestamp,
+      freshnessLabel: calculateFreshnessLabel(dataAxleTimestamp),
+      error: hasError ? contactEnrichment.dataAxleError : undefined,
+      retryTarget: "contacts",
+      canRetry: true,
+    });
+  }
+  
+  // Pacific East - from contactEnrichment or contact sources  
+  const hasPacificEast = contactEnrichment?.pacificEast ||
+                         contactSourceSet.has("pacific_east") || 
+                         contactSourceSet.has("pacificeast");
+  if (hasPacificEast) {
+    const peTimestamp = getEnrichmentTimestamp(contactEnrichment) || cacheUpdatedAt;
+    sources.push({
+      name: "pacific_east",
+      displayName: PROVIDER_DISPLAY_NAMES["pacific_east"] || "Pacific East",
+      status: isCached ? "cached" : "success",
+      lastUpdated: peTimestamp,
+      freshnessLabel: calculateFreshnessLabel(peTimestamp),
+      retryTarget: "contacts",
+      canRetry: true,
+    });
+  }
+  
+  // A-Leads - from contactEnrichment or contact sources
+  const hasALeads = contactEnrichment?.aLeads ||
+                    contactEnrichment?.skipTraceData ||
+                    contactSourceSet.has("a_leads") || 
+                    contactSourceSet.has("aleads");
+  if (hasALeads) {
+    const aLeadsTimestamp = getEnrichmentTimestamp(contactEnrichment) || cacheUpdatedAt;
+    sources.push({
+      name: "a_leads",
+      displayName: PROVIDER_DISPLAY_NAMES["a_leads"] || "A-Leads",
+      status: isCached ? "cached" : "success",
+      lastUpdated: aLeadsTimestamp,
+      freshnessLabel: calculateFreshnessLabel(aLeadsTimestamp),
+      retryTarget: "contacts",
+      canRetry: true,
+    });
+  }
+  
+  // Melissa verification
+  if (melissaEnrichment) {
+    const melissaTimestamp = getEnrichmentTimestamp(melissaEnrichment) || cacheUpdatedAt;
+    const hasError = melissaEnrichment?.error;
+    sources.push({
+      name: "melissa",
+      displayName: PROVIDER_DISPLAY_NAMES["melissa"] || "Melissa",
+      status: hasError ? "error" : (isCached ? "cached" : "success"),
+      lastUpdated: melissaTimestamp,
+      freshnessLabel: calculateFreshnessLabel(melissaTimestamp),
+      error: hasError ? melissaEnrichment.error : undefined,
+      retryTarget: "contacts",
+      canRetry: true,
+    });
+  }
+  
+  // Skip trace - from owner enrichmentSource or contact sources
+  const hasSkipTrace = owner.enrichmentSource === "apify_skip_trace" ||
+                       contactSourceSet.has("apify_skip_trace") ||
+                       contactSourceSet.has("skip_trace");
+  if (hasSkipTrace) {
+    const skipTimestamp = owner.enrichmentUpdatedAt || cacheUpdatedAt;
+    sources.push({
+      name: "apify_skip_trace",
+      displayName: PROVIDER_DISPLAY_NAMES["apify_skip_trace"] || "Skip Trace",
+      status: isCached ? "cached" : "success",
+      lastUpdated: skipTimestamp,
+      freshnessLabel: calculateFreshnessLabel(skipTimestamp),
+      retryTarget: "contacts",
+      canRetry: true,
+    });
+  }
+  
+  return sources;
 }
 
 /**
@@ -1014,6 +1232,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (isCacheValid && existingCache) {
         console.log(`Using cached dossier data for owner ${owner.id}`);
         trackCacheEvent('dossier', true);
+        
+        // Build sources array for cached response
+        const sources = buildProviderSources(
+          owner,
+          existingCache,
+          existingCache.llcUnmasking,
+          existingCache.contactEnrichment,
+          existingCache.melissaEnrichment,
+          contacts,
+          properties,
+          true // isCached
+        );
+        
         return res.json({
           owner: { 
             id: owner.id,
@@ -1047,6 +1278,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           contactEnrichment: existingCache.contactEnrichment,
           melissaEnrichment: existingCache.melissaEnrichment,
           enrichedOfficers: existingCache.enrichedOfficers,
+          sources,
           cached: true,
         });
       }
@@ -1939,6 +2171,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       // Re-fetch owner to get updated enrichment data
       const updatedOwner = await storage.getOwner(owner.id);
       
+      // Build sources array for fresh response
+      const sources = buildProviderSources(
+        updatedOwner || owner,
+        existingCache,
+        llcUnmasking,
+        contactEnrichment,
+        melissaEnrichment,
+        contacts,
+        properties,
+        false // isCached
+      );
+      
       res.json({
         owner: { 
           id: updatedOwner?.id || owner.id,
@@ -1972,6 +2216,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         contactEnrichment,
         melissaEnrichment,
         enrichedOfficers: enrichedOfficers.length > 0 ? enrichedOfficers : null,
+        sources,
         cached: false,
       });
     } catch (error) {

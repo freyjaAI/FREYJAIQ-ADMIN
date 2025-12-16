@@ -449,3 +449,36 @@ export function createInitialPipelineState(
     providersUsed: [],
   };
 }
+
+// =============================================================================
+// Provider Source Status - tracks data freshness and errors for each provider
+// =============================================================================
+
+export type ProviderSourceStatus = "success" | "error" | "stale" | "fallback" | "cached";
+
+export interface ProviderSource {
+  name: string;
+  displayName: string;
+  status: ProviderSourceStatus;
+  lastUpdated?: string;
+  freshnessLabel?: string; // e.g., "fresh", "2d", "1w"
+  error?: string;
+  canRetry?: boolean;
+  retryTarget?: "contacts" | "ownership" | "property" | "franchise";
+}
+
+export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
+  usps: "USPS",
+  attom: "ATTOM",
+  opencorporates: "OpenCorporates",
+  gemini: "Gemini",
+  perplexity: "Perplexity",
+  data_axle: "Data Axle",
+  pacific_east: "Pacific East",
+  a_leads: "A-Leads",
+  melissa: "Melissa",
+  apify_skip_trace: "Skip Trace",
+  openai: "OpenAI",
+  google_address: "Google Address",
+  homeharvest: "HomeHarvest",
+};

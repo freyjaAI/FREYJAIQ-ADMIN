@@ -49,7 +49,8 @@ import { LlcNetwork } from "@/components/llc-network";
 import { FranchiseInfoCard } from "@/components/franchise-badge";
 import { EnrichmentPipelineBar } from "@/components/enrichment-pipeline-bar";
 import { TargetedEnrichmentDropdown } from "@/components/targeted-enrichment-dropdown";
-import type { Owner, Property, ContactInfo, LegalEvent, OwnerLlcLink } from "@shared/schema";
+import { SourcesStrip } from "@/components/sources-strip";
+import type { Owner, Property, ContactInfo, LegalEvent, OwnerLlcLink, ProviderSource } from "@shared/schema";
 
 interface LlcUnmaskingData {
   companyNumber: string;
@@ -538,8 +539,8 @@ export default function OwnerDossierPage() {
     );
   }
 
-  const { owner, properties, contacts, legalEvents, linkedLlcs, aiOutreach, scoreBreakdown, llcUnmasking, contactEnrichment, melissaEnrichment } =
-    dossier;
+  const { owner, properties, contacts, legalEvents, linkedLlcs, aiOutreach, scoreBreakdown, llcUnmasking, contactEnrichment, melissaEnrichment, sources } =
+    dossier as typeof dossier & { sources?: ProviderSource[] };
 
   const totalPropertyValue = properties.reduce(
     (sum, p) => sum + (p.assessedValue ?? 0),
@@ -575,6 +576,16 @@ export default function OwnerDossierPage() {
                 onEnrichmentComplete={() => refetch()}
               />
             </div>
+            
+            {sources && sources.length > 0 && (
+              <div className="mt-3">
+                <SourcesStrip 
+                  sources={sources}
+                  onRetry={undefined}
+                  isRetrying={false}
+                />
+              </div>
+            )}
             
             {/* Person Details for Individual Owners - uses owner record data or skipTraceData fallback */}
             {owner.type === "individual" && (

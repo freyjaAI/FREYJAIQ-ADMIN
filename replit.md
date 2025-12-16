@@ -235,3 +235,19 @@ Available provider names: `gemini`, `opencorporates`, `perplexity`, `attom`, `ap
 - `GET /api/admin/provider-metrics` - Returns provider usage, costs, and cache statistics
   - Tracks calls per provider, estimated costs, cache hit rates
   - Useful for monitoring API spending and optimizing usage
+
+### Provider Status & Freshness Tracking
+The dossier API responses include a `sources` array showing which data providers contributed data:
+- **ProviderSource type** (defined in `shared/schema.ts`):
+  - `name`: Provider identifier (e.g., "attom", "opencorporates")
+  - `displayName`: Human-readable name (e.g., "ATTOM", "OpenCorporates")
+  - `status`: One of "success", "cached", "error", "stale", "fallback"
+  - `lastUpdated`: Timestamp of when data was fetched
+  - `freshnessLabel`: Human-readable age (e.g., "fresh", "2d", "1w")
+  - `error`: Error message if provider failed
+  - `canRetry`: Whether targeted re-enrichment is available
+  - `retryTarget`: Which enrichment phase to retry ("contacts", "ownership", "property", "franchise")
+- **SourcesStrip component** (`client/src/components/sources-strip.tsx`):
+  - Displays provider chips with status icons and freshness labels
+  - Shows retry buttons for failed providers
+  - Tooltips with detailed status information
