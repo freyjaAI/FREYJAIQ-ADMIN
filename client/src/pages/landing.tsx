@@ -4,19 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Badge } from "@/components/ui/badge";
-
-function FloatingParticles() {
-  return (
-    <div className="absolute inset-0 overflow-hidden pointer-events-none">
-      <div className="particle" style={{ top: '10%', left: '10%' }} />
-      <div className="particle" style={{ top: '20%', left: '80%' }} />
-      <div className="particle" style={{ top: '60%', left: '15%' }} />
-      <div className="particle" style={{ top: '40%', left: '70%' }} />
-      <div className="particle" style={{ top: '70%', left: '85%' }} />
-      <div className="particle" style={{ top: '80%', left: '25%' }} />
-    </div>
-  );
-}
+import { AnimatedDataBackground } from "@/components/animated-data-background";
 
 export default function Landing() {
   const features = [
@@ -90,7 +78,7 @@ export default function Landing() {
       <main>
         <section className="relative py-20 md:py-32 overflow-hidden">
           <div className="absolute inset-0 animated-grid" />
-          <FloatingParticles />
+          <AnimatedDataBackground />
           <div className="container mx-auto px-4 text-center relative z-10">
             <div className="hero-glow inline-block">
               <Badge 
