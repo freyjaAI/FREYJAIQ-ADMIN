@@ -702,7 +702,7 @@ export default function UnifiedDossierPage() {
   return (
     <div className="p-6" data-testid="unified-dossier-page">
       <div className="flex items-center gap-4 mb-6">
-        <Button variant="ghost" size="icon" onClick={() => window.history.back()} data-testid="button-back">
+        <Button variant="ghost" size="icon" className="min-h-[44px] min-w-[44px] shrink-0" onClick={() => window.history.back()} data-testid="button-back">
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div className="flex-1">

@@ -89,7 +89,7 @@ export default function DossiersPage() {
                         View
                       </Link>
                     </Button>
-                    <Button variant="ghost" size="icon">
+                    <Button variant="ghost" size="icon" className="min-h-[44px] min-w-[44px]">
                       <Download className="h-4 w-4" />
                     </Button>
                   </div>

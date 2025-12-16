@@ -223,7 +223,7 @@ export default function LlcDossierPage() {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="flex items-start gap-4">
-          <Button variant="ghost" size="icon" asChild>
+          <Button variant="ghost" size="icon" className="min-h-[44px] min-w-[44px] shrink-0" asChild>
             <Link href="/llcs" data-testid="button-back-llcs">
               <ArrowLeft className="h-4 w-4" />
             </Link>

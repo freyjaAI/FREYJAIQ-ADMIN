@@ -1996,7 +1996,7 @@ export default function OwnerDossierPage() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="absolute top-0 right-0"
+                    className="absolute top-0 right-0 min-h-[44px] min-w-[44px]"
                     onClick={() => handleCopy(aiOutreach)}
                     data-testid="button-copy-outreach"
                   >
