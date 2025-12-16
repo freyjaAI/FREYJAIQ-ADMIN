@@ -77,12 +77,27 @@ function getEntityTypeLabel(type: EntityType): string {
   }
 }
 
+function getStatusLabel(status: EnrichmentStepStatusValue): string {
+  switch (status) {
+    case "idle": return "pending";
+    case "running": return "in progress";
+    case "done": return "completed";
+    case "error": return "failed";
+    case "skipped": return "skipped";
+    default: return status;
+  }
+}
+
 function StepChip({
   step,
   isActive,
+  index,
+  total,
 }: {
   step: EnrichmentStepStatus;
   isActive: boolean;
+  index: number;
+  total: number;
 }) {
   const statusConfig: Record<
     EnrichmentStepStatusValue,
@@ -123,9 +138,13 @@ function StepChip({
 
   const config = statusConfig[step.status];
   const Icon = config.icon;
+  const statusLabel = getStatusLabel(step.status);
 
   return (
     <div
+      role="listitem"
+      aria-label={`Step ${index + 1} of ${total}: ${step.label}, ${statusLabel}`}
+      aria-current={isActive ? "step" : undefined}
       className={`
         flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium
         transition-all duration-300 ease-in-out
@@ -137,6 +156,7 @@ function StepChip({
     >
       <Icon
         className={`h-3 w-3 ${config.animate ? "animate-spin" : ""}`}
+        aria-hidden="true"
       />
       <span className="hidden sm:inline">{step.label}</span>
       <span className="sm:hidden">{step.id.slice(0, 3)}</span>
@@ -275,8 +295,17 @@ export function EnrichmentPipelineBar({
 
   const activeStepIndex = steps.findIndex((s) => s.status === "running");
 
+  const completedCount = steps.filter(s => s.status === "done").length;
+  const progressLabel = enrichMutation.isPending 
+    ? `Enrichment in progress, ${completedCount} of ${steps.length} steps completed`
+    : hasRun
+    ? `Enrichment ${enrichMutation.data?.overallStatus || "complete"}, ${completedCount} of ${steps.length} steps completed`
+    : "Enrichment pipeline ready";
+
   return (
-    <div
+    <section
+      aria-label="Enrichment Pipeline"
+      aria-describedby="enrichment-status"
       className="flex flex-col gap-3 p-4 bg-card border rounded-lg"
       data-testid="enrichment-pipeline-bar"
     >
@@ -296,30 +325,44 @@ export function EnrichmentPipelineBar({
         <Button
           onClick={() => enrichMutation.mutate()}
           disabled={enrichMutation.isPending}
+          aria-label={enrichMutation.isPending 
+            ? `Enriching ${entityName}, please wait` 
+            : `Run full enrichment for ${entityName}`}
+          aria-busy={enrichMutation.isPending}
           data-testid="button-run-full-enrichment"
         >
           {enrichMutation.isPending ? (
             <>
-              <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+              <RefreshCw className="h-4 w-4 mr-2 animate-spin" aria-hidden="true" />
               Enriching...
             </>
           ) : (
             <>
-              <Zap className="h-4 w-4 mr-2" />
+              <Zap className="h-4 w-4 mr-2" aria-hidden="true" />
               Run Full Enrichment
             </>
           )}
         </Button>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div 
+        role="list" 
+        aria-label="Enrichment pipeline steps"
+        className="flex flex-wrap items-center gap-2"
+      >
         {steps.map((step, index) => (
           <StepChip
             key={step.id}
             step={step}
             isActive={index === activeStepIndex}
+            index={index}
+            total={steps.length}
           />
         ))}
+      </div>
+      
+      <div id="enrichment-status" className="sr-only" aria-live="polite">
+        {progressLabel}
       </div>
 
       {hasRun && !enrichMutation.isPending && (
@@ -345,6 +388,6 @@ export function EnrichmentPipelineBar({
           )}
         </div>
       )}
-    </div>
+    </section>
   );
 }

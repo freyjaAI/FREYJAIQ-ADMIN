@@ -152,12 +152,17 @@ export function TargetedEnrichmentDropdown({
             variant="ghost"
             size="icon"
             disabled={enrichMutation.isPending}
+            aria-label={enrichMutation.isPending 
+              ? "Running targeted enrichment" 
+              : "Open targeted enrichment options"}
+            aria-haspopup="menu"
+            aria-busy={enrichMutation.isPending}
             data-testid="button-targeted-enrichment"
           >
             {enrichMutation.isPending ? (
-              <RefreshCw className="h-4 w-4 animate-spin" />
+              <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" />
             ) : (
-              <MoreVertical className="h-4 w-4" />
+              <MoreVertical className="h-4 w-4" aria-hidden="true" />
             )}
           </Button>
         ) : (
@@ -165,19 +170,24 @@ export function TargetedEnrichmentDropdown({
             variant="outline"
             size="sm"
             disabled={enrichMutation.isPending}
+            aria-label={enrichMutation.isPending 
+              ? "Running targeted enrichment" 
+              : "Open targeted enrichment options"}
+            aria-haspopup="menu"
+            aria-busy={enrichMutation.isPending}
             data-testid="button-targeted-enrichment"
           >
             {enrichMutation.isPending ? (
-              <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+              <RefreshCw className="h-4 w-4 mr-2 animate-spin" aria-hidden="true" />
             ) : (
-              <RefreshCw className="h-4 w-4 mr-2" />
+              <RefreshCw className="h-4 w-4 mr-2" aria-hidden="true" />
             )}
             Targeted Enrichment
-            <ChevronDown className="h-3 w-3 ml-1" />
+            <ChevronDown className="h-3 w-3 ml-1" aria-hidden="true" />
           </Button>
         )}
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
+      <DropdownMenuContent align="end" className="w-56" role="menu" aria-label="Targeted enrichment options">
         <DropdownMenuLabel className="text-xs text-muted-foreground">
           Targeted Enrichment
         </DropdownMenuLabel>
@@ -193,12 +203,15 @@ export function TargetedEnrichmentDropdown({
               onClick={() => enrichMutation.mutate(target)}
               disabled={enrichMutation.isPending}
               className="flex items-center gap-2 cursor-pointer"
+              role="menuitem"
+              aria-label={`${config.label}: ${config.description}`}
+              aria-busy={isActive}
               data-testid={`menu-item-enrich-${target}`}
             >
               {isActive ? (
-                <RefreshCw className="h-4 w-4 animate-spin" />
+                <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" />
               ) : (
-                <Icon className="h-4 w-4" />
+                <Icon className="h-4 w-4" aria-hidden="true" />
               )}
               <div className="flex flex-col">
                 <span className="text-sm">{config.label}</span>
