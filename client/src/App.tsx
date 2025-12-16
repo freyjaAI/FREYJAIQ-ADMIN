@@ -35,14 +35,22 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <SidebarProvider style={style as React.CSSProperties}>
+      {/* Skip to content link for keyboard navigation */}
+      <a 
+        href="#main-content" 
+        className="sr-only focus:not-sr-only focus:absolute focus:z-[100] focus:top-2 focus:left-2 focus:px-4 focus:py-2 focus:bg-primary focus:text-primary-foreground focus:rounded-md focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+        data-testid="link-skip-to-content"
+      >
+        Skip to main content
+      </a>
       <div className="flex h-screen w-full">
         <AppSidebar />
         <SidebarInset className="flex flex-col flex-1">
           <header className="sticky top-0 z-50 flex h-14 items-center justify-between gap-4 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-4">
-            <SidebarTrigger data-testid="button-sidebar-toggle" />
+            <SidebarTrigger data-testid="button-sidebar-toggle" aria-label="Toggle sidebar" />
             <ThemeToggle />
           </header>
-          <main className="flex-1 overflow-auto p-6">{children}</main>
+          <main id="main-content" className="flex-1 overflow-auto p-6" tabIndex={-1}>{children}</main>
         </SidebarInset>
       </div>
     </SidebarProvider>
