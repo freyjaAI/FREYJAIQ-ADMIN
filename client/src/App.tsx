@@ -27,7 +27,9 @@ import LLCsPage from "@/pages/llcs";
 import LlcDossierPage from "@/pages/llc-dossier";
 import UnifiedDossierPage from "@/pages/unified-dossier";
 import SettingsPage from "@/pages/settings";
+import AdminBugReportsPage from "@/pages/admin-bug-reports";
 import { BugReportWidget } from "@/components/bug-report-widget";
+import { KeyboardShortcutsModal } from "@/components/keyboard-shortcuts-modal";
 
 function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
   const style = {
@@ -50,7 +52,10 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
         <SidebarInset className="flex flex-col flex-1">
           <header className="sticky top-0 z-50 flex h-14 items-center justify-between gap-4 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-4">
             <SidebarTrigger data-testid="button-sidebar-toggle" aria-label="Toggle sidebar" />
-            <ThemeToggle />
+            <div className="flex items-center gap-2">
+              <KeyboardShortcutsModal />
+              <ThemeToggle />
+            </div>
           </header>
           <main id="main-content" className="flex-1 overflow-auto p-6" tabIndex={-1}>{children}</main>
         </SidebarInset>
@@ -105,6 +110,7 @@ function Router() {
             <Route path="/llcs/:id" component={LlcDossierPage} />
             <Route path="/dossier/:id" component={UnifiedDossierPage} />
             <Route path="/settings" component={SettingsPage} />
+            <Route path="/admin/bug-reports" component={AdminBugReportsPage} />
             <Route component={NotFound} />
           </Switch>
         </motion.div>

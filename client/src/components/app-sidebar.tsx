@@ -8,6 +8,7 @@ import {
   Settings,
   LayoutDashboard,
   LogOut,
+  Bug,
 } from "lucide-react";
 import {
   Sidebar,
@@ -64,6 +65,14 @@ const settingsItems = [
     title: "Settings",
     url: "/settings",
     icon: Settings,
+  },
+];
+
+const adminItems = [
+  {
+    title: "Bug Reports",
+    url: "/admin/bug-reports",
+    icon: Bug,
   },
 ];
 
@@ -143,6 +152,30 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+
+        {user?.role === "admin" && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Admin</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {adminItems.map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={location === item.url}
+                      data-testid={`nav-admin-${item.title.toLowerCase().replace(/\s+/g, '-')}`}
+                    >
+                      <Link href={item.url}>
+                        <item.icon className="h-4 w-4" />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
 
       <SidebarFooter className="p-4 border-t border-sidebar-border">

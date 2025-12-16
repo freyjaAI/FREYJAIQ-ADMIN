@@ -1028,11 +1028,67 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Get all bug reports (admin only)
   app.get("/api/bug-reports", isAuthenticated, async (req: any, res) => {
     try {
+      // Check admin role
+      const userId = getUserId(req);
+      const userCheck = await db.execute(sql`SELECT role FROM users WHERE id = ${userId}`);
+      const userRole = (userCheck.rows[0] as any)?.role;
+      
+      if (userRole !== "admin") {
+        return res.status(403).json({ message: "Forbidden: Admin access required" });
+      }
+      
       const reports = await db.select().from(bugReports).orderBy(sql`created_at DESC`);
       res.json(reports);
     } catch (error) {
       console.error("Error fetching bug reports:", error);
       res.status(500).json({ message: "Failed to fetch bug reports" });
+    }
+  });
+
+  // Update bug report status (admin only)
+  app.patch("/api/bug-reports/:id/status", isAuthenticated, async (req: any, res) => {
+    try {
+      // Check admin role
+      const userId = getUserId(req);
+      const userCheck = await db.execute(sql`SELECT role FROM users WHERE id = ${userId}`);
+      const userRole = (userCheck.rows[0] as any)?.role;
+      
+      if (userRole !== "admin") {
+        return res.status(403).json({ message: "Forbidden: Admin access required" });
+      }
+      
+      const { id } = req.params;
+      
+      // Validate status with Zod
+      const statusSchema = z.enum(["open", "investigating", "resolved"]);
+      const statusResult = statusSchema.safeParse(req.body?.status);
+      
+      if (!statusResult.success) {
+        return res.status(400).json({ message: "Invalid status. Must be: open, investigating, or resolved" });
+      }
+      
+      const status = statusResult.data;
+      
+      const updates: any = { status };
+      if (status === "resolved") {
+        updates.resolvedAt = new Date();
+      }
+      
+      const [updated] = await db
+        .update(bugReports)
+        .set(updates)
+        .where(eq(bugReports.id, id))
+        .returning();
+      
+      if (!updated) {
+        return res.status(404).json({ message: "Bug report not found" });
+      }
+      
+      console.log(`[BUG REPORT] Status updated to "${status}" for report ${id}`);
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating bug report status:", error);
+      res.status(500).json({ message: "Failed to update bug report status" });
     }
   });
 
