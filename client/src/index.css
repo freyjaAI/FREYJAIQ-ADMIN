@@ -308,6 +308,56 @@ body {
     box-shadow: 0 12px 48px hsl(0 0% 0% / 0.1);
   }
 
+  /* ============================================
+   * REFINED BUTTON STYLES
+   * Premium button effects for CTAs
+   * ============================================ */
+
+  /* Primary button with gradient and glow */
+  .btn-primary-glow {
+    background: linear-gradient(135deg, hsl(217 91% 60%) 0%, hsl(217 91% 48%) 100%);
+    border: none !important;
+    border-radius: 12px;
+    font-weight: 600;
+    box-shadow: 0 4px 16px hsl(217 91% 53% / 0.3);
+    transition: all 0.2s ease;
+  }
+
+  .btn-primary-glow:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 24px hsl(217 91% 53% / 0.4);
+  }
+
+  .btn-primary-glow:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 8px hsl(217 91% 53% / 0.3);
+  }
+
+  /* Ghost button that shows border on hover */
+  .btn-ghost-subtle {
+    background: transparent;
+    border: 1px solid transparent !important;
+    transition: all 0.2s ease;
+  }
+
+  .btn-ghost-subtle:hover {
+    border-color: hsl(var(--border)) !important;
+    background: hsl(var(--muted) / 0.3);
+  }
+
+  /* Outline button with refined styling */
+  .btn-outline-refined {
+    background: transparent;
+    border: 1px solid hsl(var(--border) / 0.5) !important;
+    border-radius: 12px;
+    transition: all 0.2s ease;
+  }
+
+  .btn-outline-refined:hover {
+    border-color: hsl(var(--primary) / 0.5) !important;
+    background: hsl(var(--primary) / 0.05);
+  }
+
   /* Subtle grid pattern for premium backgrounds */
   .bg-grid-pattern {
     background-image: 

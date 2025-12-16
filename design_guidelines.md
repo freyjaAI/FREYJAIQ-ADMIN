@@ -153,6 +153,33 @@ Modern glass-card effect for premium feel. Two variants available:
 }
 ```
 
+### Refined Button System
+Premium button styles with subtle animations:
+
+**Primary Button (default variant):**
+- Gradient background (primary blue range)
+- Glow shadow effect
+- Lift on hover (-1px translateY)
+- Enhanced shadow on hover
+- Use for main CTAs like "Run Full Enrichment", "Sign In"
+
+**Ghost Button (ghost variant):**
+- Transparent background
+- No visible border by default
+- Border appears on hover
+- Subtle muted background on hover
+- Use for secondary actions like "Export PDF", "Refresh Data"
+
+**Outline Button (outline variant):**
+- Transparent background with subtle border
+- Border highlights to primary on hover
+- Use for alternative actions
+
+**Best Practices:**
+- Always pair ghost/outline buttons with icons + text
+- Use `size="lg"` for hero CTAs
+- Primary buttons should be used sparingly (1-2 per view)
+
 ### Data Display
 - **Results Table:** 
   - Sticky header row with sortable columns
