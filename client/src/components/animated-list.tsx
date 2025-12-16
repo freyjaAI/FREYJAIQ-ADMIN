@@ -219,3 +219,41 @@ export function StaggerItem({
     </motion.div>
   );
 }
+
+interface PageTransitionProps {
+  children: ReactNode;
+  className?: string;
+}
+
+export function PageTransition({ children, className = "" }: PageTransitionProps) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -8 }}
+      transition={{ duration: 0.25, ease: "easeOut" }}
+      className={className}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
+interface ScaleOnHoverProps {
+  children: ReactNode;
+  scale?: number;
+  className?: string;
+}
+
+export function ScaleOnHover({ children, scale = 1.02, className = "" }: ScaleOnHoverProps) {
+  return (
+    <motion.div
+      whileHover={{ scale }}
+      whileTap={{ scale: 0.98 }}
+      transition={{ duration: 0.15, ease: "easeOut" }}
+      className={className}
+    >
+      {children}
+    </motion.div>
+  );
+}

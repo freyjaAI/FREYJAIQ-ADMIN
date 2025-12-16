@@ -202,6 +202,38 @@ AI-powered visual effects for the enrichment pipeline:
 - Uses backdrop blur for premium glass effect
 - CSS class: `.pipeline-sticky`
 
+### Micro-Interactions & Animations
+Subtle animations make the app feel alive:
+
+**Page Transitions:**
+- Fade + slide (8px Y offset) on route changes
+- 200ms duration with easeOut
+- Uses framer-motion AnimatePresence
+
+**List Stagger:**
+- Each item appears 50ms after previous
+- Use `StaggerContainer` + `StaggerItem` components
+- Or use `AnimatedList` for dynamic lists
+
+**Hover States:**
+- Cards: `.hover-scale` (102% scale on hover, 98% on active)
+- Buttons/smaller: `.hover-scale-sm` (101% scale)
+- Glass cards include built-in scale + lift effect
+
+**Loading States:**
+- Skeleton uses shimmer gradient animation
+- `.skeleton-shimmer` class for custom elements
+- 1.5s infinite animation cycle
+
+**Animation Components (from animated-list.tsx):**
+- `PageTransition` - Wraps page content for enter/exit
+- `FadeIn` - Simple fade + slide in
+- `SlideIn` - Directional slide animation
+- `StaggerContainer` / `StaggerItem` - Staggered list items
+- `ScaleOnHover` - Motion wrapper for hover scale
+- `HighlightOnUpdate` - Flash highlight on data change
+- `AnimatedList` - Full animated list with enter/exit
+
 ### Data Display
 - **Results Table:** 
   - Sticky header row with sortable columns

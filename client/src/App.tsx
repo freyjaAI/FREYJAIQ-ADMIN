@@ -1,4 +1,4 @@
-import { Switch, Route } from "wouter";
+import { Switch, Route, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -12,6 +12,7 @@ import {
   SidebarInset,
 } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
+import { AnimatePresence, motion } from "framer-motion";
 
 import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
@@ -81,21 +82,33 @@ function Router() {
     );
   }
 
+  const [location] = useLocation();
+
   return (
     <AuthenticatedLayout>
-      <Switch>
-        <Route path="/" component={Dashboard} />
-        <Route path="/search" component={SearchPage} />
-        <Route path="/owners" component={OwnersPage} />
-        <Route path="/owners/:id" component={OwnerDossierPage} />
-        <Route path="/properties" component={PropertiesPage} />
-        <Route path="/dossiers" component={DossiersPage} />
-        <Route path="/llcs" component={LLCsPage} />
-        <Route path="/llcs/:id" component={LlcDossierPage} />
-        <Route path="/dossier/:id" component={UnifiedDossierPage} />
-        <Route path="/settings" component={SettingsPage} />
-        <Route component={NotFound} />
-      </Switch>
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={location}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -8 }}
+          transition={{ duration: 0.2, ease: "easeOut" }}
+        >
+          <Switch>
+            <Route path="/" component={Dashboard} />
+            <Route path="/search" component={SearchPage} />
+            <Route path="/owners" component={OwnersPage} />
+            <Route path="/owners/:id" component={OwnerDossierPage} />
+            <Route path="/properties" component={PropertiesPage} />
+            <Route path="/dossiers" component={DossiersPage} />
+            <Route path="/llcs" component={LLCsPage} />
+            <Route path="/llcs/:id" component={LlcDossierPage} />
+            <Route path="/dossier/:id" component={UnifiedDossierPage} />
+            <Route path="/settings" component={SettingsPage} />
+            <Route component={NotFound} />
+          </Switch>
+        </motion.div>
+      </AnimatePresence>
     </AuthenticatedLayout>
   );
 }

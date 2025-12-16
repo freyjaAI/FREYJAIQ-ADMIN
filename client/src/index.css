@@ -284,8 +284,12 @@ body {
 
   .glass-card:hover {
     border-color: hsl(var(--primary) / 0.4);
-    transform: translateY(-2px);
+    transform: translateY(-2px) scale(1.01);
     box-shadow: 0 12px 48px hsl(0 0% 0% / 0.4);
+  }
+
+  .glass-card:active {
+    transform: translateY(0) scale(0.99);
   }
 
   /* Non-interactive glass card (no hover effects) */
@@ -407,6 +411,81 @@ body {
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
   }
+
+  /* ============================================
+   * MICRO-INTERACTION ANIMATIONS
+   * Subtle effects for a more alive feel
+   * ============================================ */
+
+  /* Hover scale for interactive elements */
+  .hover-scale {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .hover-scale:hover {
+    transform: scale(1.02);
+  }
+
+  .hover-scale:active {
+    transform: scale(0.98);
+  }
+
+  /* Smaller scale for buttons and smaller items */
+  .hover-scale-sm {
+    transition: transform 0.15s ease;
+  }
+
+  .hover-scale-sm:hover {
+    transform: scale(1.01);
+  }
+
+  .hover-scale-sm:active {
+    transform: scale(0.99);
+  }
+
+  /* Skeleton shimmer effect */
+  @keyframes skeleton-shimmer {
+    0% {
+      background-position: -200% 0;
+    }
+    100% {
+      background-position: 200% 0;
+    }
+  }
+
+  .skeleton-shimmer {
+    background: linear-gradient(
+      90deg,
+      hsl(var(--muted)) 0%,
+      hsl(var(--muted) / 0.5) 50%,
+      hsl(var(--muted)) 100%
+    );
+    background-size: 200% 100%;
+    animation: skeleton-shimmer 1.5s ease-in-out infinite;
+  }
+
+  /* Page transition base */
+  @keyframes page-fade-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .page-transition {
+    animation: page-fade-in 0.3s ease-out forwards;
+  }
+
+  /* Stagger delay utilities */
+  .stagger-1 { animation-delay: 0.05s; }
+  .stagger-2 { animation-delay: 0.1s; }
+  .stagger-3 { animation-delay: 0.15s; }
+  .stagger-4 { animation-delay: 0.2s; }
+  .stagger-5 { animation-delay: 0.25s; }
 
   /* Subtle grid pattern for premium backgrounds */
   .bg-grid-pattern {
