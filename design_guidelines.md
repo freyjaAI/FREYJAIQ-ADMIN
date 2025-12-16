@@ -103,10 +103,24 @@ body {
 - **Top Bar:** Fixed header with logo, search shortcut, user menu (h-14, border-b)
 - **Sidebar:** Fixed left navigation with icon + label menu items, role indicator badge
 
-### Search Interface
-- **Search Bar:** Large prominent input (h-12) with search icon, clear button
+### Search Interface (Command Palette Style)
+- **Search Bar:** Premium command palette inspired by Linear/Raycast
+  - Large size: `h-16` (64px) with backdrop blur
+  - Glow effect on focus: `.search-glow` utility class
+  - Keyboard shortcut hint: `⌘K` (Mac) or `Ctrl+K` (Windows)
+  - Smooth focus transition with animated border
+  - Search icon changes color on focus (muted → primary)
 - **Filter Pills:** Horizontal scrollable chips for quick filters (address, owner, APN toggles)
 - **Advanced Search:** Collapsible panel with structured form fields in 2-column grid
+
+**Search Glow CSS:**
+```css
+.search-glow {
+  box-shadow: 0 0 0 1px hsl(var(--primary) / 0.3),
+              0 8px 32px hsl(var(--primary) / 0.15),
+              0 4px 16px hsl(var(--ai-accent) / 0.1);
+}
+```
 
 ### Data Display
 - **Results Table:** 

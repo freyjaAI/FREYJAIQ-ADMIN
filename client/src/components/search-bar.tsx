@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from "react";
-import { Search, X, Building2, User, Hash, MapPin, Loader2, Briefcase, FileText } from "lucide-react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { Search, X, Building2, User, Hash, MapPin, Loader2, Briefcase, FileText, Command } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -32,9 +32,23 @@ export function SearchBar({
   const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<NodeJS.Timeout>();
+
+  // Keyboard shortcut handler (⌘K / Ctrl+K)
+  const handleKeyboardShortcut = useCallback((e: KeyboardEvent) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      e.preventDefault();
+      inputRef.current?.focus();
+    }
+  }, []);
+
+  useEffect(() => {
+    document.addEventListener('keydown', handleKeyboardShortcut);
+    return () => document.removeEventListener('keydown', handleKeyboardShortcut);
+  }, [handleKeyboardShortcut]);
 
   useEffect(() => {
     if (searchType !== "address" || query.length < 3) {
@@ -129,14 +143,24 @@ export function SearchBar({
     { value: "person", icon: User, label: "Person" },
   ];
 
+  // Detect if user is on Mac for keyboard shortcut display
+  const isMac = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+
   return (
     <div className={cn("w-full space-y-3", className)}>
       <form onSubmit={handleSubmit} className="flex gap-2">
-        <div className="relative flex-1">
+        <div 
+          className={cn(
+            "relative flex-1 rounded-md transition-all duration-200",
+            size === "large" && "backdrop-blur-sm",
+            isFocused && size === "large" && "search-glow"
+          )}
+        >
           <Search
             className={cn(
-              "absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground",
-              size === "large" ? "h-5 w-5" : "h-4 w-4"
+              "absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors",
+              size === "large" ? "h-5 w-5" : "h-4 w-4",
+              isFocused && "text-primary"
             )}
           />
           <Input
@@ -144,20 +168,47 @@ export function SearchBar({
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+            onFocus={() => {
+              setIsFocused(true);
+              suggestions.length > 0 && setShowSuggestions(true);
+            }}
+            onBlur={() => setIsFocused(false)}
             placeholder={getPlaceholder()}
             className={cn(
-              "pl-11 pr-10",
-              size === "large" && "h-14 text-lg"
+              "pl-11 transition-all duration-200 border-border/50",
+              size === "large" 
+                ? "h-16 text-lg pr-24 bg-card/80 backdrop-blur-sm focus:border-primary/50" 
+                : "pr-10",
+              isFocused && "border-primary/50"
             )}
             data-testid="input-search"
           />
+          
+          {/* Keyboard shortcut hint */}
+          {size === "large" && !query && (
+            <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-1 pointer-events-none">
+              <kbd className="hidden sm:inline-flex h-6 items-center gap-1 rounded border border-border/50 bg-muted/50 px-2 font-mono text-xs text-muted-foreground">
+                {isMac ? (
+                  <>
+                    <Command className="h-3 w-3" />
+                    <span>K</span>
+                  </>
+                ) : (
+                  <span>Ctrl+K</span>
+                )}
+              </kbd>
+            </div>
+          )}
+          
           {query && (
             <Button
               type="button"
               variant="ghost"
               size="icon"
-              className="absolute right-2 top-1/2 -translate-y-1/2"
+              className={cn(
+                "absolute top-1/2 -translate-y-1/2",
+                size === "large" ? "right-4" : "right-2"
+              )}
               onClick={() => {
                 setQuery("");
                 setSuggestions([]);
@@ -171,7 +222,7 @@ export function SearchBar({
           {showSuggestions && suggestions.length > 0 && (
             <div
               ref={suggestionsRef}
-              className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-lg max-h-60 overflow-auto"
+              className="absolute z-50 w-full mt-1 bg-popover/95 backdrop-blur-sm border border-border/50 rounded-md shadow-lg max-h-60 overflow-auto"
             >
               {loadingSuggestions && (
                 <div className="flex items-center justify-center py-3">

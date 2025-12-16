@@ -261,6 +261,13 @@ body {
                 0 0 40px hsl(var(--ai-accent) / 0.1);
   }
 
+  /* Command palette style search glow */
+  .search-glow {
+    box-shadow: 0 0 0 1px hsl(var(--primary) / 0.3),
+                0 8px 32px hsl(var(--primary) / 0.15),
+                0 4px 16px hsl(var(--ai-accent) / 0.1);
+  }
+
   /* Subtle grid pattern for premium backgrounds */
   .bg-grid-pattern {
     background-image: 
