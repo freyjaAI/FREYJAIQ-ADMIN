@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   LogOut,
   Bug,
+  MapPin,
 } from "lucide-react";
 import {
   Sidebar,
@@ -57,6 +58,11 @@ const menuItems = [
     title: "Dossiers",
     url: "/dossiers",
     icon: FileText,
+  },
+  {
+    title: "Map View",
+    url: "/map",
+    icon: MapPin,
   },
 ];
 

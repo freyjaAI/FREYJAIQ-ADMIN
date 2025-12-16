@@ -976,6 +976,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Initialize LLC lookup function for chain resolver (breaks circular dependency)
   setLlcLookupFunction(getCachedLlcData);
 
+  // Google Maps API key (client-side maps require the key)
+  app.get("/api/maps/key", isAuthenticated, async (req: any, res) => {
+    const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+    if (!apiKey) {
+      return res.status(404).json({ message: "Google Maps API key not configured" });
+    }
+    res.json({ apiKey });
+  });
+
   // Dashboard stats
   app.get("/api/dashboard/stats", isAuthenticated, async (req: any, res) => {
     try {

@@ -28,6 +28,7 @@ import LlcDossierPage from "@/pages/llc-dossier";
 import UnifiedDossierPage from "@/pages/unified-dossier";
 import SettingsPage from "@/pages/settings";
 import AdminBugReportsPage from "@/pages/admin-bug-reports";
+import MapView from "@/pages/map-view";
 import { BugReportWidget } from "@/components/bug-report-widget";
 import { KeyboardShortcutsModal } from "@/components/keyboard-shortcuts-modal";
 
@@ -111,6 +112,7 @@ function Router() {
             <Route path="/dossier/:id" component={UnifiedDossierPage} />
             <Route path="/settings" component={SettingsPage} />
             <Route path="/admin/bug-reports" component={AdminBugReportsPage} />
+            <Route path="/map" component={MapView} />
             <Route component={NotFound} />
           </Switch>
         </motion.div>
