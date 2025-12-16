@@ -369,3 +369,83 @@ export const insertLlcOwnershipChainSchema = createInsertSchema(llcOwnershipChai
 });
 export type InsertLlcOwnershipChain = z.infer<typeof insertLlcOwnershipChainSchema>;
 export type LlcOwnershipChain = typeof llcOwnershipChains.$inferSelect;
+
+// =============================================================================
+// ENRICHMENT PIPELINE MODEL
+// =============================================================================
+// Defines the phases of data enrichment for owners/entities:
+//   1. address     - Address validation/standardization (USPS, Melissa, Google)
+//   2. property    - Property data lookup (ATTOM, HomeHarvest)
+//   3. llc_chain   - LLC ownership chain resolution (OpenCorporates, Gemini, Perplexity)
+//   4. principals  - Owner/officer discovery from LLCs
+//   5. contacts    - Contact enrichment (Melissa, Data Axle, Pacific East, A-Leads)
+//   6. franchise   - Franchise detection (corporate vs franchised locations)
+//   7. ai_summary  - AI-generated outreach and scoring (OpenAI)
+
+export type EnrichmentStepId =
+  | "address"
+  | "property"
+  | "llc_chain"
+  | "principals"
+  | "contacts"
+  | "franchise"
+  | "ai_summary";
+
+export type EnrichmentStepStatusValue = "idle" | "running" | "done" | "error" | "skipped";
+
+export interface EnrichmentStepStatus {
+  id: EnrichmentStepId;
+  label: string;
+  status: EnrichmentStepStatusValue;
+  error?: string;
+  provider?: string;
+  startedAt?: string;
+  completedAt?: string;
+}
+
+export interface EnrichmentPipelineState {
+  entityId: string;
+  entityType: "individual" | "entity" | "property";
+  steps: EnrichmentStepStatus[];
+  overallStatus: "idle" | "running" | "complete" | "partial" | "failed";
+  startedAt?: string;
+  completedAt?: string;
+  providersUsed: string[];
+}
+
+export const ENRICHMENT_STEP_LABELS: Record<EnrichmentStepId, string> = {
+  address: "Address Validation",
+  property: "Property Data",
+  llc_chain: "LLC Chain Resolution",
+  principals: "Principal Discovery",
+  contacts: "Contact Enrichment",
+  franchise: "Franchise Detection",
+  ai_summary: "AI Summary & Scoring",
+};
+
+export const ENRICHMENT_STEP_ORDER: EnrichmentStepId[] = [
+  "address",
+  "property",
+  "llc_chain",
+  "principals",
+  "contacts",
+  "franchise",
+  "ai_summary",
+];
+
+export function createInitialPipelineState(
+  entityId: string,
+  entityType: "individual" | "entity" | "property"
+): EnrichmentPipelineState {
+  return {
+    entityId,
+    entityType,
+    steps: ENRICHMENT_STEP_ORDER.map((id) => ({
+      id,
+      label: ENRICHMENT_STEP_LABELS[id],
+      status: "idle",
+    })),
+    overallStatus: "idle",
+    providersUsed: [],
+  };
+}
