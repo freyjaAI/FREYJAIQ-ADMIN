@@ -1046,16 +1046,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // Batch geocode all properties without coordinates
   app.post("/api/properties/geocode-all", isAuthenticated, async (req: any, res) => {
+    console.log("[GEOCODE] Starting batch geocode request");
     try {
       const apiKey = process.env.GOOGLE_MAPS_API_KEY;
       
       if (!apiKey) {
+        console.log("[GEOCODE] No API key configured");
         return res.status(400).json({ message: "Google Maps API key not configured" });
       }
       
+      console.log("[GEOCODE] Fetching properties...");
       // Get all properties without coordinates
       const allProperties = await storage.getAllProperties();
       const toGeocode = allProperties.filter(p => !p.latitude || !p.longitude);
+      console.log(`[GEOCODE] Found ${toGeocode.length} properties to geocode`);
       
       if (toGeocode.length === 0) {
         return res.json({ success: true, geocoded: 0, message: "All properties already have coordinates" });
