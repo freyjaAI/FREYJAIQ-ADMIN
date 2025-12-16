@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { FreyjaLoader } from "@/components/freyja-loader";
 import {
   Select,
   SelectContent,
@@ -106,25 +107,15 @@ export default function OwnersPage() {
       </Card>
 
       {isLoading ? (
-        <div className="space-y-4">
-          {[...Array(5)].map((_, i) => (
-            <Card key={i}>
-              <CardContent className="p-4">
-                <div className="space-y-3">
-                  <div className="flex items-center gap-3">
-                    <Skeleton className="h-6 w-48" />
-                    <Skeleton className="h-5 w-20" />
-                  </div>
-                  <Skeleton className="h-4 w-64" />
-                  <div className="flex gap-4">
-                    <Skeleton className="h-4 w-32" />
-                    <Skeleton className="h-4 w-32" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        <Card>
+          <CardContent className="py-16">
+            <FreyjaLoader 
+              message="Enriching through proprietary FreyjaIQ waterfall" 
+              submessage="Loading owner profiles..."
+              size="md"
+            />
+          </CardContent>
+        </Card>
       ) : filteredOwners && filteredOwners.length > 0 ? (
         <div className="space-y-4">
           <div className="flex items-center gap-2">

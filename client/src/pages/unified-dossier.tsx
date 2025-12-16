@@ -25,6 +25,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { FreyjaLoader } from "@/components/freyja-loader";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -678,52 +679,12 @@ export default function UnifiedDossierPage() {
 
   if (isLoading) {
     return (
-      <div className="p-6 space-y-6 relative" data-testid="dossier-loading">
-        {/* Loading overlay with spinner */}
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-          <div className="flex flex-col items-center gap-4">
-            <div className="relative">
-              <div className="h-10 w-10 rounded-full border-4 border-primary/20" />
-              <div className="absolute inset-0 h-10 w-10 animate-spin rounded-full border-4 border-transparent border-t-primary" />
-            </div>
-            <p className="text-sm text-muted-foreground">Loading dossier...</p>
-          </div>
-        </div>
-        
-        {/* Background skeleton for visual context */}
-        <div className="opacity-30">
-          <div className="flex items-center gap-4 mb-6">
-            <Skeleton className="h-11 w-11 rounded-lg" />
-            <div className="space-y-2">
-              <Skeleton className="h-7 w-64" />
-              <Skeleton className="h-4 w-32" />
-            </div>
-          </div>
-          <div className="grid grid-cols-3 gap-4 mb-6">
-            <div className="glass-card-static p-4 space-y-3">
-              <Skeleton className="h-10 w-20" />
-              <Skeleton className="h-3 w-16" />
-            </div>
-            <div className="glass-card-static p-4 space-y-3">
-              <Skeleton className="h-10 w-24" />
-              <Skeleton className="h-3 w-20" />
-            </div>
-            <div className="glass-card-static p-4 space-y-3">
-              <Skeleton className="h-10 w-16" />
-              <Skeleton className="h-3 w-12" />
-            </div>
-          </div>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2 space-y-6">
-              <Card><CardContent className="p-6"><Skeleton className="h-32" /></CardContent></Card>
-              <Card><CardContent className="p-6"><Skeleton className="h-48" /></CardContent></Card>
-            </div>
-            <div className="space-y-6">
-              <Card><CardContent className="p-6"><Skeleton className="h-24" /></CardContent></Card>
-              <Card><CardContent className="p-6"><Skeleton className="h-32" /></CardContent></Card>
-            </div>
-          </div>
-        </div>
+      <div className="flex items-center justify-center py-24" data-testid="dossier-loading">
+        <FreyjaLoader 
+          message="Enriching through proprietary FreyjaIQ waterfall" 
+          submessage="Compiling unified dossier..."
+          size="lg"
+        />
       </div>
     );
   }

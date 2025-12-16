@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { FreyjaLoader } from "@/components/freyja-loader";
 import {
   Select,
   SelectContent,
@@ -219,37 +220,19 @@ export default function SearchPage() {
       )}
 
       {isLoading || externalSearchMutation.isPending ? (
-        <div className="space-y-4">
-          <Card>
-            <CardContent className="py-8">
-              <div className="flex items-center justify-center gap-3">
-                <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                <span className="text-muted-foreground">
-                  {externalSearchMutation.isPending 
-                    ? "Searching property records via ATTOM, OpenCorporates, and other data providers..." 
-                    : "Searching local database..."}
-                </span>
-              </div>
-            </CardContent>
-          </Card>
-          {[...Array(2)].map((_, i) => (
-            <Card key={i}>
-              <CardContent className="p-4">
-                <div className="space-y-3">
-                  <div className="flex items-center gap-3">
-                    <Skeleton className="h-6 w-48" />
-                    <Skeleton className="h-5 w-20" />
-                  </div>
-                  <Skeleton className="h-4 w-64" />
-                  <div className="flex gap-4">
-                    <Skeleton className="h-4 w-32" />
-                    <Skeleton className="h-4 w-32" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        <Card>
+          <CardContent className="py-16">
+            <FreyjaLoader 
+              message={externalSearchMutation.isPending 
+                ? "Enriching through proprietary FreyjaIQ waterfall" 
+                : "Searching local database..."}
+              submessage={externalSearchMutation.isPending 
+                ? "Querying ATTOM, OpenCorporates, and data providers..." 
+                : undefined}
+              size="md"
+            />
+          </CardContent>
+        </Card>
       ) : currentQuery && !hasResults && !externalSearchMutation.isPending ? (
         <Card>
           <CardContent className="py-16">

@@ -12,6 +12,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { FreyjaLoader } from "@/components/freyja-loader";
 import { StatCard } from "@/components/stat-card";
 import { SearchBar } from "@/components/search-bar";
 import { useAuth } from "@/hooks/useAuth";

@@ -54,6 +54,7 @@ import { SourcesStrip } from "@/components/sources-strip";
 import { ErrorBannerContainer } from "@/components/error-banner";
 import { FadeIn, StaggerContainer, StaggerItem, HighlightOnUpdate, AnimatedList } from "@/components/animated-list";
 import { FullDossierSkeleton, ContactsSectionSkeleton, PropertiesSectionSkeleton, LlcCardSkeleton, InlineListSkeleton } from "@/components/dossier-skeletons";
+import { FreyjaLoader, FreyjaFullPageLoader } from "@/components/freyja-loader";
 import type { Owner, Property, ContactInfo, LegalEvent, OwnerLlcLink, ProviderSource } from "@shared/schema";
 
 interface LlcUnmaskingData {
@@ -562,8 +563,12 @@ export default function OwnerDossierPage() {
 
   if (isLoading) {
     return (
-      <div className="p-6">
-        <FullDossierSkeleton />
+      <div className="flex items-center justify-center py-24">
+        <FreyjaLoader 
+          message="Enriching through proprietary FreyjaIQ waterfall" 
+          submessage="Loading owner dossier with AI insights..."
+          size="lg"
+        />
       </div>
     );
   }

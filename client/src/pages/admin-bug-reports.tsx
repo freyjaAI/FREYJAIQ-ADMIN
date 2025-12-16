@@ -46,6 +46,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Skeleton } from "@/components/ui/skeleton";
+import { FreyjaLoader } from "@/components/freyja-loader";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { BugReport } from "@shared/schema";
@@ -227,11 +228,15 @@ export default function AdminBugReportsPage() {
       {/* Reports List */}
       <div className="space-y-3">
         {isLoading ? (
-          <>
-            <BugReportSkeleton />
-            <BugReportSkeleton />
-            <BugReportSkeleton />
-          </>
+          <Card className="bg-zinc-900/50 border-white/10">
+            <CardContent className="py-16">
+              <FreyjaLoader 
+                message="Enriching through proprietary FreyjaIQ waterfall" 
+                submessage="Loading bug reports..."
+                size="md"
+              />
+            </CardContent>
+          </Card>
         ) : filteredReports.length === 0 ? (
           <Card className="bg-zinc-900/50 border-white/10">
             <CardContent className="p-8 text-center">

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { FreyjaLoader } from "@/components/freyja-loader";
 import {
   Select,
   SelectContent,
@@ -246,21 +247,15 @@ export default function LLCsPage() {
         </div>
 
         {isLoading ? (
-          <div className="space-y-3">
-            {[...Array(3)].map((_, i) => (
-              <Card key={i}>
-                <CardContent className="p-4">
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-3">
-                      <Skeleton className="h-6 w-48" />
-                      <Skeleton className="h-5 w-20" />
-                    </div>
-                    <Skeleton className="h-4 w-64" />
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+          <Card>
+            <CardContent className="py-16">
+              <FreyjaLoader 
+                message="Enriching through proprietary FreyjaIQ waterfall" 
+                submessage="Loading saved entities..."
+                size="md"
+              />
+            </CardContent>
+          </Card>
         ) : filteredLLCs && filteredLLCs.length > 0 ? (
           <div className="space-y-3">
             {filteredLLCs.map((llc) => (

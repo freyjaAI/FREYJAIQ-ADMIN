@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { FreyjaLoader } from "@/components/freyja-loader";
 import {
   Select,
   SelectContent,
@@ -75,10 +76,11 @@ function PropertyCard({ property, owner }: { property: Property; owner: Owner })
 function MapSkeleton() {
   return (
     <div className="h-full w-full bg-zinc-900/50 flex items-center justify-center">
-      <div className="text-center">
-        <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground mb-2" />
-        <p className="text-sm text-muted-foreground">Loading map...</p>
-      </div>
+      <FreyjaLoader 
+        message="Initializing property map" 
+        submessage="Loading Google Maps..."
+        size="md"
+      />
     </div>
   );
 }

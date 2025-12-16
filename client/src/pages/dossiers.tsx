@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { FreyjaLoader } from "@/components/freyja-loader";
 import type { DossierExport, Owner, User as UserType } from "@shared/schema";
 
 interface DossierExportWithRelations extends DossierExport {
@@ -37,24 +38,15 @@ export default function DossiersPage() {
       </div>
 
       {isLoading ? (
-        <div className="space-y-4">
-          {[...Array(5)].map((_, i) => (
-            <Card key={i}>
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <Skeleton className="h-10 w-10 rounded-md" />
-                    <div className="space-y-2">
-                      <Skeleton className="h-5 w-48" />
-                      <Skeleton className="h-4 w-32" />
-                    </div>
-                  </div>
-                  <Skeleton className="h-9 w-24" />
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        <Card>
+          <CardContent className="py-16">
+            <FreyjaLoader 
+              message="Enriching through proprietary FreyjaIQ waterfall" 
+              submessage="Loading dossier history..."
+              size="md"
+            />
+          </CardContent>
+        </Card>
       ) : exports && exports.length > 0 ? (
         <div className="space-y-3">
           {exports.map((exp) => (
