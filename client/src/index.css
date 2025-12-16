@@ -358,6 +358,56 @@ body {
     background: hsl(var(--primary) / 0.05);
   }
 
+  /* ============================================
+   * ENRICHMENT PIPELINE ANIMATIONS
+   * AI-powered visual effects
+   * ============================================ */
+
+  /* Shimmer animation for running state */
+  @keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  @keyframes pulse-glow {
+    0%, 100% { 
+      box-shadow: 0 0 0 0 hsl(var(--ai-accent) / 0.4);
+    }
+    50% { 
+      box-shadow: 0 0 12px 4px hsl(var(--ai-accent) / 0.2);
+    }
+  }
+
+  @keyframes step-complete {
+    0% { transform: scale(0.8); opacity: 0.5; }
+    50% { transform: scale(1.1); }
+    100% { transform: scale(1); opacity: 1; }
+  }
+
+  .pipeline-step-running {
+    background: linear-gradient(90deg, 
+      hsl(217 91% 60%) 0%, 
+      hsl(258 90% 66%) 50%, 
+      hsl(217 91% 60%) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 2s linear infinite, pulse-glow 2s ease-in-out infinite;
+    color: white;
+  }
+
+  .pipeline-step-done {
+    animation: step-complete 0.3s ease-out forwards;
+  }
+
+  /* Sticky pipeline bar */
+  .pipeline-sticky {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
   /* Subtle grid pattern for premium backgrounds */
   .bg-grid-pattern {
     background-image: 

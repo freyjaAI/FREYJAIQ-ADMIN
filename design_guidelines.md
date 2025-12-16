@@ -180,6 +180,28 @@ Premium button styles with subtle animations:
 - Use `size="lg"` for hero CTAs
 - Primary buttons should be used sparingly (1-2 per view)
 
+### Enrichment Pipeline Animations
+AI-powered visual effects for the enrichment pipeline:
+
+**Running State:**
+- Animated shimmer gradient (blue to purple and back)
+- Pulse glow effect around the step
+- Spinning loader icon
+- CSS class: `.pipeline-step-running`
+
+**Completed State:**
+- Scale animation (0.8 → 1.1 → 1.0)
+- Green checkmark icon
+- CSS class: `.pipeline-step-done`
+
+**Icon Size:**
+- All pipeline icons use consistent 18px size (`h-[18px] w-[18px]`)
+
+**Sticky Positioning:**
+- Pipeline bar sticks to top during scroll
+- Uses backdrop blur for premium glass effect
+- CSS class: `.pipeline-sticky`
+
 ### Data Display
 - **Results Table:** 
   - Sticky header row with sortable columns

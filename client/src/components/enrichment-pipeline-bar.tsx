@@ -58,11 +58,11 @@ interface EnrichmentPipelineBarProps {
 function EntityIcon({ type }: { type: EntityType }) {
   switch (type) {
     case "entity":
-      return <Building2 className="h-4 w-4" />;
+      return <Building2 className="h-[18px] w-[18px]" />;
     case "property":
-      return <Home className="h-4 w-4" />;
+      return <Home className="h-[18px] w-[18px]" />;
     default:
-      return <User className="h-4 w-4" />;
+      return <User className="h-[18px] w-[18px]" />;
   }
 }
 
@@ -103,36 +103,36 @@ function StepChip({
     EnrichmentStepStatusValue,
     {
       icon: typeof CheckCircle;
-      bgClass: string;
-      textClass: string;
-      animate?: boolean;
+      baseClass: string;
+      animationClass: string;
+      iconAnimate?: boolean;
     }
   > = {
     idle: {
       icon: Clock,
-      bgClass: "bg-muted",
-      textClass: "text-muted-foreground",
+      baseClass: "bg-muted/60 text-muted-foreground border border-border/30",
+      animationClass: "",
     },
     running: {
       icon: Loader2,
-      bgClass: "bg-primary/20",
-      textClass: "text-primary",
-      animate: true,
+      baseClass: "pipeline-step-running",
+      animationClass: "",
+      iconAnimate: true,
     },
     done: {
       icon: CheckCircle,
-      bgClass: "bg-green-500/20 dark:bg-green-500/30",
-      textClass: "text-green-700 dark:text-green-400",
+      baseClass: "bg-green-500/20 dark:bg-green-500/30 text-green-700 dark:text-green-400 border border-green-500/30",
+      animationClass: "pipeline-step-done",
     },
     error: {
       icon: AlertCircle,
-      bgClass: "bg-destructive/20",
-      textClass: "text-destructive",
+      baseClass: "bg-destructive/20 text-destructive border border-destructive/30",
+      animationClass: "",
     },
     skipped: {
       icon: SkipForward,
-      bgClass: "bg-muted/50",
-      textClass: "text-muted-foreground/70",
+      baseClass: "bg-muted/30 text-muted-foreground/60 border border-border/20",
+      animationClass: "",
     },
   };
 
@@ -146,16 +146,15 @@ function StepChip({
       aria-label={`Step ${index + 1} of ${total}: ${step.label}, ${statusLabel}`}
       aria-current={isActive ? "step" : undefined}
       className={`
-        flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium
+        flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium
         transition-all duration-300 ease-in-out
-        ${config.bgClass} ${config.textClass}
-        ${isActive ? "ring-2 ring-primary ring-offset-1" : ""}
+        ${config.baseClass} ${config.animationClass}
       `}
       title={step.error || step.label}
       data-testid={`chip-step-${step.id}`}
     >
       <Icon
-        className={`h-3 w-3 ${config.animate ? "animate-spin" : ""}`}
+        className={`h-[18px] w-[18px] ${config.iconAnimate ? "animate-spin" : ""}`}
         aria-hidden="true"
       />
       <span className="hidden sm:inline">{step.label}</span>
@@ -306,7 +305,7 @@ export function EnrichmentPipelineBar({
     <section
       aria-label="Enrichment Pipeline"
       aria-describedby="enrichment-status"
-      className="flex flex-col gap-3 p-4 bg-card border rounded-lg"
+      className="pipeline-sticky flex flex-col gap-3 p-4 bg-card/95 border rounded-lg shadow-lg"
       data-testid="enrichment-pipeline-bar"
     >
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -323,6 +322,7 @@ export function EnrichmentPipelineBar({
         </div>
 
         <Button
+          size="lg"
           onClick={() => enrichMutation.mutate()}
           disabled={enrichMutation.isPending}
           aria-label={enrichMutation.isPending 
@@ -333,12 +333,12 @@ export function EnrichmentPipelineBar({
         >
           {enrichMutation.isPending ? (
             <>
-              <RefreshCw className="h-4 w-4 mr-2 animate-spin" aria-hidden="true" />
+              <RefreshCw className="h-[18px] w-[18px] animate-spin" aria-hidden="true" />
               Enriching...
             </>
           ) : (
             <>
-              <Zap className="h-4 w-4 mr-2" aria-hidden="true" />
+              <Zap className="h-[18px] w-[18px]" aria-hidden="true" />
               Run Full Enrichment
             </>
           )}
@@ -366,10 +366,10 @@ export function EnrichmentPipelineBar({
       </div>
 
       {hasRun && !enrichMutation.isPending && (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
           {enrichMutation.data?.overallStatus === "complete" && (
             <>
-              <CheckCircle className="h-3 w-3 text-green-500" />
+              <CheckCircle className="h-[18px] w-[18px] text-green-500" />
               <span>
                 Completed in {((enrichMutation.data?.durationMs || 0) / 1000).toFixed(1)}s
                 {enrichMutation.data?.providersUsed?.length > 0 && (
@@ -380,7 +380,7 @@ export function EnrichmentPipelineBar({
           )}
           {enrichMutation.data?.overallStatus === "partial" && (
             <>
-              <AlertCircle className="h-3 w-3 text-amber-500" />
+              <AlertCircle className="h-[18px] w-[18px] text-amber-500" />
               <span>
                 Partially completed - some steps had errors
               </span>
