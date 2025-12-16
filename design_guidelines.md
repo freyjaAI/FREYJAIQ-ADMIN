@@ -2,15 +2,43 @@
 
 ## Design Approach
 
-**Selected Approach:** Modern B2B SaaS with inspiration from Linear, Attio, and Notion
+**Selected Approach:** Premium AI Tech Company aesthetic inspired by Linear, Vercel, and Anthropic
 
-**Rationale:** This is a professional data tool competing with outdated systems like LexisNexis. The design must emphasize speed, clarity, and modern professionalism while handling dense information elegantly.
+**Rationale:** This is a professional data tool competing with outdated systems like LexisNexis. The design emphasizes a sophisticated, dark-first aesthetic that conveys cutting-edge AI technology while handling dense information elegantly.
 
 **Core Principles:**
 - Data clarity over decoration
 - Fast visual scanning for brokers
-- Professional credibility
-- Modern, clean aesthetic that says "we're better than LexisNexis"
+- Professional credibility with AI-tech sophistication
+- Premium dark mode by default with high-contrast readability
+- Subtle gradient backgrounds for depth and modernity
+
+## Theme & Color System
+
+**Default Theme:** Dark mode (default preference)
+
+**Color Palette:**
+- **Background:** Very dark near-black (#0a0a0f / HSL: 240 33% 4%)
+- **Card/Surface:** Slightly lighter dark (#18181b / HSL: 240 6% 10%)
+- **Text Primary:** High contrast white (#fafafa / HSL: 0 0% 98%)
+- **Text Secondary:** Muted gray (#a1a1aa / HSL: 240 4% 65%)
+- **Primary Accent:** Electric blue (#2563eb / HSL: 217 91% 60%) - use sparingly
+- **AI Accent (Purple):** #8b5cf6 (HSL: 258 90% 66%) - for AI-powered features
+- **AI Secondary (Cyan):** #06b6d4 (HSL: 187 94% 43%) - for enrichment/scoring
+
+**Gradient Backgrounds:**
+- Landing/Dashboard: `linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 100%)`
+- Use `.bg-gradient-premium` utility class
+- Subtle grid pattern overlay for depth (`.bg-grid-pattern`)
+
+**AI Feature Styling:**
+- Use `.ai-glow` for subtle glow effect on AI-related elements
+- Purple/cyan reserved for AI enrichment, scoring, and suggestions
+- Gradient text for hero headings: `from-primary via-ai to-ai-secondary`
+
+**Light Mode:**
+- Maintains same color tokens with appropriate light values
+- AI accents remain vibrant but work on white backgrounds
 
 ---
 
