@@ -9,7 +9,7 @@ import {
   calculateContactConfidence,
 } from "./openai";
 import { dataProviders } from "./dataProviders";
-import { insertOwnerSchema, insertPropertySchema, insertContactInfoSchema, ownerLlcLinks, owners, contactInfos, properties, llcOwnershipChains, ProviderSource, PROVIDER_DISPLAY_NAMES } from "@shared/schema";
+import { insertOwnerSchema, insertPropertySchema, insertContactInfoSchema, ownerLlcLinks, owners, contactInfos, properties, llcOwnershipChains, ProviderSource, PROVIDER_DISPLAY_NAMES, bugReports, insertBugReportSchema } from "@shared/schema";
 import { z } from "zod";
 import { db } from "./db";
 import { eq, sql } from "drizzle-orm";
@@ -989,6 +989,50 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (error) {
       console.error("Error fetching stats:", error);
       res.status(500).json({ message: "Failed to fetch stats" });
+    }
+  });
+
+  // Bug reports endpoint for beta tester feedback
+  app.post("/api/bug-reports", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const body = req.body;
+      
+      const parsed = insertBugReportSchema.safeParse({
+        userId,
+        description: body.description,
+        issueType: body.issueType || "bug",
+        screenshot: body.screenshot,
+        pageUrl: body.pageUrl,
+        userAgent: body.userAgent,
+        viewport: body.viewport,
+        consoleErrors: body.consoleErrors,
+        status: "open",
+      });
+      
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid bug report data", errors: parsed.error.errors });
+      }
+      
+      const [report] = await db.insert(bugReports).values(parsed.data).returning();
+      
+      console.log(`[BUG REPORT] New ${body.issueType || "bug"} report from user ${userId}: ${body.description?.substring(0, 100)}...`);
+      
+      res.json({ success: true, reportId: report.id });
+    } catch (error) {
+      console.error("Error creating bug report:", error);
+      res.status(500).json({ message: "Failed to submit bug report" });
+    }
+  });
+
+  // Get all bug reports (admin only)
+  app.get("/api/bug-reports", isAuthenticated, async (req: any, res) => {
+    try {
+      const reports = await db.select().from(bugReports).orderBy(sql`created_at DESC`);
+      res.json(reports);
+    } catch (error) {
+      console.error("Error fetching bug reports:", error);
+      res.status(500).json({ message: "Failed to fetch bug reports" });
     }
   });
 

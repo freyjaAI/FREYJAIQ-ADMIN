@@ -1,0 +1,302 @@
+You are building a floating bug report widget for FREYJA IQ beta testers. It should feel native to the app (not like an external tool) and make reporting issues effortless.
+
+Design Requirements
+1. Floating Action Button (FAB)
+Create a fixed-position button in the bottom-right corner:
+
+jsx
+// Position and style
+position: fixed;
+bottom: 24px;
+right: 24px;
+z-index: 9999;
+
+// Visual style (matches your dark theme)
+background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
+width: 56px;
+height: 56px;
+border-radius: 16px;
+box-shadow: 0 8px 32px rgba(139, 92, 246, 0.4);
+
+// Icon
+<MessageSquare size={24} /> // Lucide icon
+Hover state:
+
+css
+transform: scale(1.05);
+box-shadow: 0 12px 48px rgba(139, 92, 246, 0.6);
+Badge indicator (optional, for later):
+
+Small red dot if there are unread admin responses
+
+Number badge showing open issues
+
+2. Bug Report Modal
+When the FAB is clicked, open a sleek modal (not a separate page):
+
+Modal structure:
+
+jsx
+<Modal>
+  <Header>
+    <MessageSquare />
+    <Title>Report an Issue</Title>
+    <Close />
+  </Header>
+  
+  <Body>
+    {/* Auto-captured screenshot preview */}
+    <ScreenshotPreview />
+    
+    {/* Issue description */}
+    <Textarea 
+      placeholder="What went wrong? The more detail, the better..."
+      rows={4}
+    />
+    
+    {/* Optional: Issue type selector */}
+    <IssueTypeButtons>
+      <Button>🐛 Bug</Button>
+      <Button>💡 Feature Request</Button>
+      <Button>❓ Question</Button>
+    </IssueTypeButtons>
+    
+    {/* System info (auto-captured, hidden by default) */}
+    <Collapsible>
+      <CollapsibleTrigger>Technical details</CollapsibleTrigger>
+      <CollapsibleContent>
+        Page: /owners/abc123
+        Browser: Chrome 120
+        User: admin@freyja.com
+        Timestamp: 2025-12-15 23:15:42
+      </CollapsibleContent>
+    </Collapsible>
+  </Body>
+  
+  <Footer>
+    <Button variant="ghost">Cancel</Button>
+    <Button variant="primary">Submit Report</Button>
+  </Footer>
+</Modal>
+Modal styling:
+
+css
+background: rgba(24, 24, 27, 0.98);
+backdrop-filter: blur(24px);
+border: 1px solid rgba(255, 255, 255, 0.1);
+border-radius: 24px;
+max-width: 600px;
+padding: 32px;
+box-shadow: 0 24px 96px rgba(0, 0, 0, 0.8);
+3. Auto Screenshot Capture
+When the user clicks the FAB, automatically capture the current page state:
+
+Use html2canvas library:
+
+bash
+npm install html2canvas
+tsx
+import html2canvas from 'html2canvas';
+
+const captureScreenshot = async () => {
+  const canvas = await html2canvas(document.body, {
+    backgroundColor: '#0a0a0f',
+    scale: 1, // Lower for performance
+    logging: false,
+    useCORS: true
+  });
+  
+  return canvas.toDataURL('image/jpeg', 0.8);
+};
+Screenshot preview in modal:
+
+jsx
+<div className="relative rounded-lg overflow-hidden border border-white/10">
+  <img 
+    src={screenshot} 
+    alt="Screenshot" 
+    className="w-full opacity-80 hover:opacity-100 transition-opacity"
+  />
+  <Button 
+    className="absolute top-2 right-2"
+    onClick={retakeScreenshot}
+  >
+    <RefreshCw size={16} /> Retake
+  </Button>
+</div>
+4. Data Collection (Auto-Captured)
+Collect these details automatically when the modal opens:
+
+tsx
+const bugReportData = {
+  // User input
+  description: userText,
+  issueType: 'bug' | 'feature' | 'question',
+  
+  // Auto-captured
+  screenshot: base64Image,
+  url: window.location.href,
+  timestamp: new Date().toISOString(),
+  userAgent: navigator.userAgent,
+  viewport: `${window.innerWidth}x${window.innerHeight}`,
+  userId: currentUser.id,
+  userEmail: currentUser.email,
+  
+  // App state (if available)
+  currentPage: router.pathname,
+  dossierId: params.dossierId || null,
+  errorLogs: consoleErrors.slice(-5) // Last 5 console errors
+};
+5. Backend Implementation
+Create a simple API endpoint to store bug reports:
+
+Database schema:
+
+sql
+CREATE TABLE bug_reports (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id INTEGER REFERENCES users(id),
+  description TEXT NOT NULL,
+  issue_type VARCHAR(50),
+  screenshot_url TEXT, -- Store in R2/S3 or as base64 in DB (if small)
+  page_url TEXT,
+  user_agent TEXT,
+  viewport VARCHAR(50),
+  console_errors JSONB,
+  status VARCHAR(50) DEFAULT 'open', -- open, investigating, resolved
+  created_at TIMESTAMP DEFAULT NOW(),
+  resolved_at TIMESTAMP
+);
+API route:
+
+ts
+// server/routes.ts
+app.post('/api/bug-reports', async (req, res) => {
+  const { 
+    description, 
+    issueType, 
+    screenshot, 
+    url, 
+    userAgent, 
+    viewport 
+  } = req.body;
+  
+  const userId = req.user?.id;
+  
+  // Optional: Upload screenshot to storage
+  // const screenshotUrl = await uploadToR2(screenshot);
+  
+  const report = await db.insert(bugReports).values({
+    userId,
+    description,
+    issueType,
+    screenshot, // or screenshotUrl
+    pageUrl: url,
+    userAgent,
+    viewport,
+    status: 'open'
+  }).returning();
+  
+  // Optional: Send notification to you
+  // await sendDiscordNotification(report);
+  // await sendEmailNotification(report);
+  
+  res.json({ success: true, reportId: report.id });
+});
+6. Success Feedback
+After submission, show a toast notification:
+
+tsx
+toast.success(
+  'Thanks! We received your report and will look into it soon.',
+  {
+    duration: 4000,
+    icon: '✅'
+  }
+);
+Close the modal and reset the form.
+
+7. Admin Dashboard (Future)
+Later, build a simple /admin/bug-reports page to view and manage reports:
+
+tsx
+<Table>
+  <TableHeader>
+    <TableRow>
+      <TableHead>User</TableHead>
+      <TableHead>Issue</TableHead>
+      <TableHead>Type</TableHead>
+      <TableHead>Status</TableHead>
+      <TableHead>Created</TableHead>
+      <TableHead>Actions</TableHead>
+    </TableRow>
+  </TableHeader>
+  <TableBody>
+    {reports.map(report => (
+      <TableRow key={report.id}>
+        <TableCell>{report.user.email}</TableCell>
+        <TableCell className="max-w-xs truncate">
+          {report.description}
+        </TableCell>
+        <TableCell>
+          <Badge>{report.issueType}</Badge>
+        </TableCell>
+        <TableCell>
+          <StatusBadge status={report.status} />
+        </TableCell>
+        <TableCell>{formatDate(report.createdAt)}</TableCell>
+        <TableCell>
+          <Button onClick={() => viewReport(report)}>
+            View
+          </Button>
+        </TableCell>
+      </TableRow>
+    ))}
+  </TableBody>
+</Table>
+8. Optional: Keyboard Shortcut
+Add a keyboard shortcut to open the bug report modal:
+
+tsx
+useEffect(() => {
+  const handleKeyPress = (e: KeyboardEvent) => {
+    // Ctrl+Shift+B or Cmd+Shift+B
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'b') {
+      e.preventDefault();
+      openBugReportModal();
+    }
+  };
+  
+  window.addEventListener('keydown', handleKeyPress);
+  return () => window.removeEventListener('keydown', handleKeyPress);
+}, []);
+9. Beta Badge (Optional)
+Add a small "BETA" badge in the header to remind users:
+
+tsx
+<div className="fixed top-4 right-4 z-50">
+  <Badge variant="outline" className="bg-purple-500/20 border-purple-500/50">
+    <Sparkles size={12} className="mr-1" />
+    BETA
+  </Badge>
+</div>
+Implementation Steps
+✅ Install html2canvas: npm install html2canvas
+
+✅ Create BugReportFAB.tsx component with floating button
+
+✅ Create BugReportModal.tsx component with form
+
+✅ Add screenshot capture logic
+
+✅ Create database table for bug reports
+
+✅ Add API endpoint /api/bug-reports
+
+✅ Add FAB to main layout (so it appears on all pages)
+
+✅ Test submission flow
+
+✅ Optional: Add keyboard shortcut (Ctrl+Shift+B)
+
+✅ Optional: Set up Discord/email notifications for new reports

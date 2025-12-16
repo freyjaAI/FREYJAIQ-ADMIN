@@ -482,3 +482,31 @@ export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   google_address: "Google Address",
   homeharvest: "HomeHarvest",
 };
+
+// =============================================================================
+// Bug Reports - For beta tester feedback
+// =============================================================================
+
+export const bugReports = pgTable("bug_reports", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id),
+  description: text("description").notNull(),
+  issueType: varchar("issue_type").default("bug"), // bug | feature | question
+  screenshot: text("screenshot"), // base64 encoded image
+  pageUrl: text("page_url"),
+  userAgent: text("user_agent"),
+  viewport: varchar("viewport"),
+  consoleErrors: jsonb("console_errors"),
+  status: varchar("status").default("open"), // open | investigating | resolved
+  createdAt: timestamp("created_at").defaultNow(),
+  resolvedAt: timestamp("resolved_at"),
+});
+
+export const insertBugReportSchema = createInsertSchema(bugReports).omit({
+  id: true,
+  createdAt: true,
+  resolvedAt: true,
+});
+
+export type InsertBugReport = z.infer<typeof insertBugReportSchema>;
+export type BugReport = typeof bugReports.$inferSelect;

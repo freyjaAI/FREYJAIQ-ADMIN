@@ -27,6 +27,7 @@ import LLCsPage from "@/pages/llcs";
 import LlcDossierPage from "@/pages/llc-dossier";
 import UnifiedDossierPage from "@/pages/unified-dossier";
 import SettingsPage from "@/pages/settings";
+import { BugReportWidget } from "@/components/bug-report-widget";
 
 function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
   const style = {
@@ -108,6 +109,7 @@ function Router() {
           </Switch>
         </motion.div>
       </AnimatePresence>
+      <BugReportWidget />
     </AuthenticatedLayout>
   );
 }
