@@ -103,7 +103,7 @@ function Router() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider defaultTheme="light" storageKey="propertyintel-theme">
+      <ThemeProvider defaultTheme="dark" storageKey="freyja-iq-theme">
         <TooltipProvider>
           <Toaster />
           <Router />

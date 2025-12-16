@@ -52,14 +52,14 @@ export default function Landing() {
   ];
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <div className="min-h-screen bg-gradient-premium">
+      <header className="sticky top-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-xl supports-[backdrop-filter]:bg-background/60">
         <div className="container mx-auto flex h-14 items-center justify-between gap-4 px-4">
           <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary">
+            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary ai-glow">
               <Building2 className="h-4 w-4 text-primary-foreground" />
             </div>
-            <span className="text-lg font-semibold">Freyja IQ</span>
+            <span className="text-lg font-semibold tracking-tight">Freyja IQ</span>
           </div>
           <div className="flex items-center gap-2">
             <ThemeToggle />
@@ -74,12 +74,17 @@ export default function Landing() {
       </header>
 
       <main>
-        <section className="py-20 md:py-32">
-          <div className="container mx-auto px-4 text-center">
+        <section className="relative py-20 md:py-32 overflow-hidden">
+          <div className="absolute inset-0 bg-grid-pattern opacity-30" />
+          <div className="container mx-auto px-4 text-center relative z-10">
+            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-ai/30 bg-ai/10 text-sm text-ai mb-6">
+              <Zap className="h-3.5 w-3.5" />
+              <span>AI-Powered Intelligence</span>
+            </div>
             <h1 className="text-4xl font-semibold tracking-tight md:text-5xl lg:text-6xl">
               CRE Prospecting,
               <br />
-              <span className="text-primary">Supercharged</span>
+              <span className="bg-gradient-to-r from-primary via-ai to-ai-secondary bg-clip-text text-transparent">Supercharged</span>
             </h1>
             <p className="mx-auto mt-6 max-w-2xl text-lg text-muted-foreground">
               Find property owners, unmask LLCs, and close more deals. The modern
@@ -87,25 +92,25 @@ export default function Landing() {
               professionals.
             </p>
             <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
-              <Button size="lg" asChild data-testid="button-get-started">
+              <Button size="lg" asChild className="ai-glow" data-testid="button-get-started">
                 <Link href="/login">
                   Sign In
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Link>
               </Button>
-              <Button size="lg" variant="outline" data-testid="button-learn-more">
+              <Button size="lg" variant="outline" className="border-border/50 hover:border-border" data-testid="button-learn-more">
                 See How It Works
               </Button>
             </div>
           </div>
         </section>
 
-        <section className="border-t bg-muted/30 py-16">
+        <section className="border-t border-border/50 bg-card/50 py-16">
           <div className="container mx-auto px-4">
             <div className="grid grid-cols-2 gap-8 md:grid-cols-4">
               {stats.map((stat) => (
                 <div key={stat.label} className="text-center">
-                  <div className="text-3xl font-semibold text-primary md:text-4xl">
+                  <div className="text-3xl font-semibold bg-gradient-to-r from-primary to-ai bg-clip-text text-transparent md:text-4xl">
                     {stat.value}
                   </div>
                   <div className="mt-1 text-sm text-muted-foreground">
@@ -117,7 +122,7 @@ export default function Landing() {
           </div>
         </section>
 
-        <section className="py-20">
+        <section className="py-20 relative">
           <div className="container mx-auto px-4">
             <div className="text-center">
               <h2 className="text-3xl font-semibold">
@@ -129,14 +134,18 @@ export default function Landing() {
               </p>
             </div>
             <div className="mt-12 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-              {features.map((feature) => (
+              {features.map((feature, idx) => (
                 <Card
                   key={feature.title}
-                  className="hover-elevate transition-all"
+                  className="hover-elevate transition-all border-border/50 bg-card/80 backdrop-blur-sm"
                 >
                   <CardContent className="p-6">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-md bg-primary/10">
-                      <feature.icon className="h-5 w-5 text-primary" />
+                    <div className={`flex h-10 w-10 items-center justify-center rounded-md ${
+                      idx < 2 ? 'bg-ai/10' : idx < 4 ? 'bg-primary/10' : 'bg-ai-secondary/10'
+                    }`}>
+                      <feature.icon className={`h-5 w-5 ${
+                        idx < 2 ? 'text-ai' : idx < 4 ? 'text-primary' : 'text-ai-secondary'
+                      }`} />
                     </div>
                     <h3 className="mt-4 text-lg font-semibold">{feature.title}</h3>
                     <p className="mt-2 text-sm text-muted-foreground">
@@ -149,15 +158,16 @@ export default function Landing() {
           </div>
         </section>
 
-        <section className="border-t bg-muted/30 py-20">
-          <div className="container mx-auto px-4 text-center">
+        <section className="border-t border-border/50 bg-card/50 py-20 relative overflow-hidden">
+          <div className="absolute inset-0 bg-grid-pattern opacity-20" />
+          <div className="container mx-auto px-4 text-center relative z-10">
             <h2 className="text-3xl font-semibold">
               Ready to Transform Your Prospecting?
             </h2>
             <p className="mx-auto mt-4 max-w-xl text-muted-foreground">
               Join brokers who are closing more deals with less effort.
             </p>
-            <Button size="lg" className="mt-8" asChild data-testid="button-cta">
+            <Button size="lg" className="mt-8 ai-glow" asChild data-testid="button-cta">
               <Link href="/login">
                 Sign In
                 <ArrowRight className="ml-2 h-4 w-4" />
@@ -167,7 +177,7 @@ export default function Landing() {
         </section>
       </main>
 
-      <footer className="border-t py-8">
+      <footer className="border-t border-border/50 py-8 bg-card/30">
         <div className="container mx-auto flex flex-col items-center justify-between gap-4 px-4 sm:flex-row">
           <div className="flex items-center gap-2">
             <div className="flex h-6 w-6 items-center justify-center rounded bg-primary">

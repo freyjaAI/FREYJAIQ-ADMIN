@@ -59,8 +59,9 @@ export default function Dashboard() {
         </p>
       </div>
 
-      <Card className="bg-gradient-to-r from-primary/5 to-primary/10 border-primary/20">
-        <CardContent className="py-8">
+      <Card className="bg-gradient-to-r from-primary/5 via-ai/5 to-ai-secondary/5 border-primary/20 relative overflow-hidden">
+        <div className="absolute inset-0 bg-grid-pattern opacity-10" />
+        <CardContent className="py-8 relative z-10">
           <div className="max-w-2xl mx-auto">
             <h2 className="text-xl font-semibold text-center mb-4">
               Search Properties & Owners
