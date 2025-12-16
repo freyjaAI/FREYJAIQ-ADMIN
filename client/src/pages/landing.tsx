@@ -135,11 +135,10 @@ export default function Landing() {
             </div>
             <div className="mt-12 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
               {features.map((feature, idx) => (
-                <Card
+                <div
                   key={feature.title}
-                  className="hover-elevate transition-all border-border/50 bg-card/80 backdrop-blur-sm"
+                  className="glass-card p-6"
                 >
-                  <CardContent className="p-6">
                     <div className={`flex h-10 w-10 items-center justify-center rounded-md ${
                       idx < 2 ? 'bg-ai/10' : idx < 4 ? 'bg-primary/10' : 'bg-ai-secondary/10'
                     }`}>
@@ -151,8 +150,7 @@ export default function Landing() {
                     <p className="mt-2 body-dense text-muted-foreground">
                       {feature.description}
                     </p>
-                  </CardContent>
-                </Card>
+                </div>
               ))}
             </div>
           </div>

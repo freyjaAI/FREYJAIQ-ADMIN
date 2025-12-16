@@ -268,6 +268,46 @@ body {
                 0 4px 16px hsl(var(--ai-accent) / 0.1);
   }
 
+  /* ============================================
+   * GLASSMORPHISM CARDS
+   * Modern glass-card effect for premium feel
+   * ============================================ */
+  
+  .glass-card {
+    background: hsl(var(--card) / 0.8);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid hsl(var(--border) / 0.3);
+    border-radius: 16px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .glass-card:hover {
+    border-color: hsl(var(--primary) / 0.4);
+    transform: translateY(-2px);
+    box-shadow: 0 12px 48px hsl(0 0% 0% / 0.4);
+  }
+
+  /* Non-interactive glass card (no hover effects) */
+  .glass-card-static {
+    background: hsl(var(--card) / 0.8);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid hsl(var(--border) / 0.3);
+    border-radius: 16px;
+  }
+
+  /* Light mode adjustments for glass cards */
+  :root .glass-card,
+  :root .glass-card-static {
+    background: hsl(var(--card) / 0.9);
+    border: 1px solid hsl(var(--border) / 0.5);
+  }
+
+  :root .glass-card:hover {
+    box-shadow: 0 12px 48px hsl(0 0% 0% / 0.1);
+  }
+
   /* Subtle grid pattern for premium backgrounds */
   .bg-grid-pattern {
     background-image: 

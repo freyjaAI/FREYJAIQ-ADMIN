@@ -122,6 +122,37 @@ body {
 }
 ```
 
+### Glassmorphism Cards
+Modern glass-card effect for premium feel. Two variants available:
+
+**Interactive Cards (`.glass-card`):**
+- Backdrop blur effect (12px)
+- Semi-transparent background
+- Subtle border with low opacity
+- Hover state with border glow, lift effect, and shadow
+- Use for feature cards, stat cards, clickable elements
+
+**Static Cards (`.glass-card-static`):**
+- Same glass effect without hover interactions
+- Use for non-interactive containers
+
+**CSS:**
+```css
+.glass-card {
+  background: hsl(var(--card) / 0.8);
+  backdrop-filter: blur(12px);
+  border: 1px solid hsl(var(--border) / 0.3);
+  border-radius: 16px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-card:hover {
+  border-color: hsl(var(--primary) / 0.4);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 48px hsl(0 0% 0% / 0.4);
+}
+```
+
 ### Data Display
 - **Results Table:** 
   - Sticky header row with sortable columns
