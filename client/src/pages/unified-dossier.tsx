@@ -604,15 +604,7 @@ function NetworkCard({ network }: { network: NetworkSection }) {
   );
 }
 
-function MetaCard({
-  meta,
-  onEnrich,
-  isEnriching,
-}: {
-  meta: MetaSection;
-  onEnrich: () => void;
-  isEnriching: boolean;
-}) {
+function MetaCard({ meta }: { meta: MetaSection }) {
   return (
     <Card data-testid="card-meta">
       <CardHeader className="pb-3">
@@ -655,28 +647,6 @@ function MetaCard({
             Last updated: {new Date(meta.lastUpdated).toLocaleDateString()}
           </div>
         )}
-
-        <Separator />
-
-        <Button
-          onClick={onEnrich}
-          disabled={isEnriching}
-          className="w-full"
-          variant={meta.enrichmentStatus === "stale" || meta.enrichmentStatus === "idle" ? "default" : "outline"}
-          data-testid="button-run-enrichment"
-        >
-          {isEnriching ? (
-            <>
-              <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-              Running Enrichment...
-            </>
-          ) : (
-            <>
-              <Zap className="h-4 w-4 mr-2" />
-              Run Full Enrichment
-            </>
-          )}
-        </Button>
       </CardContent>
     </Card>
   );
@@ -696,27 +666,6 @@ export default function UnifiedDossierPage() {
   } = useQuery<UnifiedDossier>({
     queryKey: ["/api/dossier", id],
     enabled: !!id,
-  });
-
-  const enrichMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/dossier/${id}/enrich`);
-      return res.json();
-    },
-    onSuccess: (data) => {
-      toast({
-        title: "Enrichment Complete",
-        description: `Used providers: ${data.providersUsed?.join(", ") || "None"}`,
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/dossier", id] });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Enrichment Failed",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
   });
 
   if (isLoading) {
@@ -784,11 +733,7 @@ export default function UnifiedDossierPage() {
         </div>
 
         <div className="space-y-6">
-          <MetaCard
-            meta={dossier.meta}
-            onEnrich={() => enrichMutation.mutate()}
-            isEnriching={enrichMutation.isPending}
-          />
+          <MetaCard meta={dossier.meta} />
         </div>
       </div>
     </div>

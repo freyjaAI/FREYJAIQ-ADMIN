@@ -48,6 +48,7 @@ import { LegalEventsTimeline } from "@/components/legal-events-timeline";
 import { LlcNetwork } from "@/components/llc-network";
 import { FranchiseInfoCard } from "@/components/franchise-badge";
 import { EnrichmentPipelineBar } from "@/components/enrichment-pipeline-bar";
+import { TargetedEnrichmentDropdown } from "@/components/targeted-enrichment-dropdown";
 import type { Owner, Property, ContactInfo, LegalEvent, OwnerLlcLink } from "@shared/schema";
 
 interface LlcUnmaskingData {
@@ -484,39 +485,6 @@ export default function OwnerDossierPage() {
     },
   });
 
-  const runFullEnrichmentMutation = useMutation({
-    mutationFn: async () => {
-      const response = await apiRequest("POST", `/api/dossier/${ownerId}/enrich`);
-      return response.json();
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/owners", ownerId] });
-      queryClient.invalidateQueries({ queryKey: ["/api/owners", ownerId, "dossier"] });
-      toast({ 
-        title: "Full enrichment complete",
-        description: `Found ${data.contactsAdded || 0} new contacts from ${data.providersUsed?.length || 0} sources`,
-      });
-    },
-    onError: (error) => {
-      if (isUnauthorizedError(error)) {
-        toast({
-          title: "Unauthorized",
-          description: "You are logged out. Logging in again...",
-          variant: "destructive",
-        });
-        setTimeout(() => {
-          window.location.href = "/api/login";
-        }, 500);
-        return;
-      }
-      toast({
-        title: "Error",
-        description: "Failed to run full enrichment",
-        variant: "destructive",
-      });
-    },
-  });
-
   const handleCopy = async (text: string) => {
     await navigator.clipboard.writeText(text);
     setCopiedText(text);
@@ -604,6 +572,7 @@ export default function OwnerDossierPage() {
                 entityId={owner.id}
                 entityName={owner.name}
                 entityType={owner.type as "individual" | "entity"}
+                onEnrichmentComplete={() => refetch()}
               />
             </div>
             
@@ -775,24 +744,6 @@ export default function OwnerDossierPage() {
               }`}
             />
             Refresh Data
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => runFullEnrichmentMutation.mutate()}
-            disabled={runFullEnrichmentMutation.isPending}
-            data-testid="button-run-enrichment"
-          >
-            {runFullEnrichmentMutation.isPending ? (
-              <>
-                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                Enriching...
-              </>
-            ) : (
-              <>
-                <Zap className="h-4 w-4 mr-2" />
-                Run Full Enrichment
-              </>
-            )}
           </Button>
           <Button
             onClick={() => exportPdfMutation.mutate()}
@@ -1539,13 +1490,21 @@ export default function OwnerDossierPage() {
             (contactEnrichment.companyEmails?.length > 0 || contactEnrichment.directDials?.length > 0 || contactEnrichment.employeeProfiles?.length > 0) ? (
             <Card data-testid="card-contact-enrichment">
               <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Phone className="h-4 w-4" />
-                  Contact Information
-                  <Badge variant="secondary" className="text-xs">
-                    {(contactEnrichment.directDials?.length || 0) + (contactEnrichment.companyEmails?.length || 0)}
-                  </Badge>
-                </CardTitle>
+                <div className="flex items-center justify-between gap-2">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Phone className="h-4 w-4" />
+                    Contact Information
+                    <Badge variant="secondary" className="text-xs">
+                      {(contactEnrichment.directDials?.length || 0) + (contactEnrichment.companyEmails?.length || 0)}
+                    </Badge>
+                  </CardTitle>
+                  <TargetedEnrichmentDropdown
+                    entityId={id!}
+                    entityType={owner.type === "individual" ? "individual" : "entity"}
+                    targets={["contacts"]}
+                    onEnrichmentComplete={() => refetch()}
+                  />
+                </div>
               </CardHeader>
               <CardContent className="space-y-4">
                 {/* Phone Numbers */}
@@ -1667,10 +1626,18 @@ export default function OwnerDossierPage() {
             /* Show empty state when no contact data found */
             <Card data-testid="card-contact-enrichment-empty">
               <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Phone className="h-4 w-4" />
-                  Contact Information
-                </CardTitle>
+                <div className="flex items-center justify-between gap-2">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Phone className="h-4 w-4" />
+                    Contact Information
+                  </CardTitle>
+                  <TargetedEnrichmentDropdown
+                    entityId={id!}
+                    entityType={owner.type === "individual" ? "individual" : "entity"}
+                    targets={["contacts"]}
+                    onEnrichmentComplete={() => refetch()}
+                  />
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="text-center py-4">

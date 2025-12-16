@@ -25,6 +25,7 @@ import { Separator } from "@/components/ui/separator";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { ClickableEntity } from "@/components/clickable-entity";
+import { EnrichmentPipelineBar } from "@/components/enrichment-pipeline-bar";
 import type { Llc } from "@shared/schema";
 
 interface EnrichedOfficer {
@@ -168,27 +169,6 @@ export default function LlcDossierPage() {
     },
   });
 
-  const runFullEnrichmentMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/llcs/${id}/enrich`);
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/llcs", id, "dossier"] });
-      toast({
-        title: "Full Enrichment Complete",
-        description: "All available data sources have been queried for officer information.",
-      });
-    },
-    onError: () => {
-      toast({
-        title: "Enrichment failed",
-        description: "Could not complete full enrichment. Please try again.",
-        variant: "destructive",
-      });
-    },
-  });
-
   const getStatusColor = (status: string | null | undefined) => {
     if (!status) return "secondary";
     const s = status.toLowerCase();
@@ -280,19 +260,6 @@ export default function LlcDossierPage() {
         </div>
         <div className="flex items-center gap-2">
           <Button
-            variant="default"
-            onClick={() => runFullEnrichmentMutation.mutate()}
-            disabled={runFullEnrichmentMutation.isPending}
-            data-testid="button-run-full-enrichment"
-          >
-            {runFullEnrichmentMutation.isPending ? (
-              <RefreshCw className="h-4 w-4 animate-spin mr-2" />
-            ) : (
-              <Zap className="h-4 w-4 mr-2" />
-            )}
-            Run Full Enrichment
-          </Button>
-          <Button
             variant="outline"
             onClick={() => enrichMutation.mutate()}
             disabled={enrichMutation.isPending}
@@ -308,7 +275,16 @@ export default function LlcDossierPage() {
         </div>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2">
+      <EnrichmentPipelineBar
+        entityId={id!}
+        entityName={dossier.name}
+        entityType="entity"
+        onEnrichmentComplete={() => {
+          queryClient.invalidateQueries({ queryKey: ["/api/llcs", id, "dossier"] });
+        }}
+      />
+
+      <div className="grid gap-6 md:grid-cols-2 mt-6">
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
