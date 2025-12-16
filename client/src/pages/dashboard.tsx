@@ -91,21 +91,25 @@ export default function Dashboard() {
               title="Owners"
               value={stats?.totalOwners ?? 0}
               icon={Users}
+              status={(stats?.totalOwners ?? 0) > 0 ? "positive" : "neutral"}
             />
             <StatCard
               title="Properties"
               value={stats?.totalProperties ?? 0}
               icon={Building2}
+              status={(stats?.totalProperties ?? 0) > 0 ? "positive" : "neutral"}
             />
             <StatCard
               title="Dossiers"
               value={stats?.dossiersGenerated ?? 0}
               icon={FileText}
+              status="neutral"
             />
             <StatCard
               title="Searches"
               value={stats?.recentSearches?.length ?? 0}
               icon={Search}
+              status="neutral"
             />
           </>
         )}

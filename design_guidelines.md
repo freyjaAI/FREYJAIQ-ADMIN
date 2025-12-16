@@ -234,6 +234,38 @@ Subtle animations make the app feel alive:
 - `HighlightOnUpdate` - Flash highlight on data change
 - `AnimatedList` - Full animated list with enter/exit
 
+### Stats & Metrics Display
+Numbers should be the hero with supporting labels:
+
+**Layout Pattern:**
+```html
+<div class="flex items-start justify-between">
+  <div>
+    <div class="text-4xl font-bold tracking-tight">$241M</div>
+    <div class="text-xs text-muted-foreground uppercase tracking-wider">Total Value</div>
+  </div>
+  <div class="h-12 w-12 rounded-xl bg-green-500/10">
+    <Icon class="h-6 w-6 text-green-500" />
+  </div>
+</div>
+```
+
+**Color-Coded Status:**
+- `positive` (green): Properties owned, high scores, verified data
+- `warning` (amber): Missing data, medium scores, pending
+- `negative` (red): Tax delinquent, liens, low scores, errors
+- `neutral` (primary): Default state, informational
+
+**Components Available:**
+- `StatCard` - Large stat with icon, status color, optional trend
+- `MiniStat` - Compact inline stat with icon
+- `ProgressStat` - Horizontal progress bar with label
+
+**Score Visualization:**
+- Use circular progress for seller intent scores (0-100)
+- Use horizontal progress bars for confidence levels
+- Color-code based on thresholds (0-40: red, 40-70: amber, 70+: green)
+
 ### Data Display
 - **Results Table:** 
   - Sticky header row with sortable columns

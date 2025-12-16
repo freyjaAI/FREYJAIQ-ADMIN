@@ -824,23 +824,22 @@ export default function OwnerDossierPage() {
         <div className="lg:col-span-2 space-y-6">
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="glass-card-static p-4">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-                  <Building2 className="h-5 w-5 text-primary" />
-                </div>
+              <div className="flex items-start justify-between gap-3">
                 <div>
-                  <div className="text-2xl font-bold">{properties.length}</div>
-                  <div className="text-xs text-muted-foreground">Properties</div>
+                  <div className={`text-4xl font-bold tracking-tight ${properties.length > 0 ? "text-green-500" : "text-foreground"}`}>
+                    {properties.length}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1 uppercase tracking-wider">Properties</div>
+                </div>
+                <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${properties.length > 0 ? "bg-green-500/10" : "bg-primary/10"}`}>
+                  <Building2 className={`h-6 w-6 ${properties.length > 0 ? "text-green-500" : "text-primary"}`} />
                 </div>
               </div>
             </div>
             <div className="glass-card-static p-4">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-green-500/10">
-                  <DollarSign className="h-5 w-5 text-green-500" />
-                </div>
+              <div className="flex items-start justify-between gap-3">
                 <div>
-                  <div className="text-2xl font-bold">
+                  <div className="text-4xl font-bold tracking-tight text-green-500">
                     {new Intl.NumberFormat("en-US", {
                       style: "currency",
                       currency: "USD",
@@ -848,18 +847,23 @@ export default function OwnerDossierPage() {
                       notation: totalPropertyValue >= 1000000 ? "compact" : "standard",
                     }).format(totalPropertyValue)}
                   </div>
-                  <div className="text-xs text-muted-foreground">Value</div>
+                  <div className="text-xs text-muted-foreground mt-1 uppercase tracking-wider">Total Value</div>
+                </div>
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-green-500/10">
+                  <DollarSign className="h-6 w-6 text-green-500" />
                 </div>
               </div>
             </div>
             <div className="glass-card-static p-4">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-500/10">
-                  <GitBranch className="h-5 w-5 text-blue-500" />
-                </div>
+              <div className="flex items-start justify-between gap-3">
                 <div>
-                  <div className="text-2xl font-bold">{linkedLlcs.length}</div>
-                  <div className="text-xs text-muted-foreground">LLCs</div>
+                  <div className={`text-4xl font-bold tracking-tight ${linkedLlcs.length > 0 ? "text-primary" : "text-muted-foreground"}`}>
+                    {linkedLlcs.length}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1 uppercase tracking-wider">LLCs</div>
+                </div>
+                <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${linkedLlcs.length > 0 ? "bg-primary/10" : "bg-muted/50"}`}>
+                  <GitBranch className={`h-6 w-6 ${linkedLlcs.length > 0 ? "text-primary" : "text-muted-foreground"}`} />
                 </div>
               </div>
             </div>
