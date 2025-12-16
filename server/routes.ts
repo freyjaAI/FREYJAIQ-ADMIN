@@ -995,7 +995,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(400).json({ message: "Google Maps API key not configured" });
       }
       
-      const property = await storage.getPropertyById(propertyId);
+      const property = await storage.getProperty(propertyId);
       if (!property) {
         return res.status(404).json({ message: "Property not found" });
       }
@@ -1057,8 +1057,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       
       console.log("[GEOCODE] Fetching properties...");
       // Get all properties without coordinates
-      const allProperties = await storage.getAllProperties();
-      const toGeocode = allProperties.filter(p => !p.latitude || !p.longitude);
+      const allProperties = await storage.getProperties();
+      const toGeocode = allProperties.filter((p: any) => !p.latitude || !p.longitude);
       console.log(`[GEOCODE] Found ${toGeocode.length} properties to geocode`);
       
       if (toGeocode.length === 0) {
