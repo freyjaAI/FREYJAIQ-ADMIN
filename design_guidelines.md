@@ -139,14 +139,32 @@
 | `.dossier-stat` | Key-value display | `flex flex-col gap-1` |
 | `.dossier-divider` | Section separator | `border-t border-border my-4` |
 
-**Usage Pattern:**
+**Usage Patterns:**
+
+Option 1: With shadcn Card (preferred for complex sections):
+```tsx
+<Card data-testid="card-example">
+  <CardHeader>
+    <CardTitle className="dossier-section-title">
+      <Icon className="h-4 w-4" />
+      Section Title
+    </CardTitle>
+  </CardHeader>
+  <CardContent>
+    <div className="dossier-grid">
+      <div className="dossier-stat">
+        <span className="dossier-label">Field Name</span>
+        <span className="dossier-value">Value</span>
+      </div>
+    </div>
+  </CardContent>
+</Card>
+```
+
+Option 2: Standalone dossier-card (for simple sections without Card header):
 ```tsx
 <div className="dossier-card">
-  <h2 className="dossier-section-title">
-    <Icon className="h-4 w-4" />
-    Section Title
-  </h2>
-  <div className="dossier-grid mt-4">
+  <div className="dossier-grid">
     <div className="dossier-stat">
       <span className="dossier-label">Field Name</span>
       <span className="dossier-value">Value</span>
@@ -154,6 +172,8 @@
   </div>
 </div>
 ```
+
+**Note:** Do not combine `dossier-card` class with shadcn `<Card>` - they both provide padding/border styling. Use the typography utilities (`.dossier-label`, `.dossier-value`, `.dossier-mono`) with shadcn Card components.
 
 ---
 
