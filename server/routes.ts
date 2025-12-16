@@ -985,6 +985,157 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json({ apiKey });
   });
 
+  // Geocode a single property address
+  app.post("/api/properties/:id/geocode", isAuthenticated, async (req: any, res) => {
+    try {
+      const propertyId = req.params.id;
+      const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+      
+      if (!apiKey) {
+        return res.status(400).json({ message: "Google Maps API key not configured" });
+      }
+      
+      const property = await storage.getPropertyById(propertyId);
+      if (!property) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+      
+      // Build full address string
+      const addressParts = [
+        property.address,
+        property.city,
+        property.state,
+        property.zipCode
+      ].filter(Boolean);
+      const fullAddress = addressParts.join(", ");
+      
+      // Call Google Geocoding API
+      const geocodeUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(fullAddress)}&key=${apiKey}`;
+      const response = await fetch(geocodeUrl);
+      const data = await response.json();
+      
+      if (data.status === "OK" && data.results?.length > 0) {
+        const location = data.results[0].geometry.location;
+        
+        // Update property with coordinates
+        await db.update(properties)
+          .set({ 
+            latitude: location.lat, 
+            longitude: location.lng 
+          })
+          .where(eq(properties.id, propertyId));
+        
+        res.json({ 
+          success: true, 
+          latitude: location.lat, 
+          longitude: location.lng,
+          formattedAddress: data.results[0].formatted_address
+        });
+      } else {
+        res.status(400).json({ 
+          message: "Could not geocode address", 
+          status: data.status,
+          address: fullAddress 
+        });
+      }
+    } catch (error) {
+      console.error("Error geocoding property:", error);
+      res.status(500).json({ message: "Failed to geocode property" });
+    }
+  });
+
+  // Batch geocode all properties without coordinates
+  app.post("/api/properties/geocode-all", isAuthenticated, async (req: any, res) => {
+    try {
+      const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+      
+      if (!apiKey) {
+        return res.status(400).json({ message: "Google Maps API key not configured" });
+      }
+      
+      // Get all properties without coordinates
+      const allProperties = await storage.getAllProperties();
+      const toGeocode = allProperties.filter(p => !p.latitude || !p.longitude);
+      
+      if (toGeocode.length === 0) {
+        return res.json({ success: true, geocoded: 0, message: "All properties already have coordinates" });
+      }
+      
+      let geocoded = 0;
+      let failed = 0;
+      const results: Array<{ id: string; address: string; success: boolean; lat?: number; lng?: number; error?: string }> = [];
+      
+      for (const property of toGeocode) {
+        try {
+          // Build full address string
+          const addressParts = [
+            property.address,
+            property.city,
+            property.state,
+            property.zipCode
+          ].filter(Boolean);
+          const fullAddress = addressParts.join(", ");
+          
+          // Call Google Geocoding API
+          const geocodeUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(fullAddress)}&key=${apiKey}`;
+          const response = await fetch(geocodeUrl);
+          const data = await response.json();
+          
+          if (data.status === "OK" && data.results?.length > 0) {
+            const location = data.results[0].geometry.location;
+            
+            // Update property with coordinates
+            await db.update(properties)
+              .set({ 
+                latitude: location.lat, 
+                longitude: location.lng 
+              })
+              .where(eq(properties.id, property.id));
+            
+            geocoded++;
+            results.push({ 
+              id: property.id, 
+              address: fullAddress, 
+              success: true, 
+              lat: location.lat, 
+              lng: location.lng 
+            });
+          } else {
+            failed++;
+            results.push({ 
+              id: property.id, 
+              address: fullAddress, 
+              success: false, 
+              error: data.status 
+            });
+          }
+          
+          // Small delay to respect rate limits
+          await new Promise(resolve => setTimeout(resolve, 100));
+        } catch (err) {
+          failed++;
+          results.push({ 
+            id: property.id, 
+            address: property.address, 
+            success: false, 
+            error: 'Request failed' 
+          });
+        }
+      }
+      
+      res.json({ 
+        success: true, 
+        geocoded, 
+        failed, 
+        total: toGeocode.length,
+        results 
+      });
+    } catch (error) {
+      console.error("Error batch geocoding properties:", error);
+      res.status(500).json({ message: "Failed to geocode properties" });
+    }
+  });
+
   // Dashboard stats
   app.get("/api/dashboard/stats", isAuthenticated, async (req: any, res) => {
     try {

@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { MapPin, Building2, User, DollarSign, Loader2, Maximize2, List, Filter, X, AlertCircle } from "lucide-react";
+import { MapPin, Building2, User, DollarSign, Loader2, Maximize2, List, Filter, X, AlertCircle, MapPinned } from "lucide-react";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -103,6 +105,35 @@ export default function MapView() {
   const { data: apiKeyData, isError: mapsKeyError } = useQuery<{ apiKey: string }>({
     queryKey: ["/api/maps/key"],
   });
+
+  const { toast } = useToast();
+
+  const geocodeMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("/api/properties/geocode-all", {
+        method: "POST",
+      });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/owners"] });
+      toast({
+        title: "Geocoding Complete",
+        description: `Successfully geocoded ${data.geocoded} of ${data.total} properties.${data.failed > 0 ? ` ${data.failed} failed.` : ""}`,
+      });
+    },
+    onError: () => {
+      toast({
+        variant: "destructive",
+        title: "Geocoding Failed",
+        description: "Could not geocode properties. Please try again.",
+      });
+    },
+  });
+
+  const propertiesWithoutCoords = (owners?.flatMap((owner) =>
+    owner.properties.filter(p => !p.latitude || !p.longitude).map((property) => ({ property, owner }))
+  ) || []).length;
 
   const allProperties = owners?.flatMap((owner) =>
     owner.properties.map((property) => ({ property, owner }))
@@ -340,7 +371,28 @@ export default function MapView() {
             <span data-testid="text-total-count">{allProperties.length}</span> properties with coordinates
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {propertiesWithoutCoords > 0 && (
+            <Button 
+              variant="outline"
+              size="sm"
+              onClick={() => geocodeMutation.mutate()}
+              disabled={geocodeMutation.isPending}
+              data-testid="button-geocode-header"
+            >
+              {geocodeMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Geocoding...
+                </>
+              ) : (
+                <>
+                  <MapPinned className="h-4 w-4 mr-2" />
+                  Geocode {propertiesWithoutCoords} Properties
+                </>
+              )}
+            </Button>
+          )}
           <Select value={propertyTypeFilter} onValueChange={setPropertyTypeFilter}>
             <SelectTrigger className="w-[160px] bg-zinc-900/50 border-white/10" data-testid="select-property-type">
               <Filter className="h-4 w-4 mr-2" />
@@ -397,13 +449,36 @@ export default function MapView() {
                 <CardContent className="p-6 text-center">
                   <MapPin className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
                   <h3 className="font-medium mb-2">No Properties to Display</h3>
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-sm text-muted-foreground mb-4">
                     Properties need geocoded coordinates to appear on the map.
-                    Search for properties to add them to your database.
+                    {propertiesWithoutCoords > 0 
+                      ? ` You have ${propertiesWithoutCoords} properties that can be geocoded.`
+                      : " Search for properties to add them to your database."}
                   </p>
-                  <Button asChild className="mt-4" data-testid="button-search-properties">
-                    <Link href="/search">Search Properties</Link>
-                  </Button>
+                  <div className="flex flex-col gap-2">
+                    {propertiesWithoutCoords > 0 && (
+                      <Button 
+                        onClick={() => geocodeMutation.mutate()}
+                        disabled={geocodeMutation.isPending}
+                        data-testid="button-geocode-all"
+                      >
+                        {geocodeMutation.isPending ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Geocoding {propertiesWithoutCoords} properties...
+                          </>
+                        ) : (
+                          <>
+                            <MapPinned className="h-4 w-4 mr-2" />
+                            Geocode All Properties
+                          </>
+                        )}
+                      </Button>
+                    )}
+                    <Button asChild variant="outline" data-testid="button-search-properties">
+                      <Link href="/search">Search Properties</Link>
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             </div>
