@@ -137,3 +137,205 @@ No decorative images needed - this is a data-focused application. All visuals sh
 - Modal fade-in (150ms)
 - Loading states: Skeleton screens for tables/cards
 - No distracting animations - prioritize speed and responsiveness
+
+---
+
+## UI Assessment (December 2024)
+
+### Page-by-Page Analysis
+
+#### 1. Landing Page (`landing.tsx`)
+**Visual Consistency:** ✅ Good
+- Clean hero section with proper text hierarchy
+- Consistent Card usage for feature grid
+- Proper use of `text-primary` for brand accents
+- Stats section uses balanced grid layout
+
+**Enrichment Actions:** N/A (marketing page)
+
+**Data Flow:** N/A (marketing page)
+
+**Issues/Opportunities:**
+- "See How It Works" button has no action - consider linking to a demo or scroll anchor
+- Could add testimonials or social proof section
+
+---
+
+#### 2. Search Page (`search.tsx`)
+**Visual Consistency:** ✅ Good
+- SearchBar prominently placed in Card
+- Clear separation between "Saved Owners" (local) and "Property Records" (external)
+- Uses Database/Globe icons to differentiate data sources
+- Proper Badge usage for result counts
+
+**Enrichment Actions:** ✅ Clear
+- External search runs automatically with local search
+- Import buttons on external results are clear with ArrowRight icon
+- Loading states show descriptive messages about data providers
+
+**Data Flow:** ⚠️ Needs Improvement
+- After importing, user navigates to owner dossier - this is good
+- Missing: No clear indication of what happens after import (enrichment status)
+- LLC imports could show clearer connection to properties
+
+**Issues/Opportunities:**
+- Consider adding a "Quick View" preview before full import
+- Show estimated enrichment time or cost before import
+- Add filter for "already imported" vs "new" results
+
+---
+
+#### 3. Properties Page (`properties.tsx`)
+**Visual Consistency:** ✅ Good
+- Clean filter bar with search, type filter, and sort
+- Uses PropertyCard component consistently
+- Good empty state with helpful message
+
+**Enrichment Actions:** ⚠️ Limited
+- No enrichment actions visible from properties list
+- Properties are view-only from this page
+
+**Data Flow:** ⚠️ Partial
+- PropertyCard shows owner link when available
+- Missing: Visual indicator of which properties have enriched owner data
+- No way to bulk enrich or navigate to owner from here
+
+**Issues/Opportunities:**
+- Add "View Owner" quick action on each property card
+- Show owner name inline on property card
+- Add bulk selection for multi-property operations
+
+---
+
+#### 4. Dossiers Page (`dossiers.tsx`)
+**Visual Consistency:** ✅ Good
+- Clean list view with hover-elevate on cards
+- Consistent icon usage (FileText for dossiers)
+- Good date formatting
+
+**Enrichment Actions:** ⚠️ Limited
+- Only "View" and "Download" actions available
+- No re-export or regenerate option
+
+**Data Flow:** ✅ Good
+- Direct link to owner dossier from each export
+- Shows owner name and export format clearly
+
+**Issues/Opportunities:**
+- Add "Re-generate" or "Refresh" option for stale dossiers
+- Show dossier preview/summary without navigating away
+- Add export status (complete, partial, failed)
+
+---
+
+#### 5. Owner Dossier (`owner-dossier.tsx`) - MAIN PAGE
+**Visual Consistency:** ✅ Excellent
+- Two-column layout matches design spec (2/3 main, 1/3 sidebar)
+- Consistent Card/CardHeader/CardContent structure throughout
+- Good use of icons to identify section types
+- ScoreBadge and RiskBadge components provide visual consistency
+- Collapsible sections for dense data
+
+**Enrichment Actions:** ✅ Excellent
+- "Run Full Enrichment" button prominent in header
+- Clear loading states during enrichment
+- Multiple data sources shown (LLC Unmasking, Contact Enrichment, Melissa, Skip Trace)
+- Each enrichment section shows "Last updated" timestamp
+
+**Data Flow:** ✅ Excellent - Best Example
+- ClickableEntityName allows navigation from officer → their own dossier
+- LLC Network card shows connections
+- Properties owned section links back to properties
+- Legal Events Timeline shows chronological context
+- Franchise detection adds business context
+- Ownership chain visualization shows multi-level structures
+
+**Issues/Opportunities:**
+- Very long page (1986 lines) - could benefit from lazy loading sections
+- Consider tabbed interface for different data categories
+- Add "Export This Section" for individual cards
+- Ownership chain could be interactive (click to expand node)
+
+---
+
+#### 6. LLC Dossier (`llc-dossier.tsx`)
+**Visual Consistency:** ✅ Good
+- Header shows company name, status badge, jurisdiction
+- Two-column grid for company details and officers
+- Uses ClickableEntity for officer navigation
+
+**Enrichment Actions:** ✅ Good
+- "Run Full Enrichment" button prominent
+- "Refresh" button for quick update
+- Shows enriched vs non-enriched officers separately
+
+**Data Flow:** ⚠️ Partial
+- Officers can navigate to their own dossiers
+- Missing: Link to associated properties
+- Missing: Parent/child company relationships
+- Missing: Link back to owners that own this LLC
+
+**Issues/Opportunities:**
+- Add "Properties owned by this LLC" section
+- Add "Ultimate Beneficial Owners" section (like owner-dossier has)
+- Show registered agent as clickable entity
+- Add filing history timeline
+
+---
+
+#### 7. Unified Dossier (`unified-dossier.tsx`)
+**Visual Consistency:** ✅ Good
+- Clean three-column layout (2 main, 1 sidebar)
+- Entity type icons differentiate individuals/entities/properties
+- EnrichmentStatusBadge provides clear status indication
+- Consistent Card structure
+
+**Enrichment Actions:** ✅ Good
+- MetaCard shows enrichment status and "Run Full Enrichment" button
+- Shows providers used and last updated
+- Status badge (idle/pending/running/complete/failed/stale)
+
+**Data Flow:** ✅ Excellent
+- EntityLink component provides consistent navigation to any entity
+- OwnershipCard shows full ownership chain with depth levels
+- NetworkCard shows relationships (individuals, entities, properties, legal events)
+- Holdings show entity → properties relationships clearly
+
+**Issues/Opportunities:**
+- This seems to be an alternative/newer version of owner-dossier
+- Consider consolidating with owner-dossier or clarifying when each is used
+- Add export/PDF generation to match owner-dossier functionality
+
+---
+
+### Cross-Cutting Observations
+
+#### Typography ✅
+- Consistent use of text-muted-foreground for labels
+- font-mono used for technical data (APNs, IDs)
+- Proper heading hierarchy (text-3xl → text-base)
+
+#### Spacing ✅
+- Consistent gap-6 between major sections
+- Cards use p-4 or pb-3 for headers, consistent content spacing
+- No crowding issues
+
+#### Colors ✅
+- Primary color used sparingly for emphasis
+- Badge variants used correctly (default/secondary/destructive/outline)
+- No direct color classes that would break dark mode
+
+#### Icons ✅
+- Lucide icons used consistently
+- Icons accompany text for scannability
+- Size consistent (h-4 w-4 for inline, h-8 w-8 for empty states)
+
+---
+
+### Priority Improvements
+
+1. **Data Flow Gap:** LLC Dossier needs links to associated properties and parent owners
+2. **Enrichment Visibility:** Properties page should show enrichment status indicators
+3. **Page Consolidation:** Clarify relationship between owner-dossier and unified-dossier
+4. **Bulk Operations:** Add bulk enrichment/export on list pages
+5. **Landing CTA:** "See How It Works" button needs functionality
