@@ -60,6 +60,7 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
 
 function Router() {
   const { isAuthenticated, isLoading } = useAuth();
+  const [location] = useLocation();
 
   if (isLoading) {
     return (
@@ -81,8 +82,6 @@ function Router() {
       </Switch>
     );
   }
-
-  const [location] = useLocation();
 
   return (
     <AuthenticatedLayout>
