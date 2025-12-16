@@ -70,12 +70,14 @@ interface FranchiseInfoCardProps {
   propertyName: string | null;
   ownerName: string;
   ownerType: "individual" | "entity";
+  headerAction?: React.ReactNode;
 }
 
 export function FranchiseInfoCard({
   propertyName,
   ownerName,
   ownerType,
+  headerAction,
 }: FranchiseInfoCardProps) {
   const analysis = analyzeFranchise(propertyName, ownerName, ownerType);
 
@@ -86,10 +88,13 @@ export function FranchiseInfoCard({
   return (
     <Card data-testid="card-franchise-info">
       <CardHeader className="pb-3">
-        <CardTitle className="text-base flex items-center gap-2">
-          <Store className="h-4 w-4" />
-          Franchise Information
-        </CardTitle>
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Store className="h-4 w-4" />
+            Franchise Information
+          </CardTitle>
+          {headerAction}
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex items-center gap-3 flex-wrap">

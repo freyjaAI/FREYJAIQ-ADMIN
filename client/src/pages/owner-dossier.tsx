@@ -1178,15 +1178,26 @@ export default function OwnerDossierPage() {
           {owner.type === "entity" && (
             <Card data-testid="card-ownership-chain">
               <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <GitBranch className="h-4 w-4" />
-                  Ownership Chain
-                  {ownershipChainQuery.data?.ultimateBeneficialOwners && (
-                    <Badge variant="secondary" className="text-xs">
-                      {ownershipChainQuery.data.ultimateBeneficialOwners.length} UBOs
-                    </Badge>
-                  )}
-                </CardTitle>
+                <div className="flex items-center justify-between gap-2">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <GitBranch className="h-4 w-4" />
+                    Ownership Chain
+                    {ownershipChainQuery.data?.ultimateBeneficialOwners && (
+                      <Badge variant="secondary" className="text-xs">
+                        {ownershipChainQuery.data.ultimateBeneficialOwners.length} UBOs
+                      </Badge>
+                    )}
+                  </CardTitle>
+                  <TargetedEnrichmentDropdown
+                    entityId={id!}
+                    entityType="entity"
+                    targets={["ownership"]}
+                    onEnrichmentComplete={() => {
+                      refetch();
+                      ownershipChainQuery.refetch();
+                    }}
+                  />
+                </div>
               </CardHeader>
               <CardContent className="space-y-4">
                 {ownershipChainQuery.isLoading ? (
@@ -1832,6 +1843,14 @@ export default function OwnerDossierPage() {
             propertyName={properties[0]?.address || null}
             ownerName={owner.name}
             ownerType={owner.type as "individual" | "entity"}
+            headerAction={
+              <TargetedEnrichmentDropdown
+                entityId={id!}
+                entityType={owner.type as "individual" | "entity"}
+                targets={["franchise"]}
+                onEnrichmentComplete={() => refetch()}
+              />
+            }
           />
 
           <LegalEventsTimeline events={legalEvents} />
