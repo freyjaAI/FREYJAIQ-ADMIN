@@ -43,6 +43,7 @@ export interface IStorage {
   createUser(user: { email: string; passwordHash: string; firstName?: string | null; lastName?: string | null; role?: string }): Promise<User>;
   updateUserPassword(email: string, passwordHash: string): Promise<void>;
   upsertUser(user: UpsertUser): Promise<User>;
+  deleteUserAccount(userId: string): Promise<{ deletedSearchHistory: number; deletedDossierExports: number }>;
 
   // Owner operations
   getOwner(id: string): Promise<Owner | undefined>;
@@ -103,6 +104,11 @@ export interface IStorage {
     totalProperties: number;
     dossiersGenerated: number;
   }>;
+
+  // Data retention cleanup
+  cleanupOldSearchHistory(daysOld: number): Promise<number>;
+  cleanupOldDossierCache(daysOld: number): Promise<number>;
+  cleanupOldDossierExports(daysOld: number): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -151,6 +157,22 @@ export class DatabaseStorage implements IStorage {
       })
       .returning();
     return user;
+  }
+
+  async deleteUserAccount(userId: string): Promise<{ deletedSearchHistory: number; deletedDossierExports: number }> {
+    // Delete user's search history
+    const deletedHistory = await db.delete(searchHistory).where(eq(searchHistory.userId, userId));
+    
+    // Delete user's dossier exports
+    const deletedExports = await db.delete(dossierExports).where(eq(dossierExports.userId, userId));
+    
+    // Delete the user account
+    await db.delete(users).where(eq(users.id, userId));
+    
+    return {
+      deletedSearchHistory: deletedHistory.rowCount || 0,
+      deletedDossierExports: deletedExports.rowCount || 0,
+    };
   }
 
   // Owner operations
@@ -358,6 +380,40 @@ export class DatabaseStorage implements IStorage {
       totalProperties: Number(propertyCount?.count || 0),
       dossiersGenerated: Number(dossierCount?.count || 0),
     };
+  }
+
+  // Data retention cleanup methods
+  async cleanupOldSearchHistory(daysOld: number): Promise<number> {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - daysOld);
+    
+    const result = await db
+      .delete(searchHistory)
+      .where(sql`${searchHistory.createdAt} < ${cutoffDate}`);
+    
+    return result.rowCount || 0;
+  }
+
+  async cleanupOldDossierCache(daysOld: number): Promise<number> {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - daysOld);
+    
+    const result = await db
+      .delete(dossierCache)
+      .where(sql`${dossierCache.updatedAt} < ${cutoffDate}`);
+    
+    return result.rowCount || 0;
+  }
+
+  async cleanupOldDossierExports(daysOld: number): Promise<number> {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - daysOld);
+    
+    const result = await db
+      .delete(dossierExports)
+      .where(sql`${dossierExports.createdAt} < ${cutoffDate}`);
+    
+    return result.rowCount || 0;
   }
 
   // LLC operations

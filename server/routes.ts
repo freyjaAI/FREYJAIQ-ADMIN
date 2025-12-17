@@ -2,6 +2,8 @@ import type { Express } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated, getUserId } from "./auth";
+import { auditLogger } from "./auditLogger";
+import { searchRateLimit, enrichmentRateLimit, adminRateLimit } from "./rateLimiter";
 import {
   unmaskLlc,
   calculateSellerIntentScore,
@@ -1257,7 +1259,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // Provider cost and usage metrics (admin dashboard)
-  app.get("/api/admin/provider-metrics", isAuthenticated, async (req: any, res) => {
+  app.get("/api/admin/provider-metrics", isAuthenticated, adminRateLimit, async (req: any, res) => {
     try {
       const costSummary = getCostSummary();
       const cacheStats = getCacheStats();
@@ -1295,7 +1297,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // Admin endpoint to clear LLC cache for specific entities (privacy-protected fix)
-  app.post("/api/admin/clear-llc-cache", isAuthenticated, async (req: any, res) => {
+  app.post("/api/admin/clear-llc-cache", isAuthenticated, adminRateLimit, async (req: any, res) => {
     try {
       const { entityName } = req.body;
       
@@ -1339,8 +1341,55 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  // Search endpoint
-  app.get("/api/search", isAuthenticated, async (req: any, res) => {
+  // Admin endpoint for data retention cleanup (GDPR/CCPA compliance)
+  app.post("/api/admin/data-cleanup", isAuthenticated, adminRateLimit, async (req: any, res) => {
+    try {
+      // Check if user is admin
+      const userId = getUserId(req);
+      if (!userId) {
+        return res.status(401).json({ message: "User not found" });
+      }
+      
+      const user = await storage.getUser(userId);
+      if (user?.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      // Retention periods (in days)
+      const SEARCH_HISTORY_RETENTION_DAYS = 90;
+      const DOSSIER_CACHE_RETENTION_DAYS = 180; // 6 months per data retention policy
+      const DOSSIER_EXPORTS_RETENTION_DAYS = 365;
+
+      console.log("[DATA CLEANUP] Starting scheduled data retention cleanup...");
+      
+      const deletedSearchHistory = await storage.cleanupOldSearchHistory(SEARCH_HISTORY_RETENTION_DAYS);
+      const deletedDossierCache = await storage.cleanupOldDossierCache(DOSSIER_CACHE_RETENTION_DAYS);
+      const deletedDossierExports = await storage.cleanupOldDossierExports(DOSSIER_EXPORTS_RETENTION_DAYS);
+
+      console.log(`[DATA CLEANUP] Completed: ${deletedSearchHistory} search history, ${deletedDossierCache} dossier cache, ${deletedDossierExports} dossier exports`);
+
+      res.json({
+        success: true,
+        deleted: {
+          searchHistory: deletedSearchHistory,
+          dossierCache: deletedDossierCache,
+          dossierExports: deletedDossierExports,
+        },
+        retentionPolicies: {
+          searchHistory: `${SEARCH_HISTORY_RETENTION_DAYS} days`,
+          dossierCache: `${DOSSIER_CACHE_RETENTION_DAYS} days`,
+          dossierExports: `${DOSSIER_EXPORTS_RETENTION_DAYS} days`,
+        },
+        message: `Data cleanup completed. ${deletedSearchHistory + deletedDossierCache + deletedDossierExports} total records deleted.`
+      });
+    } catch (error) {
+      console.error("[DATA CLEANUP] Error:", error);
+      res.status(500).json({ message: "Failed to run data cleanup", error: String(error) });
+    }
+  });
+
+  // Search endpoint (with rate limiting)
+  app.get("/api/search", isAuthenticated, searchRateLimit, async (req: any, res) => {
     try {
       const { q, type } = req.query;
       const userId = getUserId(req);
@@ -1424,6 +1473,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         resultCount: owners.length + foundProperties.length,
       });
 
+      // Audit log for compliance
+      await auditLogger.logSearch(userId, q, type as string, owners.length + foundProperties.length);
+
       res.json({
         owners,
         properties: foundProperties,
@@ -1466,8 +1518,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  // Owner dossier endpoint
-  app.get("/api/owners/:id/dossier", isAuthenticated, async (req: any, res) => {
+  // Owner dossier endpoint (with rate limiting for external API calls)
+  app.get("/api/owners/:id/dossier", isAuthenticated, enrichmentRateLimit, async (req: any, res) => {
     try {
       const owner = await storage.getOwner(req.params.id);
       if (!owner) {

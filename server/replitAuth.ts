@@ -9,6 +9,7 @@ import type { Express, RequestHandler } from "express";
 import memoize from "memoizee";
 import connectPg from "connect-pg-simple";
 import { storage } from "./storage";
+import { auditLogger } from "./auditLogger";
 
 const getOidcConfig = memoize(
   async () => {
@@ -182,6 +183,41 @@ export async function setupAuth(app: Express) {
     req.logout(() => {
       res.json({ success: true, message: "Logged out successfully" });
     });
+  });
+
+  // Delete account endpoint (GDPR/CCPA compliance)
+  app.delete("/api/auth/account", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub;
+      if (!userId) {
+        return res.status(401).json({ message: "User not found" });
+      }
+
+      console.log(`[ACCOUNT DELETE] User ${userId} requested account deletion`);
+
+      // Delete user data and account
+      const result = await storage.deleteUserAccount(userId);
+      
+      console.log(`[ACCOUNT DELETE] Deleted ${result.deletedSearchHistory} search history entries, ${result.deletedDossierExports} dossier exports for user ${userId}`);
+
+      // Audit log for compliance
+      await auditLogger.logAccountDelete(userId, result);
+
+      // Log out the user after deletion
+      req.logout(() => {
+        res.json({ 
+          success: true, 
+          message: "Account deleted successfully",
+          deletedData: {
+            searchHistory: result.deletedSearchHistory,
+            dossierExports: result.deletedDossierExports
+          }
+        });
+      });
+    } catch (error) {
+      console.error("[ACCOUNT DELETE] Error:", error);
+      res.status(500).json({ message: "Failed to delete account" });
+    }
   });
 }
 

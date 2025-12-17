@@ -17,6 +17,8 @@ import { AnimatePresence, motion } from "framer-motion";
 import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
 import LoginPage from "@/pages/login";
+import PrivacyPolicyPage from "@/pages/privacy-policy";
+import TermsOfServicePage from "@/pages/terms-of-service";
 import Dashboard from "@/pages/dashboard";
 import SearchPage from "@/pages/search";
 import OwnersPage from "@/pages/owners";
@@ -31,6 +33,7 @@ import AdminBugReportsPage from "@/pages/admin-bug-reports";
 import MapView from "@/pages/map-view";
 import { BugReportWidget } from "@/components/bug-report-widget";
 import { KeyboardShortcutsModal } from "@/components/keyboard-shortcuts-modal";
+import { CookieConsent } from "@/components/cookie-consent";
 
 function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
   const style = {
@@ -85,6 +88,8 @@ function Router() {
       <Switch>
         <Route path="/" component={Landing} />
         <Route path="/login" component={LoginPage} />
+        <Route path="/privacy" component={PrivacyPolicyPage} />
+        <Route path="/terms" component={TermsOfServicePage} />
         <Route component={Landing} />
       </Switch>
     );
@@ -113,6 +118,8 @@ function Router() {
             <Route path="/settings" component={SettingsPage} />
             <Route path="/admin/bug-reports" component={AdminBugReportsPage} />
             <Route path="/map" component={MapView} />
+            <Route path="/privacy" component={PrivacyPolicyPage} />
+            <Route path="/terms" component={TermsOfServicePage} />
             <Route component={NotFound} />
           </Switch>
         </motion.div>
@@ -129,6 +136,7 @@ function App() {
         <TooltipProvider>
           <Toaster />
           <Router />
+          <CookieConsent />
         </TooltipProvider>
       </ThemeProvider>
     </QueryClientProvider>

@@ -55,6 +55,7 @@ import { ErrorBannerContainer } from "@/components/error-banner";
 import { FadeIn, StaggerContainer, StaggerItem, HighlightOnUpdate, AnimatedList } from "@/components/animated-list";
 import { FullDossierSkeleton, ContactsSectionSkeleton, PropertiesSectionSkeleton, LlcCardSkeleton, InlineListSkeleton } from "@/components/dossier-skeletons";
 import { FreyjaLoader, FreyjaFullPageLoader } from "@/components/freyja-loader";
+import { AIDisclosureBadge, AIDisclaimer } from "@/components/ai-disclosure-badge";
 import type { Owner, Property, ContactInfo, LegalEvent, OwnerLlcLink, ProviderSource } from "@shared/schema";
 
 interface LlcUnmaskingData {
@@ -1943,7 +1944,10 @@ export default function OwnerDossierPage() {
             owner.sellerIntentScore !== undefined && (
               <Card>
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-base">Seller Intent Score</CardTitle>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    Seller Intent Score
+                    <AIDisclosureBadge />
+                  </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="flex items-center justify-center">
@@ -2004,9 +2008,11 @@ export default function OwnerDossierPage() {
                 <CardTitle className="text-base flex items-center gap-2">
                   <Sparkles className="h-4 w-4 text-primary" />
                   AI Outreach Suggestion
+                  <AIDisclosureBadge />
                 </CardTitle>
               </CardHeader>
               <CardContent>
+                <AIDisclaimer className="mb-4" />
                 <div className="relative">
                   <p className="text-sm text-muted-foreground whitespace-pre-wrap">
                     {aiOutreach}

@@ -32,6 +32,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { ScoreBadge } from "@/components/score-badge";
 import { EntityTypeBadge, RiskBadge } from "@/components/risk-badge";
 import { EnrichmentPipelineBar } from "@/components/enrichment-pipeline-bar";
+import { AIDisclosureBadge } from "@/components/ai-disclosure-badge";
 
 type EntityType = "individual" | "entity" | "property";
 type EnrichmentStatus = "idle" | "pending" | "running" | "complete" | "failed" | "stale";
@@ -256,7 +257,10 @@ function CoreInfoCard({ core, entityType }: { core: CoreSection; entityType: Ent
 
         {core.scoring.sellerIntent !== undefined && (
           <div>
-            <div className="dossier-label mb-1">Seller Intent Score</div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="dossier-label">Seller Intent Score</span>
+              <AIDisclosureBadge />
+            </div>
             <ScoreBadge score={core.scoring.sellerIntent} label="Intent" />
           </div>
         )}
