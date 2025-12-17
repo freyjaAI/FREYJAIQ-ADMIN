@@ -2,6 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { dataRetentionScheduler } from "./dataRetentionScheduler";
 
 const app = express();
 const httpServer = createServer(app);
@@ -93,6 +94,22 @@ app.use((req, res, next) => {
     },
     () => {
       log(`serving on port ${port}`);
+      
+      // Start automated data retention scheduler
+      dataRetentionScheduler.start();
     },
   );
+
+  // Graceful shutdown
+  const shutdown = () => {
+    log("Shutting down gracefully...");
+    dataRetentionScheduler.stop();
+    httpServer.close(() => {
+      log("Server closed");
+      process.exit(0);
+    });
+  };
+
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
 })();
