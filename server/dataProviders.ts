@@ -1946,6 +1946,74 @@ export class DataProviderManager {
     return this.dataAxle.searchPeopleV2(name, location);
   }
 
+  /**
+   * Smart person lookup - prioritizes Apify (cheaper) over Data Axle
+   * Only falls back to Data Axle if Apify returns no results or for high-value targets
+   */
+  async searchPersonSmart(
+    name: string,
+    location?: { address?: string; city?: string; state?: string; zip?: string },
+    options?: { requireEmail?: boolean; highValue?: boolean }
+  ): Promise<DataAxlePerson[]> {
+    const results: DataAxlePerson[] = [];
+    const apifyApiToken = process.env.APIFY_API_TOKEN;
+
+    // Try Apify skip trace first (cheaper/free)
+    if (apifyApiToken) {
+      try {
+        console.log(`[SMART LOOKUP] Trying Apify first for: ${name}`);
+        const ApifySkipTrace = await import("./providers/ApifySkipTraceProvider");
+        const apifyResult = await ApifySkipTrace.skipTraceIndividual(
+          name,
+          location?.address || "",
+          location?.city || "",
+          location?.state || ""
+        );
+
+        if (apifyResult && (apifyResult.phones.length > 0 || apifyResult.emails.length > 0)) {
+          console.log(`[SMART LOOKUP] Apify returned data for: ${name}`);
+          results.push({
+            firstName: apifyResult.firstName || name.split(" ")[0] || "",
+            lastName: apifyResult.lastName || name.split(" ").slice(1).join(" ") || "",
+            emails: apifyResult.emails.map(e => e.email),
+            phones: apifyResult.phones.map(p => p.number),
+            cellPhones: apifyResult.phones.filter(p => p.type === "Wireless").map(p => p.number),
+            title: undefined,
+            company: undefined,
+            address: apifyResult.currentAddress?.streetAddress,
+            city: apifyResult.currentAddress?.city,
+            state: apifyResult.currentAddress?.state,
+            zip: apifyResult.currentAddress?.postalCode,
+            infousa_id: undefined,
+            confidenceScore: 85,
+          });
+
+          // If we have enough data (email or phone), skip Data Axle
+          const hasEmail = apifyResult.emails.length > 0;
+          const hasPhone = apifyResult.phones.length > 0;
+          
+          if (hasEmail || (hasPhone && !options?.requireEmail)) {
+            console.log(`[SMART LOOKUP] Using Apify result, skipping Data Axle`);
+            return results;
+          }
+        }
+      } catch (error) {
+        console.error(`[SMART LOOKUP] Apify error for ${name}:`, error);
+      }
+    }
+
+    // Fall back to Data Axle only for high-value targets or if Apify failed
+    if (options?.highValue || results.length === 0) {
+      if (this.dataAxle) {
+        console.log(`[SMART LOOKUP] Falling back to Data Axle for: ${name}`);
+        const dataAxleResults = await this.dataAxle.searchPeopleV2(name, location);
+        results.push(...dataAxleResults);
+      }
+    }
+
+    return results;
+  }
+
   // Search people by employer/company name
   async searchPeopleByEmployer(companyName: string, location?: { city?: string; state?: string; zip?: string }): Promise<DataAxlePerson[]> {
     if (!this.dataAxle) {
@@ -1964,16 +2032,11 @@ export class DataProviderManager {
     return this.dataAxle.searchPlacesV3(query, location, maxResults);
   }
 
-  // Search for people associated with LLC officers (using Data Axle People v2)
+  // Search for people associated with LLC officers (using smart lookup - Apify first, then Data Axle)
   async findOfficerContacts(officers: Array<{ name: string; position?: string }>, location?: { state?: string }): Promise<Array<{
     officer: { name: string; position?: string };
     contacts: DataAxlePerson[];
   }>> {
-    if (!this.dataAxle) {
-      console.warn("Data Axle provider not configured");
-      return [];
-    }
-
     const results: Array<{ officer: { name: string; position?: string }; contacts: DataAxlePerson[] }> = [];
     
     // Filter out corporate entities (registered agents) - only search for real people
@@ -1982,8 +2045,9 @@ export class DataProviderManager {
 
     for (const officer of realPeopleOfficers) {
       try {
-        console.log(`Searching Data Axle for officer: ${officer.name}`);
-        const people = await this.dataAxle.searchPeopleV2(officer.name, location);
+        console.log(`[OFFICER LOOKUP] Searching for officer: ${officer.name}`);
+        // Use smart lookup (Apify first, Data Axle fallback)
+        const people = await this.searchPersonSmart(officer.name, { state: location?.state });
         results.push({
           officer,
           contacts: people,
