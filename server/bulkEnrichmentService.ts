@@ -518,16 +518,16 @@ export async function searchFamilyOfficesALeads(config: TargetingConfig): Promis
         companyName: r.companyName || "Unknown Company",
         name: `${r.firstName || ""} ${r.lastName || ""}`.trim() || r.name,
         title: r.title,
-        email: undefined as string | undefined, // Email requires reveal
-        phone: undefined as string | undefined, // Phone requires reveal
+        email: r.email || undefined, // Email from reveal or API
+        phone: r.phone || undefined, // Phone from API
         linkedin: r.linkedinUrl,
         location: r.location,
         industry: r.industry,
         companySize: r.companySize,
         confidence: Math.min(100, confidence),
         source: "aleads_advanced_search",
-        hasEmail: r.hasEmail || false,
-        hasPhone: r.hasPhone || false,
+        hasEmail: r.hasEmail || !!r.email,
+        hasPhone: r.hasPhone || !!r.phone,
         // Data center investment scoring
         dataCenterScore: dcScore.score,
         dataCenterTier: dcScore.tier,
