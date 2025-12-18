@@ -1784,6 +1784,112 @@ export class ALeadsProvider {
     return variants;
   }
 
+  // NEW: Direct family office discovery via industry/title filters
+  // This is THE SIMPLE APPROACH - one call returns decision-makers with contacts
+  async searchFamilyOfficeDecisionMakers(options: {
+    titles?: string[];
+    industries?: string[];
+    countryCodes?: string[];
+    limit?: number;
+  } = {}): Promise<ALeadsContact[]> {
+    const check = apiUsageTracker.canMakeRequest("aleads");
+    if (!check.allowed) {
+      console.error(`[A-LEADS BLOCKED] ${check.reason}`);
+      return [];
+    }
+
+    try {
+      // IMPORTANT: These values must match A-Leads exact filter values (lowercase)
+      // See: https://storage.a-leads.co/public/filters/filter_possible_values.json
+      const {
+        titles = ["CEO", "Founder", "Managing Director", "Managing Partner", "Principal", "President"],
+        industries = [
+          "investment management",
+          "venture capital and private equity principals",
+          "capital markets",
+          "investment banking"
+        ],
+        countryCodes = ["United States"],
+        limit = 100
+      } = options;
+
+      console.log(`[A-Leads] Searching family office decision-makers...`);
+      console.log(`[A-Leads] Titles: ${titles.join(", ")}`);
+      console.log(`[A-Leads] Industries: ${industries.join(", ")}`);
+      console.log(`[A-Leads] Countries: ${countryCodes.join(", ")}`);
+
+      const requestBody: any = {
+        advanced_filters: {
+          job_title: titles,
+          industry: industries,
+        },
+        page_size: limit,
+      };
+      
+      // Add country filter if specified
+      if (countryCodes.length > 0) {
+        requestBody.advanced_filters.member_location_country = countryCodes;
+      }
+
+      console.log(`[A-Leads] Request: POST ${this.baseUrl}/advanced-search`);
+      console.log(`[A-Leads] Body:`, JSON.stringify(requestBody, null, 2));
+
+      const response = await fetch(`${this.baseUrl}/advanced-search`, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          "x-api-key": this.apiKey,
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[A-Leads] Error (${response.status}):`, errorText.slice(0, 500));
+        return [];
+      }
+
+      const data = await response.json();
+      const results = data.data || [];
+      apiUsageTracker.recordRequest("aleads", results.length || 1);
+      
+      console.log(`[A-Leads] SUCCESS: Found ${results.length} family office decision-makers`);
+
+      // Log a sample result if we have any
+      if (results.length > 0) {
+        const sample = results[0];
+        console.log(`[A-Leads] Sample result:`, {
+          name: sample.member_full_name,
+          title: sample.job_title,
+          company: sample.company_name,
+          industry: sample.industry,
+          hasEmail: !!sample.email,
+          hasPhone: sample.phone_number_available
+        });
+      }
+
+      return results.map((contact: any) => ({
+        name: contact.member_full_name || `${contact.member_name_first || ""} ${contact.member_name_last || ""}`.trim(),
+        email: contact.email,
+        phone: contact.phone_number_available ? "Available" : undefined,
+        address: contact.member_location_raw_address || contact.hq_full_address,
+        company: contact.company_name,
+        title: contact.job_title,
+        linkedinUrl: contact.member_linkedin_url,
+        source: "a-leads",
+        confidence: 85,
+        // Extra fields for bulk enrichment
+        industry: contact.industry,
+        companySize: contact.company_size,
+        companyLinkedIn: contact.company_linkedin_url,
+      }));
+    } catch (error: any) {
+      console.error("[A-Leads] Family office search error:", error?.message || error);
+      return [];
+    }
+  }
+
   async skipTrace(input: { name: string; address?: string; city?: string; state?: string; zip?: string }): Promise<ALeadsContact | null> {
     const check = apiUsageTracker.canMakeRequest("aleads");
     if (!check.allowed) {
@@ -1945,6 +2051,21 @@ export class DataProviderManager {
 
   async getSECCompanyFilings(cik: string): Promise<any> {
     return this.secEdgar.getCompanyFilings(cik);
+  }
+
+  // A-LEADS: Direct family office discovery (THE SIMPLE APPROACH)
+  // One API call returns decision-makers with their contact info and company details
+  async searchFamilyOfficeDecisionMakers(options?: {
+    titles?: string[];
+    industries?: string[];
+    countryCodes?: string[];
+    limit?: number;
+  }): Promise<ALeadsContact[]> {
+    if (!this.aLeads) {
+      console.warn("A-Leads provider not configured");
+      return [];
+    }
+    return this.aLeads.searchFamilyOfficeDecisionMakers(options);
   }
 
   private normalizeAddressForAttom(address: string): string {

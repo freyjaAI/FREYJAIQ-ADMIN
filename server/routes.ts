@@ -5947,4 +5947,35 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
     res.json(results);
   });
+
+  // Test A-Leads direct family office discovery (THE SIMPLE APPROACH)
+  app.get("/api/debug/test-aleads-family-offices", isAuthenticated, async (req: any, res) => {
+    try {
+      console.log("[TEST] Testing A-Leads family office discovery...");
+      
+      const limit = parseInt(req.query.limit as string) || 20;
+      
+      // Uses correct A-Leads filter values (lowercase, exact matches)
+      const results = await dataProviders.searchFamilyOfficeDecisionMakers({
+        limit
+      });
+      
+      console.log(`[TEST] A-Leads returned ${results.length} family office decision-makers`);
+      
+      res.json({
+        success: true,
+        count: results.length,
+        results: results.slice(0, 10),
+        message: results.length > 0 
+          ? `Found ${results.length} family office decision-makers in ONE API call!` 
+          : "No results - check API key and request format"
+      });
+    } catch (error: any) {
+      console.error("[TEST] A-Leads family office test error:", error);
+      res.status(500).json({
+        success: false,
+        error: error?.message || String(error)
+      });
+    }
+  });
 }
