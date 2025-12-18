@@ -1512,7 +1512,7 @@ export class ALeadsProvider {
     }
   }
 
-  // Search for contacts at a company with specific job titles
+  // Search for contacts at a company - fetch all people, filter decision-makers client-side
   async searchContactsWithTitles(companyName: string, titles: string[], location?: string): Promise<ALeadsContact[]> {
     const check = apiUsageTracker.canMakeRequest("aleads");
     if (!check.allowed) {
@@ -1521,21 +1521,12 @@ export class ALeadsProvider {
     }
 
     try {
-      console.log(`[A-Leads] Searching for titles at "${companyName}": ${titles.slice(0, 3).join(', ')}...`);
+      console.log(`[A-Leads] Searching for people at "${companyName}"...`);
       
+      // Search by company name only - title filtering doesn't work with comma-separated values
       const advancedFilters: Record<string, any> = {
         company_name: companyName,
       };
-      
-      // Add location filter if provided
-      if (location && location.trim()) {
-        advancedFilters.member_location_raw_address = location;
-      }
-      
-      // A-Leads uses job_title field for title search
-      // We'll try searching with the first few key titles
-      const primaryTitles = titles.slice(0, 5);
-      advancedFilters.job_title = primaryTitles.join(",");
 
       const requestBody = {
         advanced_filters: advancedFilters,
@@ -1562,11 +1553,31 @@ export class ALeadsProvider {
       }
 
       const data = await response.json();
-      const results = data.data || [];
-      apiUsageTracker.recordRequest("aleads", results.length || 1);
-      console.log(`[A-Leads] Found ${results.length} contacts with decision-maker titles`);
+      const allResults = data.data || [];
+      apiUsageTracker.recordRequest("aleads", allResults.length || 1);
+      console.log(`[A-Leads] Found ${allResults.length} total contacts at "${companyName}"`);
 
-      return results.map((contact: any) => ({
+      // Filter for decision-makers client-side
+      const titlesLower = titles.map(t => t.toLowerCase());
+      const decisionMakerKeywords = [
+        "ceo", "chief executive", "president", "founder", "owner",
+        "managing director", "managing partner", "principal", "partner",
+        "cio", "chief investment", "director", "cfo", "chief financial",
+        "vp", "vice president", "head of", "executive"
+      ];
+      
+      const filtered = allResults.filter((contact: any) => {
+        const jobTitle = (contact.job_title || "").toLowerCase();
+        if (!jobTitle) return false;
+        
+        // Check if title matches any of our target titles or keywords
+        return titlesLower.some(t => jobTitle.includes(t)) ||
+               decisionMakerKeywords.some(kw => jobTitle.includes(kw));
+      });
+      
+      console.log(`[A-Leads] ${filtered.length} of ${allResults.length} are decision-makers`);
+
+      return filtered.map((contact: any) => ({
         name: contact.member_full_name || `${contact.member_name_first || ""} ${contact.member_name_last || ""}`.trim(),
         email: contact.email,
         phone: contact.phone_number_available ? "Available" : undefined,
@@ -1578,7 +1589,7 @@ export class ALeadsProvider {
         confidence: 80,
       }));
     } catch (error: any) {
-      console.error("[A-Leads] Title search error:", error?.message || error);
+      console.error("[A-Leads] Company search error:", error?.message || error);
       return [];
     }
   }
