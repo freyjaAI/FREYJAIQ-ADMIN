@@ -1864,38 +1864,52 @@ export class ALeadsProvider {
       
       console.log(`[A-Leads] SUCCESS: Found ${results.length} family office decision-makers`);
 
-      // Log a sample result if we have any
+      // Log a sample result with ALL fields to understand the API response structure
       if (results.length > 0) {
         const sample = results[0];
-        console.log(`[A-Leads] Sample result:`, {
-          name: sample.member_full_name,
-          title: sample.job_title,
-          company: sample.company_name,
-          industry: sample.industry,
-          hasEmail: !!sample.email,
-          hasPhone: sample.phone_number_available
+        console.log(`[A-Leads] Sample result (full structure):`, JSON.stringify(sample, null, 2));
+        console.log(`[A-Leads] Contact fields check:`, {
+          email: sample.email,
+          email_found: sample.email_found,
+          member_email: sample.member_email,
+          personal_email: sample.personal_email,
+          work_email: sample.work_email,
+          phone: sample.phone,
+          phone_number: sample.phone_number,
+          phone_number_available: sample.phone_number_available,
+          member_phone: sample.member_phone,
+          mobile_phone: sample.mobile_phone,
+          location: sample.member_location_raw_address || sample.hq_location,
         });
       }
 
-      return results.map((contact: any) => ({
-        name: contact.member_full_name || `${contact.member_name_first || ""} ${contact.member_name_last || ""}`.trim(),
-        firstName: contact.member_name_first,
-        lastName: contact.member_name_last,
-        email: contact.email,
-        phone: contact.phone_number_available ? "Available" : undefined,
-        address: contact.member_location_raw_address || contact.hq_full_address,
-        company: contact.company_name,
-        companyName: contact.company_name,
-        title: contact.job_title,
-        linkedinUrl: contact.member_linkedin_url,
-        location: contact.member_location_raw_address || contact.hq_location,
-        industry: contact.industry,
-        companySize: contact.size_range || (contact.company_headcount ? `${contact.company_headcount} employees` : undefined),
-        source: "a-leads",
-        confidence: 85,
-        hasEmail: !!contact.email_found,
-        hasPhone: !!contact.phone_number_available,
-      }));
+      return results.map((contact: any) => {
+        // Try multiple possible email fields from A-Leads response
+        const email = contact.email || contact.member_email || contact.personal_email || contact.work_email || null;
+        // Try multiple possible phone fields
+        const phone = contact.phone || contact.phone_number || contact.member_phone || contact.mobile_phone || 
+                      (contact.phone_number_available ? "Available (reveal required)" : null);
+        
+        return {
+          name: contact.member_full_name || `${contact.member_name_first || ""} ${contact.member_name_last || ""}`.trim(),
+          firstName: contact.member_name_first,
+          lastName: contact.member_name_last,
+          email: email,
+          phone: phone,
+          address: contact.member_location_raw_address || contact.hq_full_address,
+          company: contact.company_name,
+          companyName: contact.company_name,
+          title: contact.job_title,
+          linkedinUrl: contact.member_linkedin_url,
+          location: contact.member_location_raw_address || contact.hq_location,
+          industry: contact.industry,
+          companySize: contact.size_range || (contact.company_headcount ? `${contact.company_headcount} employees` : undefined),
+          source: "a-leads",
+          confidence: 85,
+          hasEmail: !!contact.email_found || !!email,
+          hasPhone: !!contact.phone_number_available || !!phone,
+        };
+      });
     } catch (error: any) {
       console.error("[A-Leads] Family office search error:", error?.message || error);
       return [];
