@@ -286,24 +286,29 @@ export async function enrichTargetContacts(
   try {
     console.log(`[BULK ENRICHMENT] Searching for people at "${target.companyName}" in ${target.state || 'any state'}`);
     
-    const people = await dataProviders.searchPeopleByEmployer(target.companyName, {
+    // Use A-Leads to find people at this company
+    const aLeadsContacts = await dataProviders.searchPeopleByCompany(target.companyName, {
       city: target.city || undefined,
       state: target.state || undefined,
-      zip: target.zip || undefined,
     });
     
-    console.log(`[BULK ENRICHMENT] Found ${people.length} people at "${target.companyName}"`);
+    console.log(`[BULK ENRICHMENT] Found ${aLeadsContacts.length} people at "${target.companyName}" via A-Leads`);
 
     const targetTitlesLower = (config.targetTitles || FAMILY_OFFICE_INDICATORS.titlePatterns)
       .map(t => t.toLowerCase());
 
-    for (const person of people) {
-      const personTitleLower = (person.title || "").toLowerCase();
+    for (const contact of aLeadsContacts) {
+      const personTitleLower = (contact.title || "").toLowerCase();
       const isDecisionMaker = targetTitlesLower.some(t => personTitleLower.includes(t)) ||
         personTitleLower.includes("principal") ||
         personTitleLower.includes("partner") ||
         personTitleLower.includes("director") ||
         personTitleLower.includes("cio") ||
+        personTitleLower.includes("cto") ||
+        personTitleLower.includes("cfo") ||
+        personTitleLower.includes("president") ||
+        personTitleLower.includes("founder") ||
+        personTitleLower.includes("owner") ||
         personTitleLower.includes("managing");
 
       if (!isDecisionMaker && config.targetTitles?.length) {
@@ -311,31 +316,36 @@ export async function enrichTargetContacts(
       }
 
       const intentResult = calculateIntentScore({
-        title: person.title,
+        title: contact.title,
         companyName: target.companyName,
       });
+
+      // Parse name from A-Leads format
+      const nameParts = (contact.name || "").split(" ");
+      const firstName = nameParts[0] || "";
+      const lastName = nameParts.slice(1).join(" ") || "";
 
       results.push({
         jobId: target.jobId,
         targetId: target.id,
         companyName: target.companyName,
-        firstName: person.firstName,
-        lastName: person.lastName,
-        fullName: `${person.firstName} ${person.lastName}`.trim(),
-        title: person.title,
-        email: person.emails?.[0],
-        phone: person.phones?.[0],
-        cellPhone: person.cellPhones?.[0],
-        address: person.address,
-        city: person.city,
-        state: person.state,
-        zip: person.zip,
-        confidenceScore: person.confidenceScore,
+        firstName,
+        lastName,
+        fullName: contact.name || "",
+        title: contact.title,
+        email: contact.email,
+        phone: contact.phone,
+        cellPhone: null,
+        address: contact.address,
+        city: null,
+        state: null,
+        zip: null,
+        confidenceScore: contact.confidence || 75,
         intentScore: intentResult.score,
         intentSignals: intentResult.signals,
         intentTier: intentResult.tier,
-        providerSource: "data_axle",
-        dataAxleId: person.infousa_id,
+        providerSource: "a_leads",
+        dataAxleId: null,
       });
     }
   } catch (error) {

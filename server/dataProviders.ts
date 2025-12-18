@@ -2126,6 +2126,23 @@ export class DataProviderManager {
     }
   }
 
+  // Search for people by company name using A-Leads
+  async searchPeopleByCompany(companyName: string, location?: { city?: string; state?: string }): Promise<ALeadsContact[]> {
+    if (!this.aLeads) {
+      console.warn("A-Leads provider not configured");
+      return [];
+    }
+    
+    try {
+      const locationStr = location ? `${location.city || ""}, ${location.state || ""}`.trim() : undefined;
+      console.log(`[A-Leads] Searching for people at company: "${companyName}" location: "${locationStr}"`);
+      return await this.aLeads.searchContacts({ company: companyName, location: locationStr });
+    } catch (error) {
+      console.error(`A-Leads company search error:`, error);
+      return [];
+    }
+  }
+
   async fetchMelissaEnrichment(input: {
     name?: string;
     address?: string;
