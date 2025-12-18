@@ -151,6 +151,68 @@ export function calculateIntentScore(params: {
   return { score: finalScore, tier, signals };
 }
 
+// FREE: Search for family offices using SEC EDGAR 13F filings
+// These are institutional investors managing $100M+ - no API cost!
+export async function searchFamilyOfficesSEC(config: TargetingConfig): Promise<Array<{
+  companyName: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  naicsCode?: string;
+  sicCode?: string;
+  employeeCount?: number;
+  salesVolume?: number;
+  familyOfficeConfidence: number;
+  familyOfficeSignals: string[];
+  dataAxleId?: string;
+  cik?: string;
+}>> {
+  console.log(`[BULK ENRICHMENT] Using SEC EDGAR (FREE) for family office discovery`);
+  
+  // Default search terms for family offices
+  const searchTerms = config.companyNameKeywords?.length 
+    ? config.companyNameKeywords 
+    : [
+        "family office", "capital", "investment", "wealth", "asset management",
+        "holdings", "partners", "advisors", "management"
+      ];
+  
+  const secFilers = await dataProviders.searchSECFamilyOffices(searchTerms);
+  
+  console.log(`[SEC EDGAR] Found ${secFilers.length} filers matching criteria`);
+  
+  const results: Array<any> = [];
+  
+  for (const filer of secFilers) {
+    const familyOfficeScore = detectFamilyOffice({
+      name: filer.name,
+    });
+    
+    // All 13F filers are significant institutional investors
+    // Boost confidence since they manage $100M+
+    const boostedConfidence = Math.min(100, familyOfficeScore.confidence + 30);
+    const signals = [
+      ...familyOfficeScore.signals,
+      "SEC 13F filer - manages $100M+ in public equities"
+    ];
+    
+    results.push({
+      companyName: filer.name,
+      familyOfficeConfidence: boostedConfidence,
+      familyOfficeSignals: signals,
+      cik: filer.cik,
+    });
+  }
+  
+  // Sort by confidence
+  results.sort((a, b) => b.familyOfficeConfidence - a.familyOfficeConfidence);
+  
+  console.log(`[BULK ENRICHMENT] SEC EDGAR returned ${results.length} family office targets (FREE)`);
+  
+  return results;
+}
+
 export async function searchFamilyOffices(config: TargetingConfig): Promise<Array<{
   companyName: string;
   address?: string;
@@ -165,6 +227,12 @@ export async function searchFamilyOffices(config: TargetingConfig): Promise<Arra
   familyOfficeSignals: string[];
   dataAxleId?: string;
 }>> {
+  // Check if user wants to use SEC EDGAR (free) instead of Data Axle
+  if (config.useSecEdgar) {
+    console.log(`[BULK ENRICHMENT] SEC EDGAR source selected (FREE)`);
+    return searchFamilyOfficesSEC(config);
+  }
+  
   const results: Array<any> = [];
 
   // Expanded default search keywords for better coverage

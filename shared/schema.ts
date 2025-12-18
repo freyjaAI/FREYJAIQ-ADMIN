@@ -661,4 +661,6 @@ export interface TargetingConfig {
   dataCenterIntentFocus?: boolean;
   // Quality filters
   minConfidence?: number; // Minimum family office confidence score (default: 30)
+  // Data source options
+  useSecEdgar?: boolean; // Use FREE SEC EDGAR 13F filings instead of Data Axle Places
 }

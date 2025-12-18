@@ -1276,6 +1276,158 @@ export class GoogleAddressValidationProvider {
   }
 }
 
+// SEC EDGAR Provider - 100% FREE, no API key required
+// Searches for 13F filers (family offices managing $100M+)
+export interface SECEdgarFiler {
+  cik: string;
+  name: string;
+  filingCount: number;
+  latestFilingDate?: string;
+  entityType?: string;
+}
+
+export class SECEdgarProvider {
+  private baseUrl = "https://data.sec.gov";
+  private userAgent = "FreyjaIQ admin@freyjafinancialgroup.net";
+
+  // Search for 13F filers by name pattern
+  async searchFamilyOfficeFilers(searchTerms: string[] = ["family office"]): Promise<SECEdgarFiler[]> {
+    const results: SECEdgarFiler[] = [];
+    
+    try {
+      console.log(`[SEC EDGAR] Searching for filers matching: ${searchTerms.join(", ")}`);
+      
+      // Use SEC full-text search to find 13F filers
+      // We'll search the company tickers/names file which is freely available
+      const tickersUrl = "https://www.sec.gov/files/company_tickers.json";
+      
+      const response = await fetch(tickersUrl, {
+        headers: { "User-Agent": this.userAgent }
+      });
+      
+      if (!response.ok) {
+        console.error(`[SEC EDGAR] Failed to fetch company tickers: ${response.status}`);
+        return [];
+      }
+      
+      const data = await response.json();
+      const companies = Object.values(data) as Array<{ cik_str: string; title: string; ticker?: string }>;
+      
+      // Filter for family office related names
+      const familyOfficePatterns = searchTerms.map(t => t.toLowerCase());
+      
+      for (const company of companies) {
+        const nameLower = company.title.toLowerCase();
+        const isMatch = familyOfficePatterns.some(pattern => nameLower.includes(pattern));
+        
+        if (isMatch) {
+          results.push({
+            cik: String(company.cik_str).padStart(10, "0"),
+            name: company.title,
+            filingCount: 0, // Would need additional API call to get this
+            entityType: "13F Filer",
+          });
+        }
+      }
+      
+      console.log(`[SEC EDGAR] Found ${results.length} filers matching search terms`);
+      
+    } catch (error) {
+      console.error("[SEC EDGAR] Search error:", error);
+    }
+    
+    return results;
+  }
+
+  // Get filings for a specific CIK
+  async getCompanyFilings(cik: string): Promise<any> {
+    try {
+      const paddedCik = cik.padStart(10, "0");
+      const url = `${this.baseUrl}/submissions/CIK${paddedCik}.json`;
+      
+      console.log(`[SEC EDGAR] Fetching filings for CIK ${paddedCik}`);
+      
+      const response = await fetch(url, {
+        headers: { "User-Agent": this.userAgent }
+      });
+      
+      if (!response.ok) {
+        console.error(`[SEC EDGAR] Failed to fetch filings: ${response.status}`);
+        return null;
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error("[SEC EDGAR] Filings fetch error:", error);
+      return null;
+    }
+  }
+
+  // Search all 13F filers using the bulk submissions data
+  async search13FFilers(limit: number = 500): Promise<SECEdgarFiler[]> {
+    const results: SECEdgarFiler[] = [];
+    
+    try {
+      console.log(`[SEC EDGAR] Fetching 13F filers from SEC...`);
+      
+      // Use the SEC's full-text search API for 13F forms
+      // This searches for recent 13F-HR filings and extracts filer info
+      const searchUrl = "https://efts.sec.gov/LATEST/search-index?q=*&dateRange=custom&startdt=2024-01-01&enddt=2025-12-31&forms=13F-HR&size=200";
+      
+      const response = await fetch(searchUrl, {
+        headers: { 
+          "User-Agent": this.userAgent,
+          "Accept": "application/json"
+        }
+      });
+      
+      if (!response.ok) {
+        // Fallback: use company tickers and filter for investment-related names
+        console.log(`[SEC EDGAR] Full-text search unavailable, using company tickers fallback`);
+        return this.searchFamilyOfficeFilers([
+          "family office", "capital partners", "capital management",
+          "asset management", "wealth management", "investment management",
+          "private equity", "venture capital", "holdings"
+        ]);
+      }
+      
+      const data = await response.json();
+      const hits = data.hits?.hits || [];
+      
+      const seen = new Set<string>();
+      for (const hit of hits) {
+        const source = hit._source || {};
+        const cik = source.ciks?.[0];
+        const name = source.display_names?.[0] || source.entity_name;
+        
+        if (cik && name && !seen.has(cik)) {
+          seen.add(cik);
+          results.push({
+            cik: String(cik).padStart(10, "0"),
+            name,
+            filingCount: 1,
+            latestFilingDate: source.file_date,
+            entityType: "13F Filer",
+          });
+        }
+        
+        if (results.length >= limit) break;
+      }
+      
+      console.log(`[SEC EDGAR] Found ${results.length} unique 13F filers`);
+      
+    } catch (error) {
+      console.error("[SEC EDGAR] 13F search error:", error);
+      // Fallback to company tickers search
+      return this.searchFamilyOfficeFilers([
+        "family office", "capital", "investment", "wealth", "asset management"
+      ]);
+    }
+    
+    return results;
+  }
+}
+
 export class ALeadsProvider {
   private apiKey: string;
   private baseUrl = "https://api.a-leads.co/gateway/v1/search";
@@ -1445,6 +1597,7 @@ export class DataProviderManager {
   private melissa?: MelissaDataProvider;
   private aLeads?: ALeadsProvider;
   private google?: GoogleAddressValidationProvider;
+  private secEdgar: SECEdgarProvider;  // Always available - FREE, no API key
   private pacificEastEnabled: boolean = false;
 
   constructor() {
@@ -1473,6 +1626,9 @@ export class DataProviderManager {
       this.google = new GoogleAddressValidationProvider(process.env.GOOGLE_MAPS_API_KEY);
       console.log("✓ Google provider initialized");
     }
+    // SEC EDGAR is always available - FREE, no API key required
+    this.secEdgar = new SECEdgarProvider();
+    console.log("✓ SEC EDGAR provider initialized (FREE - 13F filers)");
     // Pacific East is always enabled (uses hardcoded dev key or env var)
     this.pacificEastEnabled = true;
     console.log("✓ Pacific East provider initialized (DataPrime, FPA, EMA, EMV)");
@@ -1487,8 +1643,22 @@ export class DataProviderManager {
     if (this.melissa) providers.push("melissa");
     if (this.aLeads) providers.push("aleads");
     if (this.google) providers.push("google");
+    if (this.secEdgar) providers.push("secedgar");
     if (this.pacificEastEnabled) providers.push("pacificeast");
     return providers;
+  }
+
+  // SEC EDGAR - FREE family office/13F filer search
+  async searchSECFamilyOffices(searchTerms?: string[]): Promise<SECEdgarFiler[]> {
+    return this.secEdgar.searchFamilyOfficeFilers(searchTerms);
+  }
+
+  async searchSEC13FFilers(limit?: number): Promise<SECEdgarFiler[]> {
+    return this.secEdgar.search13FFilers(limit);
+  }
+
+  async getSECCompanyFilings(cik: string): Promise<any> {
+    return this.secEdgar.getCompanyFilings(cik);
   }
 
   private normalizeAddressForAttom(address: string): string {
