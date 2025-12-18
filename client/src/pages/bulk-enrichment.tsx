@@ -27,7 +27,9 @@ import {
   Phone,
   Briefcase,
   MapPin,
-  RefreshCw
+  RefreshCw,
+  Linkedin,
+  ExternalLink
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -164,9 +166,14 @@ function ResultsTable({ results }: { results: BulkEnrichmentResult[] }) {
                   </div>
                 </div>
                 <div className="flex flex-col gap-1 text-sm">
-                  {result.email && (
+                  {result.address && (
                     <span className="flex items-center gap-1 text-muted-foreground">
-                      <Mail className="w-3 h-3" /> {result.email}
+                      <MapPin className="w-3 h-3" /> {result.address}
+                    </span>
+                  )}
+                  {!result.address && result.city && result.state && (
+                    <span className="flex items-center gap-1 text-muted-foreground">
+                      <MapPin className="w-3 h-3" /> {result.city}, {result.state}
                     </span>
                   )}
                   {(result.phone || result.cellPhone) && (
@@ -174,9 +181,20 @@ function ResultsTable({ results }: { results: BulkEnrichmentResult[] }) {
                       <Phone className="w-3 h-3" /> {result.cellPhone || result.phone}
                     </span>
                   )}
-                  {result.city && result.state && (
+                  {result.linkedinUrl && (
+                    <a 
+                      href={result.linkedinUrl} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1 text-blue-500 hover:text-blue-600"
+                      data-testid={`linkedin-link-${result.id}`}
+                    >
+                      <Linkedin className="w-3 h-3" /> LinkedIn <ExternalLink className="w-3 h-3" />
+                    </a>
+                  )}
+                  {result.email && (
                     <span className="flex items-center gap-1 text-muted-foreground">
-                      <MapPin className="w-3 h-3" /> {result.city}, {result.state}
+                      <Mail className="w-3 h-3" /> {result.email}
                     </span>
                   )}
                 </div>
