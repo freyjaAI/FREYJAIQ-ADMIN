@@ -1544,6 +1544,61 @@ export class ALeadsProvider {
     this.apiKey = apiKey;
   }
 
+  // Extract LinkedIn username from URL
+  private extractLinkedInUsername(linkedinUrl: string | undefined): string | null {
+    if (!linkedinUrl) return null;
+    // Handle formats: linkedin.com/in/username, www.linkedin.com/in/username, https://linkedin.com/in/username
+    const match = linkedinUrl.match(/linkedin\.com\/in\/([^\/\?]+)/i);
+    return match ? match[1] : null;
+  }
+
+  // Reveal email using LinkedIn username via find-email/personal endpoint
+  async revealEmail(linkedinUsername: string): Promise<string | null> {
+    const check = apiUsageTracker.canMakeRequest("aleads");
+    if (!check.allowed) {
+      console.error(`[A-LEADS BLOCKED] ${check.reason}`);
+      return null;
+    }
+
+    try {
+      console.log(`[A-Leads] Revealing email for LinkedIn: ${linkedinUsername}`);
+      
+      const response = await fetch(`${this.baseUrl}/find-email/personal`, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          "x-api-key": this.apiKey,
+        },
+        body: JSON.stringify({
+          data: {
+            linkedin_username: linkedinUsername,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[A-Leads] Email reveal error (${response.status}):`, errorText.slice(0, 200));
+        return null;
+      }
+
+      const result = await response.json();
+      // Only count as API call if email was found (per docs: credits only deducted on success)
+      const email = result?.data?.personal_email || null;
+      if (email) {
+        apiUsageTracker.recordRequest("aleads", 1);
+        console.log(`[A-Leads] Found email for ${linkedinUsername}: ${email}`);
+      } else {
+        console.log(`[A-Leads] No email found for ${linkedinUsername}`);
+      }
+      return email;
+    } catch (error: any) {
+      console.error(`[A-Leads] Email reveal error:`, error?.message || error);
+      return null;
+    }
+  }
+
   async searchContacts(query: { name?: string; company?: string; location?: string }): Promise<ALeadsContact[]> {
     const check = apiUsageTracker.canMakeRequest("aleads");
     if (!check.allowed) {
@@ -1868,29 +1923,31 @@ export class ALeadsProvider {
       if (results.length > 0) {
         const sample = results[0];
         console.log(`[A-Leads] Sample result (full structure):`, JSON.stringify(sample, null, 2));
-        console.log(`[A-Leads] Contact fields check:`, {
-          email: sample.email,
-          email_found: sample.email_found,
-          member_email: sample.member_email,
-          personal_email: sample.personal_email,
-          work_email: sample.work_email,
-          phone: sample.phone,
-          phone_number: sample.phone_number,
-          phone_number_available: sample.phone_number_available,
-          member_phone: sample.member_phone,
-          mobile_phone: sample.mobile_phone,
-          location: sample.member_location_raw_address || sample.hq_location,
-        });
       }
 
-      return results.map((contact: any) => {
+      // Map results and reveal emails for contacts with LinkedIn profiles
+      const mappedContacts: ALeadsContact[] = [];
+      
+      for (const contact of results) {
         // Try multiple possible email fields from A-Leads response
-        const email = contact.email || contact.member_email || contact.personal_email || contact.work_email || null;
-        // Try multiple possible phone fields
-        const phone = contact.phone || contact.phone_number || contact.member_phone || contact.mobile_phone || 
-                      (contact.phone_number_available ? "Available (reveal required)" : null);
+        let email = contact.email || contact.member_email || contact.personal_email || contact.work_email || null;
         
-        return {
+        // If no email but we have LinkedIn, try to reveal it
+        const linkedinUrl = contact.member_linkedin_url;
+        if (!email && linkedinUrl) {
+          const linkedinUsername = this.extractLinkedInUsername(linkedinUrl);
+          if (linkedinUsername) {
+            const revealedEmail = await this.revealEmail(linkedinUsername);
+            if (revealedEmail) {
+              email = revealedEmail;
+            }
+          }
+        }
+        
+        // Try multiple possible phone fields
+        const phone = contact.phone || contact.phone_number || contact.member_phone || contact.mobile_phone || null;
+        
+        mappedContacts.push({
           name: contact.member_full_name || `${contact.member_name_first || ""} ${contact.member_name_last || ""}`.trim(),
           firstName: contact.member_name_first,
           lastName: contact.member_name_last,
@@ -1900,16 +1957,22 @@ export class ALeadsProvider {
           company: contact.company_name,
           companyName: contact.company_name,
           title: contact.job_title,
-          linkedinUrl: contact.member_linkedin_url,
+          linkedinUrl: linkedinUrl,
           location: contact.member_location_raw_address || contact.hq_location,
           industry: contact.industry,
           companySize: contact.size_range || (contact.company_headcount ? `${contact.company_headcount} employees` : undefined),
           source: "a-leads",
           confidence: 85,
-          hasEmail: !!contact.email_found || !!email,
-          hasPhone: !!contact.phone_number_available || !!phone,
-        };
-      });
+          hasEmail: !!email,
+          hasPhone: !!phone,
+        });
+      }
+      
+      const withEmail = mappedContacts.filter(c => c.email).length;
+      const withPhone = mappedContacts.filter(c => c.phone).length;
+      console.log(`[A-Leads] Enriched results: ${withEmail}/${mappedContacts.length} with email, ${withPhone}/${mappedContacts.length} with phone`);
+      
+      return mappedContacts;
     } catch (error: any) {
       console.error("[A-Leads] Family office search error:", error?.message || error);
       return [];
