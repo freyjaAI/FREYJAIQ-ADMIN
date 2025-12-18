@@ -3,6 +3,7 @@ import pRetry from "p-retry";
 import * as PacificEast from "./providers/PacificEastProvider";
 import * as Perplexity from "./providers/PerplexityProvider";
 import { parseFromDescription, toAttomQuery, toAttomSplitQuery, isValidForSearch, AddressComponents } from "./addressNormalizer";
+import { apiUsageTracker, withUsageTracking } from "./apiUsageTracker";
 
 const limit = pLimit(3);
 
@@ -770,6 +771,12 @@ export class DataAxleProvider {
 
   // Search for people using People v2 with enhanced data, emails, and cell phones
   async searchPeopleV2(name: string, location?: { city?: string; state?: string; zip?: string }): Promise<DataAxlePerson[]> {
+    const check = apiUsageTracker.canMakeRequest("data_axle_people");
+    if (!check.allowed) {
+      console.error(`[DATA AXLE BLOCKED] ${check.reason}`);
+      return [];
+    }
+
     try {
       console.log(`Data Axle searchPeopleV2: "${name}" location:`, location);
       const params: Record<string, string> = {
@@ -783,7 +790,9 @@ export class DataAxleProvider {
       if (location?.zip) params.postal_code = location.zip;
 
       const data = await this.request<any>("/people/search", params);
-      console.log(`Data Axle People v2 returned ${data.documents?.length || 0} results`);
+      const resultCount = data.documents?.length || 0;
+      apiUsageTracker.recordRequest("data_axle_people", resultCount || 1);
+      console.log(`Data Axle People v2 returned ${resultCount} results`);
 
       return (data.documents || []).map((doc: any) => ({
         firstName: doc.first_name || "",
@@ -808,6 +817,12 @@ export class DataAxleProvider {
 
   // Search for people by employer/company name
   async searchPeopleByEmployer(companyName: string, location?: { city?: string; state?: string; zip?: string }): Promise<DataAxlePerson[]> {
+    const check = apiUsageTracker.canMakeRequest("data_axle_people");
+    if (!check.allowed) {
+      console.error(`[DATA AXLE BLOCKED] ${check.reason}`);
+      return [];
+    }
+
     try {
       console.log(`Data Axle searchPeopleByEmployer: "${companyName}" location:`, location);
       const params: Record<string, string> = {
@@ -821,7 +836,9 @@ export class DataAxleProvider {
       if (location?.zip) params.postal_code = location.zip;
 
       const data = await this.request<any>("/people/search", params);
-      console.log(`Data Axle People by employer returned ${data.documents?.length || 0} results`);
+      const resultCount = data.documents?.length || 0;
+      apiUsageTracker.recordRequest("data_axle_people", resultCount || 1);
+      console.log(`Data Axle People by employer returned ${resultCount} results`);
 
       return (data.documents || []).map((doc: any) => ({
         firstName: doc.first_name || "",
@@ -846,6 +863,12 @@ export class DataAxleProvider {
 
   // Search for places/businesses using Places v3 with UCC filings
   async searchPlacesV3(query: string, location?: { city?: string; state?: string; zip?: string }, maxResults = 100): Promise<DataAxlePlace[]> {
+    const check = apiUsageTracker.canMakeRequest("data_axle_places");
+    if (!check.allowed) {
+      console.error(`[DATA AXLE BLOCKED] ${check.reason}`);
+      return [];
+    }
+
     try {
       console.log(`Data Axle searchPlacesV3: "${query}" location:`, location);
       const params: Record<string, string> = {
@@ -859,7 +882,9 @@ export class DataAxleProvider {
       if (location?.zip) params.postal_code = location.zip;
 
       const data = await this.request<any>("/places/search", params);
-      console.log(`Data Axle Places v3 returned ${data.documents?.length || 0} results`);
+      const resultCount = data.documents?.length || 0;
+      apiUsageTracker.recordRequest("data_axle_places", resultCount || 1);
+      console.log(`Data Axle Places v3 returned ${resultCount} results`);
 
       return (data.documents || []).map((doc: any) => ({
         name: doc.name || doc.company_name || "",
@@ -1260,6 +1285,12 @@ export class ALeadsProvider {
   }
 
   async searchContacts(query: { name?: string; company?: string; location?: string }): Promise<ALeadsContact[]> {
+    const check = apiUsageTracker.canMakeRequest("aleads");
+    if (!check.allowed) {
+      console.error(`[A-LEADS BLOCKED] ${check.reason}`);
+      return [];
+    }
+
     try {
       console.log(`A-Leads searchContacts:`, query);
       
@@ -1309,6 +1340,7 @@ export class ALeadsProvider {
 
       const data = await response.json();
       const results = data.data || [];
+      apiUsageTracker.recordRequest("aleads", results.length || 1);
       console.log(`A-Leads returned ${results.length} results`);
 
       return results.map((contact: any) => ({
