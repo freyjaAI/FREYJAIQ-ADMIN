@@ -1292,12 +1292,13 @@ export class SECEdgarProvider {
   private baseUrl = "https://data.sec.gov";
   private userAgent = "FreyjaIQ admin@freyjafinancialgroup.net";
 
-  // Search for investment-related filers by name pattern - ENHANCED for better coverage
+  // Search for ACTUAL family offices - not Fortune 500 companies
+  // Family offices typically have explicit naming patterns and are private investment vehicles
   async searchFamilyOfficeFilers(searchTerms: string[] = ["family office"], limit: number = 500): Promise<SECEdgarFiler[]> {
     const results: SECEdgarFiler[] = [];
     
     try {
-      console.log(`[SEC EDGAR] Searching for investment filers (limit: ${limit})`);
+      console.log(`[SEC EDGAR] Searching for FAMILY OFFICES (limit: ${limit})`);
       
       // Use SEC company tickers which is freely available
       const tickersUrl = "https://www.sec.gov/files/company_tickers.json";
@@ -1316,53 +1317,120 @@ export class SECEdgarProvider {
       
       console.log(`[SEC EDGAR] Loaded ${companies.length} total companies from SEC`);
       
-      // Expanded investment-related patterns that capture family offices, hedge funds, PE firms, etc.
-      const investmentPatterns = [
-        // Explicit family office terms
-        "family office", "family capital", "family partners", "family holdings",
-        "family investment", "family trust", "family fund", "family wealth",
-        // Investment management
-        "capital management", "capital partners", "capital advisors", "capital group",
-        "asset management", "investment management", "investment advisors", "investment partners",
-        "wealth management", "wealth advisors", "wealth partners",
-        // Fund types
-        "private equity", "venture capital", "hedge fund", "fund management",
-        "capital fund", "investment fund", "equity fund", "growth fund",
-        // LLC/LP investment vehicles
-        "capital llc", "capital lp", "partners llc", "partners lp",
-        "investments llc", "investments lp", "holdings llc", "holdings lp",
-        // Trust companies
-        "trust company", "trust co", "fiduciary",
-        // Alternative investments
-        "alternative", "real assets", "infrastructure",
-        // Common suffixes for investment firms
-        " advisors", " advisory", " associates",
-        // General investment terms
-        " capital", " investments", " partners", " holdings", " management",
-        // Add user search terms
+      // TIER 1: HIGH-CONFIDENCE Family Office patterns (prioritize these)
+      const familyOfficePatterns = [
+        "family office", "family trust", "family capital", "family partners",
+        "family investment", "family fund", "family wealth", "family foundation",
+        "family holdings llc", "family holdings lp", "family holdings limited",
+        " fo ", " f.o.", "sfo ", "mfo ", // Single/Multi-family office abbreviations
+      ];
+      
+      // TIER 2: Investment firm patterns (secondary, more likely to be private)
+      const investmentFirmPatterns = [
+        "wealth management", "wealth advisors", "wealth partners", "private wealth",
+        "capital advisors", "capital partners llc", "capital partners lp",
+        "investment advisors", "investment advisers", "investment counsel",
+        "asset management llc", "asset management lp",
+        "private capital", "private investment", "private equity partners",
+        "fiduciary", "trust company",
         ...searchTerms.map(t => t.toLowerCase())
       ];
       
-      // Use a Set to deduplicate patterns
-      const uniquePatterns = Array.from(new Set(investmentPatterns));
+      // BLOCKLIST: Fortune 500 / Major public companies to exclude
+      // These have "Holdings", "Capital", "Management" but are NOT family offices
+      const publicCompanyBlocklist = [
+        // Tech giants
+        "apple", "microsoft", "amazon", "alphabet", "google", "meta", "facebook",
+        "nvidia", "tesla", "netflix", "paypal", "adobe", "salesforce", "oracle",
+        "intel", "cisco", "ibm", "crowdstrike", "palo alto", "snowflake", "datadog",
+        "arm holdings", "seagate", "western digital", "lumentum",
+        // Finance giants (banks, not family offices)
+        "jpmorgan", "bank of america", "wells fargo", "citigroup", "goldman sachs",
+        "morgan stanley", "hsbc", "nomura", "northern trust", "lpl financial",
+        "ubs", "credit suisse", "barclays", "deutsche bank",
+        // Insurance
+        "berkshire", "aig", "allstate", "progressive", "travelers", "chubb",
+        "aflac", "prudential", "metlife", "equitable holdings", "arch capital",
+        // Industrial
+        "waste management", "republic services", "boeing", "lockheed", "raytheon",
+        "caterpillar", "deere", "3m", "honeywell", "ge ", "general electric",
+        "parker hannifin", "emerson", "rockwell", "siemens", "abb",
+        // Consumer
+        "coca-cola", "pepsi", "mcdonalds", "starbucks", "nike", "walmart",
+        "target", "costco", "home depot", "lowes", "yum china", "yum brands",
+        "hilton", "marriott", "booking holdings", "airbnb", "uber", "lyft",
+        // Healthcare/Pharma
+        "pfizer", "johnson & johnson", "merck", "abbvie", "bristol", "lilly",
+        "amgen", "gilead", "biogen", "regeneron", "vertex", "moderna",
+        "unitedhealth", "anthem", "cigna", "humana", "labcorp", "quest",
+        "medpace", "iqvia", "zimmer biomet", "stryker", "medtronic",
+        // Energy
+        "exxon", "chevron", "shell", "bp", "conocophillips", "enterprise products",
+        "energy transfer", "kinder morgan", "williams", "western midstream",
+        "cheniere", "posco",
+        // Retail/E-commerce
+        "alibaba", "jd.com", "pdd holdings", "pinduoduo", "shopify", "mercadolibre",
+        "grab holdings", "nu holdings", "ke holdings", "futu holdings",
+        // Transportation
+        "fedex", "ups", "delta", "united airlines", "southwest", "american airlines",
+        "ryanair", "aercap", "viking holdings",
+        // Media/Entertainment
+        "disney", "comcast", "warner", "paramount", "fox", "tko group",
+        // Real estate (large REITs, not family offices)
+        "brookfield", "blackstone", "starwood", "prologis", "equinix",
+        "digital realty", "crown castle", "american tower",
+        // Telecom
+        "at&t", "verizon", "t-mobile", "comcast",
+        // Misc Fortune 500
+        "fairfax financial", "vertiv", "ss&c technologies", "affirm",
+        "capitec bank", "resona", "geely", "blue owl"
+      ];
+      
+      // Helper to check if name matches blocklist
+      const isBlockedCompany = (name: string): boolean => {
+        const lower = name.toLowerCase();
+        return publicCompanyBlocklist.some(blocked => lower.includes(blocked));
+      };
+      
+      // First pass: Find TIER 1 (family office patterns)
+      const tier1Results: SECEdgarFiler[] = [];
+      const tier2Results: SECEdgarFiler[] = [];
       
       for (const company of companies) {
-        if (results.length >= limit) break;
-        
         const nameLower = company.title.toLowerCase();
         
-        // Check if company name matches any investment pattern
-        if (uniquePatterns.some(pattern => nameLower.includes(pattern))) {
-          results.push({
+        // Skip blocked public companies
+        if (isBlockedCompany(nameLower)) continue;
+        
+        // Check TIER 1 patterns first
+        if (familyOfficePatterns.some(pattern => nameLower.includes(pattern))) {
+          tier1Results.push({
             cik: String(company.cik_str).padStart(10, "0"),
             name: company.title,
             filingCount: 0,
-            entityType: "13F Filer",
+            entityType: "Family Office",
+          });
+        }
+        // Then check TIER 2 patterns
+        else if (investmentFirmPatterns.some(pattern => nameLower.includes(pattern))) {
+          tier2Results.push({
+            cik: String(company.cik_str).padStart(10, "0"),
+            name: company.title,
+            filingCount: 0,
+            entityType: "Investment Advisor",
           });
         }
       }
       
-      console.log(`[SEC EDGAR] Found ${results.length} investment-related filers (from ${companies.length} total)`);
+      console.log(`[SEC EDGAR] Found ${tier1Results.length} family offices (TIER 1) and ${tier2Results.length} investment advisors (TIER 2)`);
+      
+      // Combine: prioritize TIER 1, then add TIER 2 up to limit
+      results.push(...tier1Results.slice(0, limit));
+      if (results.length < limit) {
+        results.push(...tier2Results.slice(0, limit - results.length));
+      }
+      
+      console.log(`[SEC EDGAR] Returning ${results.length} family office/investment advisor filers`);
       
     } catch (error) {
       console.error("[SEC EDGAR] Search error:", error);

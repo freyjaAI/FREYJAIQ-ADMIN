@@ -206,7 +206,7 @@ export default function BulkEnrichmentPage() {
   // Data source toggles - priority order: SEC EDGAR (FREE) > OpenMart > Data Axle
   const [useSecEdgar, setUseSecEdgar] = useState(true); // Default to FREE source
   const [useOpenMart, setUseOpenMart] = useState(false);
-  const [useApifyInvestors, setUseApifyInvestors] = useState(false);
+  const [useApifyInvestors, setUseApifyInvestors] = useState(true); // Default ON for decision-maker enrichment
 
   const { data: jobs, isLoading: jobsLoading, refetch: refetchJobs } = useQuery<BulkEnrichmentJob[]>({
     queryKey: ["/api/bulk-enrichment/jobs"],
