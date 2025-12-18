@@ -294,6 +294,174 @@ export async function searchFamilyOfficesOpenMart(config: TargetingConfig): Prom
   return results.slice(0, limit);
 }
 
+// DATA CENTER INVESTMENT SCORING SYSTEM
+// Scores family offices based on their likelihood to invest in data centers
+interface DataCenterScore {
+  score: number;
+  tier: "high" | "medium" | "low";
+  signals: string[];
+}
+
+const DATA_CENTER_SCORING = {
+  // HIGH SCORE keywords in company description/name (definite match)
+  highKeywords: [
+    "data center", "datacenter", "infrastructure", "digital infrastructure",
+    "cloud", "colocation", "colo", "hyperscale", "edge computing",
+    "server farm", "hosting", "idc", "data facility"
+  ],
+  // HIGH SCORE industries
+  highIndustries: [
+    "real estate", "technology infrastructure", "internet",
+    "data processing", "computer facilities management",
+    "telecommunications resellers", "data centers"
+  ],
+  // HIGH SCORE technologies (cloud platforms)
+  highTechnologies: [
+    "aws", "amazon web services", "azure", "microsoft azure",
+    "gcp", "google cloud", "kubernetes", "docker", "vmware",
+    "openstack", "terraform", "cloudflare"
+  ],
+  // MEDIUM SCORE industries
+  mediumIndustries: [
+    "technology", "software", "telecommunications", "it services",
+    "computer systems design", "information technology",
+    "software publishers", "wireless telecommunications"
+  ],
+  // MEDIUM SCORE investment keywords
+  mediumKeywords: [
+    "real estate investment", "infrastructure investment",
+    "technology investment", "private equity", "venture capital",
+    "growth equity", "alternative investments"
+  ],
+  // BONUS locations (tech hubs)
+  techHubCities: [
+    "san francisco", "sf", "new york", "nyc", "austin", "seattle",
+    "boston", "los angeles", "la", "denver", "dallas", "atlanta",
+    "chicago", "phoenix", "portland", "salt lake city", "raleigh",
+    "northern virginia", "ashburn", "loudoun" // Major data center corridor
+  ],
+  techHubStates: ["ca", "ny", "tx", "wa", "ma", "co", "va", "az", "nc", "ga"]
+};
+
+export function scoreDataCenterInvestmentPotential(contact: {
+  companyName?: string;
+  industry?: string;
+  location?: string;
+  companySize?: string;
+  title?: string;
+  technologies?: string[];
+}): DataCenterScore {
+  const signals: string[] = [];
+  let score = 0;
+  
+  const companyLower = (contact.companyName || "").toLowerCase();
+  const industryLower = (contact.industry || "").toLowerCase();
+  const locationLower = (contact.location || "").toLowerCase();
+  const titleLower = (contact.title || "").toLowerCase();
+  
+  // HIGH SCORE: Data center keywords in company name (+30 each, max 60)
+  let keywordHits = 0;
+  for (const keyword of DATA_CENTER_SCORING.highKeywords) {
+    if (companyLower.includes(keyword)) {
+      score += 30;
+      signals.push(`Company mentions "${keyword}"`);
+      keywordHits++;
+      if (keywordHits >= 2) break;
+    }
+  }
+  
+  // HIGH SCORE: Data center/infrastructure industries (+25)
+  for (const industry of DATA_CENTER_SCORING.highIndustries) {
+    if (industryLower.includes(industry)) {
+      score += 25;
+      signals.push(`High-value industry: ${contact.industry}`);
+      break;
+    }
+  }
+  
+  // HIGH SCORE: Cloud technologies (+20 each, max 40)
+  if (contact.technologies) {
+    let techHits = 0;
+    for (const tech of contact.technologies) {
+      const techLower = tech.toLowerCase();
+      for (const cloudTech of DATA_CENTER_SCORING.highTechnologies) {
+        if (techLower.includes(cloudTech)) {
+          score += 20;
+          signals.push(`Uses cloud tech: ${tech}`);
+          techHits++;
+          break;
+        }
+      }
+      if (techHits >= 2) break;
+    }
+  }
+  
+  // MEDIUM SCORE: Tech/telecom industries (+15)
+  if (score < 25) { // Only if not already high-value industry
+    for (const industry of DATA_CENTER_SCORING.mediumIndustries) {
+      if (industryLower.includes(industry)) {
+        score += 15;
+        signals.push(`Tech-adjacent industry: ${contact.industry}`);
+        break;
+      }
+    }
+  }
+  
+  // MEDIUM SCORE: Investment-related keywords (+10)
+  for (const keyword of DATA_CENTER_SCORING.mediumKeywords) {
+    if (companyLower.includes(keyword)) {
+      score += 10;
+      signals.push(`Investment focus: "${keyword}"`);
+      break;
+    }
+  }
+  
+  // BONUS: Tech hub location (+10)
+  for (const city of DATA_CENTER_SCORING.techHubCities) {
+    if (locationLower.includes(city)) {
+      score += 10;
+      signals.push(`Tech hub location: ${contact.location}`);
+      break;
+    }
+  }
+  
+  // BONUS: Decision-maker title (+5-15)
+  if (titleLower.includes("ceo") || titleLower.includes("founder") || 
+      titleLower.includes("managing partner") || titleLower.includes("principal")) {
+    score += 15;
+    signals.push(`Senior decision-maker: ${contact.title}`);
+  } else if (titleLower.includes("director") || titleLower.includes("president") ||
+             titleLower.includes("managing director")) {
+    score += 10;
+    signals.push(`Executive role: ${contact.title}`);
+  } else if (titleLower.includes("vp") || titleLower.includes("vice president") ||
+             titleLower.includes("partner")) {
+    score += 5;
+    signals.push(`Leadership position: ${contact.title}`);
+  }
+  
+  // BONUS: Large company size (indicates significant AUM) (+10)
+  const sizeLower = (contact.companySize || "").toLowerCase();
+  if (sizeLower.includes("1001") || sizeLower.includes("5001") || 
+      sizeLower.includes("10001") || sizeLower.includes("enterprise") ||
+      sizeLower.includes("large")) {
+    score += 10;
+    signals.push(`Large organization: ${contact.companySize}`);
+  }
+  
+  // Determine tier
+  let tier: "high" | "medium" | "low";
+  if (score >= 40) {
+    tier = "high";
+  } else if (score >= 20) {
+    tier = "medium";
+  } else {
+    tier = "low";
+  }
+  
+  return { score, tier, signals };
+}
+
 // A-LEADS ADVANCED SEARCH: THE SIMPLE APPROACH
 // One API call returns decision-makers with their contact info and company details
 // No need for multi-step SEC EDGAR -> enrichment pipeline
@@ -311,6 +479,10 @@ export async function searchFamilyOfficesALeads(config: TargetingConfig): Promis
   source: string;
   hasEmail: boolean;
   hasPhone: boolean;
+  // Data center investment scoring
+  dataCenterScore: number;
+  dataCenterTier: "high" | "medium" | "low";
+  dataCenterSignals: string[];
 }>> {
   console.log(`[BULK ENRICHMENT] Using A-Leads Advanced Search (THE SIMPLE APPROACH)`);
   
@@ -318,12 +490,12 @@ export async function searchFamilyOfficesALeads(config: TargetingConfig): Promis
   
   // Call A-Leads with correct lowercase industry values
   const results = await dataProviders.searchFamilyOfficeDecisionMakers({
-    limit
+    limit: limit * 2 // Fetch more to allow for scoring/filtering
   });
   
   console.log(`[BULK ENRICHMENT] A-Leads returned ${results.length} family office decision-makers`);
   
-  // Transform to our standard format
+  // Transform to our standard format with data center scoring
   const transformed = results
     .filter(r => r.companyName) // Skip entries without company name
     .map(r => {
@@ -332,6 +504,15 @@ export async function searchFamilyOfficesALeads(config: TargetingConfig): Promis
       if (r.hasEmail) confidence += 25;
       if (r.hasPhone) confidence += 15;
       if (r.linkedinUrl) confidence += 10;
+      
+      // Apply data center investment scoring
+      const dcScore = scoreDataCenterInvestmentPotential({
+        companyName: r.companyName,
+        industry: r.industry,
+        location: r.location,
+        companySize: r.companySize,
+        title: r.title,
+      });
       
       return {
         companyName: r.companyName || "Unknown Company",
@@ -347,15 +528,30 @@ export async function searchFamilyOfficesALeads(config: TargetingConfig): Promis
         source: "aleads_advanced_search",
         hasEmail: r.hasEmail || false,
         hasPhone: r.hasPhone || false,
+        // Data center investment scoring
+        dataCenterScore: dcScore.score,
+        dataCenterTier: dcScore.tier,
+        dataCenterSignals: dcScore.signals,
       };
     });
   
-  // Sort by confidence
-  transformed.sort((a, b) => b.confidence - a.confidence);
+  // Sort by data center score (primary) then confidence (secondary)
+  transformed.sort((a, b) => {
+    if (b.dataCenterScore !== a.dataCenterScore) {
+      return b.dataCenterScore - a.dataCenterScore;
+    }
+    return b.confidence - a.confidence;
+  });
   
-  console.log(`[BULK ENRICHMENT] A-Leads transformed ${transformed.length} results`);
+  // Count by tier for logging
+  const highCount = transformed.filter(t => t.dataCenterTier === "high").length;
+  const mediumCount = transformed.filter(t => t.dataCenterTier === "medium").length;
+  const lowCount = transformed.filter(t => t.dataCenterTier === "low").length;
   
-  return transformed;
+  console.log(`[BULK ENRICHMENT] A-Leads scored ${transformed.length} results: ${highCount} HIGH, ${mediumCount} MEDIUM, ${lowCount} LOW tier`);
+  
+  // Return top results up to limit
+  return transformed.slice(0, limit);
 }
 
 // Apify Startup Investors: Search for investor decision-makers
