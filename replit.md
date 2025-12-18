@@ -236,6 +236,32 @@ Available provider names: `gemini`, `opencorporates`, `perplexity`, `attom`, `ap
   - Tracks calls per provider, estimated costs, cache hit rates
   - Useful for monitoring API spending and optimizing usage
 
+### API Usage Tracking & Quotas
+Centralized usage tracking prevents runaway API costs with hard limits per provider:
+
+**Environment Variables for Quotas** (optional overrides):
+- `QUOTA_DATA_AXLE_PEOPLE_DAILY` - Daily limit for Data Axle People API (default: 100)
+- `QUOTA_DATA_AXLE_PEOPLE_MONTHLY` - Monthly limit for Data Axle People API (default: 1000)
+- `QUOTA_DATA_AXLE_PLACES_DAILY` - Daily limit for Data Axle Places API (default: 500)
+- `QUOTA_DATA_AXLE_PLACES_MONTHLY` - Monthly limit for Data Axle Places API (default: 5000)
+- `QUOTA_ALEADS_DAILY` - Daily limit for A-Leads API (default: 500)
+- `QUOTA_ALEADS_MONTHLY` - Monthly limit for A-Leads API (default: 10000)
+- Similar patterns for `ATTOM`, `MELISSA`, `OPENCORPORATES`, `GOOGLE_MAPS`, `PERPLEXITY`, `OPENAI`, `PACIFIC_EAST`, `APIFY`
+
+**Admin API Endpoints**:
+- `GET /api/admin/api-usage` - View all provider usage stats, limits, and warning levels
+- `POST /api/admin/api-usage/reset` - Reset usage counters (body: `{ provider?: "aleads" }` or empty for all)
+
+**Safeguards**:
+- Requests are blocked when daily or monthly limits are reached
+- Warning logs appear at 80% usage threshold
+- Critical warnings at 90% usage
+- All API calls log usage: `[API USAGE] provider: +count (daily: X, monthly: Y)`
+
+**Key Files**:
+- `server/apiUsageTracker.ts` - Core tracking logic and quota enforcement
+- Tracking integrated into: `DataAxleProvider`, `ALeadsProvider`, and other data providers
+
 ### Provider Status & Freshness Tracking
 The dossier API responses include a `sources` array showing which data providers contributed data:
 - **ProviderSource type** (defined in `shared/schema.ts`):
