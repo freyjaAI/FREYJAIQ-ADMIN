@@ -30,6 +30,7 @@ import {
   getProviderPricing
 } from "./providerConfig";
 import { setLlcLookupFunction } from "./llcChainResolver";
+import { apiUsageTracker } from "./apiUsageTracker";
 
 // Common first names to help detect person names (subset of most common US names)
 const COMMON_FIRST_NAMES = new Set([
@@ -1298,6 +1299,54 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // API usage tracking endpoint (admin dashboard)
+  app.get("/api/admin/api-usage", isAuthenticated, adminRateLimit, async (req: any, res) => {
+    try {
+      const stats = apiUsageTracker.getAllStats();
+      const summary = apiUsageTracker.getSummary();
+      
+      res.json({
+        providers: stats,
+        summary: {
+          totalCalls: summary.totalCalls,
+          totalRecords: summary.totalRecords,
+          trackingStarted: summary.trackingStarted,
+        },
+        limits: {
+          data_axle_people: { totalQuota: 3000, dailyLimit: 1000, hourlyLimit: 100 },
+          data_axle_places: { totalQuota: 5000, dailyLimit: 2000, hourlyLimit: 200 },
+          aleads: { totalQuota: 10000, dailyLimit: 5000, hourlyLimit: 500 },
+          attom: { totalQuota: 50000, dailyLimit: 10000, hourlyLimit: 1000 },
+          melissa: { totalQuota: 20000, dailyLimit: 5000, hourlyLimit: 500 },
+          opencorporates: { totalQuota: 100000, dailyLimit: 20000, hourlyLimit: 2000 },
+        },
+      });
+    } catch (error) {
+      console.error("Error fetching API usage:", error);
+      res.status(500).json({ message: "Failed to fetch API usage" });
+    }
+  });
+
+  // Reset API usage tracking for a specific provider
+  app.post("/api/admin/api-usage/reset", isAuthenticated, adminRateLimit, async (req: any, res) => {
+    try {
+      const { provider } = req.body;
+      
+      if (provider) {
+        apiUsageTracker.resetProvider(provider);
+        console.log(`[ADMIN] Reset API usage for provider: ${provider}`);
+        res.json({ success: true, message: `Reset usage for ${provider}` });
+      } else {
+        apiUsageTracker.resetAll();
+        console.log(`[ADMIN] Reset all API usage tracking`);
+        res.json({ success: true, message: "Reset all API usage tracking" });
+      }
+    } catch (error) {
+      console.error("Error resetting API usage:", error);
+      res.status(500).json({ message: "Failed to reset API usage" });
+    }
+  });
+
   // Admin endpoint to clear LLC cache for specific entities (privacy-protected fix)
   app.post("/api/admin/clear-llc-cache", isAuthenticated, adminRateLimit, async (req: any, res) => {
     try {
@@ -1572,7 +1621,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       setImmediate(async () => {
         try {
           console.log(`[BULK ENRICHMENT] Starting background processing for job ${job.id}`);
-          await bulkEnrichmentService.processJob(job.id);
+          await bulkEnrichmentService.processEnrichmentJob(job.id);
           console.log(`[BULK ENRICHMENT] Completed processing for job ${job.id}`);
         } catch (error) {
           console.error(`[BULK ENRICHMENT] Failed to process job ${job.id}:`, error);

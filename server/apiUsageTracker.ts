@@ -255,6 +255,26 @@ class APIUsageTracker {
     console.log(`[API USAGE] Resetting all provider usage counters`);
     this.usage.clear();
   }
+
+  getSummary(): { totalCalls: number; totalRecords: number; trackingStarted: string } {
+    let totalCalls = 0;
+    let totalRecords = 0;
+    let earliestReset = new Date().toISOString();
+
+    for (const [, data] of this.usage.entries()) {
+      totalCalls += 1;
+      totalRecords += data.dailyCount + data.monthlyCount;
+      if (data.lastDailyReset < earliestReset) {
+        earliestReset = data.lastDailyReset;
+      }
+    }
+
+    return {
+      totalCalls,
+      totalRecords,
+      trackingStarted: earliestReset,
+    };
+  }
 }
 
 export const apiUsageTracker = new APIUsageTracker();

@@ -1361,6 +1361,12 @@ export class ALeadsProvider {
   }
 
   async skipTrace(input: { name: string; address?: string; city?: string; state?: string; zip?: string }): Promise<ALeadsContact | null> {
+    const check = apiUsageTracker.canMakeRequest("aleads");
+    if (!check.allowed) {
+      console.error(`[A-LEADS BLOCKED] ${check.reason}`);
+      return null;
+    }
+
     try {
       const advancedFilters: Record<string, any> = {};
       
@@ -1409,6 +1415,7 @@ export class ALeadsProvider {
 
       const data = await response.json();
       const results = data.data || [];
+      apiUsageTracker.recordRequest("aleads", results.length || 1);
       
       if (results.length === 0) return null;
 
