@@ -1057,6 +1057,10 @@ export async function processEnrichmentJob(jobId: string): Promise<void> {
     // OPTIMIZATION: Process 6 companies in parallel for ~6x speedup
     const parallelLimit = pLimit(6);
     
+    // Track progress in real-time
+    let lastProgressUpdate = Date.now();
+    const UPDATE_INTERVAL_MS = 2000; // Update DB every 2 seconds
+    
     const enrichmentTasks = targets.map(target => 
       parallelLimit(async () => {
         try {
@@ -1074,29 +1078,37 @@ export async function processEnrichmentJob(jobId: string): Promise<void> {
             processedAt: new Date(),
           });
 
+          // Update progress counter immediately
+          processedCount++;
+          enrichedCount += contacts.length;
+          
+          // Update job progress in DB periodically (every 2s) to avoid hammering DB
+          const now = Date.now();
+          if (now - lastProgressUpdate > UPDATE_INTERVAL_MS) {
+            lastProgressUpdate = now;
+            await storage.updateBulkEnrichmentJob(jobId, {
+              processedTargets: processedCount,
+              enrichedContacts: enrichedCount,
+              errorCount,
+            });
+          }
+
           return { success: true, contactCount: contacts.length };
         } catch (error: any) {
           await storage.updateBulkEnrichmentTarget(target.id, {
             status: "error",
             errorMessage: error?.message || "Unknown error",
           });
+          errorCount++;
           return { success: false, contactCount: 0 };
         }
       })
     );
 
-    // Wait for all tasks with progress updates
-    const results = await Promise.all(enrichmentTasks);
-    
-    for (const result of results) {
-      if (result.success) {
-        processedCount++;
-        enrichedCount += result.contactCount;
-      } else {
-        errorCount++;
-      }
-    }
+    // Wait for all tasks
+    await Promise.all(enrichmentTasks);
 
+    // Final update with completed status
     await storage.updateBulkEnrichmentJob(jobId, {
       status: "succeeded",
       processedTargets: processedCount,
