@@ -213,6 +213,151 @@ export async function searchFamilyOfficesSEC(config: TargetingConfig): Promise<A
   return results;
 }
 
+// OpenMart: Search for family offices and investment firms with decision-maker contacts
+export async function searchFamilyOfficesOpenMart(config: TargetingConfig): Promise<Array<{
+  companyName: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  naicsCode?: string;
+  sicCode?: string;
+  employeeCount?: number;
+  salesVolume?: number;
+  familyOfficeConfidence: number;
+  familyOfficeSignals: string[];
+  dataAxleId?: string;
+  openMartId?: string;
+  decisionMakers?: Array<{
+    name: string;
+    title?: string;
+    email?: string;
+    phone?: string;
+  }>;
+}>> {
+  console.log(`[BULK ENRICHMENT] Using OpenMart for family office discovery`);
+  
+  const location = config.states?.[0] || config.cities?.[0] || undefined;
+  const limit = config.limit || 100;
+  
+  // Get family offices from OpenMart
+  const familyOffices = await dataProviders.searchOpenMartFamilyOffices(location, Math.ceil(limit / 2));
+  const investmentFirms = await dataProviders.searchOpenMartInvestmentFirms(location, Math.ceil(limit / 2));
+  
+  console.log(`[OpenMart] Found ${familyOffices.length} family offices, ${investmentFirms.length} investment firms`);
+  
+  const allBusinesses = [...familyOffices, ...investmentFirms];
+  const results: Array<any> = [];
+  const seenIds = new Set<string>();
+  
+  for (const biz of allBusinesses) {
+    if (seenIds.has(biz.id)) continue;
+    seenIds.add(biz.id);
+    
+    const familyOfficeScore = detectFamilyOffice({
+      name: biz.name,
+    });
+    
+    // Boost confidence for family offices found via OpenMart
+    const boostedConfidence = Math.min(100, familyOfficeScore.confidence + 20);
+    const signals = [...familyOfficeScore.signals];
+    
+    if (biz.category) {
+      signals.push(`OpenMart category: ${biz.category}`);
+    }
+    
+    // Extract decision-makers from staffs array
+    const decisionMakers = dataProviders.extractOpenMartDecisionMakers(biz);
+    if (decisionMakers.length > 0) {
+      signals.push(`${decisionMakers.length} decision-maker(s) with contact info`);
+    }
+    
+    results.push({
+      companyName: biz.name,
+      address: biz.address,
+      city: biz.city,
+      state: biz.state,
+      zip: biz.zip,
+      familyOfficeConfidence: boostedConfidence,
+      familyOfficeSignals: signals,
+      openMartId: biz.id,
+      decisionMakers,
+    });
+  }
+  
+  // Sort by confidence
+  results.sort((a, b) => b.familyOfficeConfidence - a.familyOfficeConfidence);
+  
+  console.log(`[BULK ENRICHMENT] OpenMart returned ${results.length} family office targets`);
+  
+  return results.slice(0, limit);
+}
+
+// Apify Startup Investors: Search for investor decision-makers
+export async function searchInvestorDecisionMakers(config: TargetingConfig): Promise<Array<{
+  companyName: string;
+  name: string;
+  title?: string;
+  email?: string;
+  phone?: string;
+  linkedin?: string;
+  location?: string;
+  firmType?: string;
+  investmentFocus?: string[];
+  confidence: number;
+  source: string;
+}>> {
+  console.log(`[BULK ENRICHMENT] Using Apify Startup Investors for decision-maker search`);
+  
+  const location = config.states?.[0] || config.cities?.[0] || undefined;
+  const limit = config.limit || 100;
+  
+  // Search for family office investors
+  const familyOfficeInvestors = await dataProviders.searchApifyFamilyOfficeInvestors(location, Math.ceil(limit / 2));
+  
+  // Search for real estate investors (relevant for data center interest)
+  const realEstateInvestors = await dataProviders.searchApifyRealEstateInvestors(location, Math.ceil(limit / 2));
+  
+  console.log(`[Apify Investors] Found ${familyOfficeInvestors.length} family office investors, ${realEstateInvestors.length} real estate investors`);
+  
+  const allInvestors = [...familyOfficeInvestors, ...realEstateInvestors];
+  const results: Array<any> = [];
+  const seenIds = new Set<string>();
+  
+  for (const investor of allInvestors) {
+    if (seenIds.has(investor.id)) continue;
+    seenIds.add(investor.id);
+    
+    // Calculate confidence based on available contact info
+    let confidence = 50; // base
+    if (investor.email) confidence += 20;
+    if (investor.phone) confidence += 15;
+    if (investor.linkedin) confidence += 10;
+    if (investor.firm) confidence += 5;
+    
+    results.push({
+      companyName: investor.firm || "Independent Investor",
+      name: investor.name,
+      title: investor.title || "Investor",
+      email: investor.email,
+      phone: investor.phone,
+      linkedin: investor.linkedin,
+      location: investor.location,
+      firmType: investor.firmType,
+      investmentFocus: investor.investmentFocus,
+      confidence: Math.min(100, confidence),
+      source: "apify_startup_investors",
+    });
+  }
+  
+  // Sort by confidence
+  results.sort((a, b) => b.confidence - a.confidence);
+  
+  console.log(`[BULK ENRICHMENT] Apify Investors returned ${results.length} decision-makers`);
+  
+  return results.slice(0, limit);
+}
+
 export async function searchFamilyOffices(config: TargetingConfig): Promise<Array<{
   companyName: string;
   address?: string;
@@ -227,10 +372,16 @@ export async function searchFamilyOffices(config: TargetingConfig): Promise<Arra
   familyOfficeSignals: string[];
   dataAxleId?: string;
 }>> {
-  // Check if user wants to use SEC EDGAR (free) instead of Data Axle
+  // Check if user wants to use SEC EDGAR (free) - highest priority
   if (config.useSecEdgar) {
     console.log(`[BULK ENRICHMENT] SEC EDGAR source selected (FREE)`);
     return searchFamilyOfficesSEC(config);
+  }
+  
+  // Check if user wants to use OpenMart - cost-effective with decision-maker contacts
+  if (config.useOpenMart) {
+    console.log(`[BULK ENRICHMENT] OpenMart source selected (with decision-maker contacts)`);
+    return searchFamilyOfficesOpenMart(config);
   }
   
   const results: Array<any> = [];
@@ -357,89 +508,137 @@ export async function enrichTargetContacts(
     const targetTitlesLower = (config.targetTitles || FAMILY_OFFICE_INDICATORS.titlePatterns)
       .map(t => t.toLowerCase());
 
-    // Strategy 1: Try A-Leads for people by company name
-    const aLeadsContacts = await dataProviders.searchPeopleByCompany(target.companyName, {
-      city: target.city || undefined,
-      state: target.state || undefined,
-    });
-    
-    console.log(`[BULK ENRICHMENT] A-Leads returned ${aLeadsContacts.length} people at "${target.companyName}"`);
+    // NEW PRIORITY ORDER:
+    // 1. Apify Startup Investors (if enabled) - high quality investor decision-makers
+    // 2. A-Leads (fallback) - company contact search
+    // 3. Apify Skip Trace (last resort) - skip tracing
 
-    for (const contact of aLeadsContacts) {
-      const personTitleLower = (contact.title || "").toLowerCase();
-      const isDecisionMaker = targetTitlesLower.some(t => personTitleLower.includes(t)) ||
-        personTitleLower.includes("principal") ||
-        personTitleLower.includes("partner") ||
-        personTitleLower.includes("director") ||
-        personTitleLower.includes("cio") ||
-        personTitleLower.includes("cto") ||
-        personTitleLower.includes("cfo") ||
-        personTitleLower.includes("president") ||
-        personTitleLower.includes("founder") ||
-        personTitleLower.includes("owner") ||
-        personTitleLower.includes("managing");
-
-      if (!isDecisionMaker && config.targetTitles?.length) {
-        continue;
+    // Strategy 1: Try Apify Startup Investors first (if enabled)
+    if (config.useApifyInvestors) {
+      try {
+        const investorResults = await dataProviders.searchApifyInvestorsByFirm(target.companyName, 5);
+        console.log(`[BULK ENRICHMENT] Apify Investors returned ${investorResults.length} investors for "${target.companyName}"`);
+        
+        for (const investor of investorResults) {
+          if (!investor.name) continue;
+          
+          const nameParts = investor.name.split(" ");
+          const firstName = nameParts[0] || "";
+          const lastName = nameParts.slice(1).join(" ") || "";
+          
+          const intentResult = calculateIntentScore({
+            title: investor.title,
+            companyName: target.companyName,
+          });
+          
+          results.push({
+            jobId: target.jobId,
+            targetId: target.id,
+            companyName: target.companyName,
+            firstName,
+            lastName,
+            fullName: investor.name,
+            title: investor.title,
+            email: investor.email,
+            phone: investor.phone,
+            cellPhone: null,
+            address: null,
+            city: null,
+            state: null,
+            zip: null,
+            confidenceScore: investor.email ? 85 : (investor.phone ? 75 : 60),
+            intentScore: intentResult.score,
+            intentSignals: intentResult.signals,
+            intentTier: intentResult.tier,
+            providerSource: "apify_startup_investors",
+            dataAxleId: null,
+          });
+        }
+      } catch (investorError) {
+        console.error(`[BULK ENRICHMENT] Apify Investors error:`, investorError);
       }
-
-      const intentResult = calculateIntentScore({
-        title: contact.title,
-        companyName: target.companyName,
-      });
-
-      const nameParts = (contact.name || "").split(" ");
-      const firstName = nameParts[0] || "";
-      const lastName = nameParts.slice(1).join(" ") || "";
-
-      results.push({
-        jobId: target.jobId,
-        targetId: target.id,
-        companyName: target.companyName,
-        firstName,
-        lastName,
-        fullName: contact.name || "",
-        title: contact.title,
-        email: contact.email,
-        phone: contact.phone,
-        cellPhone: null,
-        address: contact.address,
-        city: null,
-        state: null,
-        zip: null,
-        confidenceScore: contact.confidence || 75,
-        intentScore: intentResult.score,
-        intentSignals: intentResult.signals,
-        intentTier: intentResult.tier,
-        providerSource: "a_leads",
-        dataAxleId: null,
-      });
     }
 
-    // Strategy 2: If A-Leads returned nothing, try Apify skip trace directly
-    // (Skip OpenCorporates - too expensive)
+    // Strategy 2: Try A-Leads for people by company name (fallback)
     if (results.length === 0) {
-      console.log(`[BULK ENRICHMENT] A-Leads returned 0 results, trying Apify skip trace for "${target.companyName}"`);
+      const aLeadsContacts = await dataProviders.searchPeopleByCompany(target.companyName, {
+        city: target.city || undefined,
+        state: target.state || undefined,
+      });
+      
+      console.log(`[BULK ENRICHMENT] A-Leads returned ${aLeadsContacts.length} people at "${target.companyName}"`);
+
+      for (const contact of aLeadsContacts) {
+        const personTitleLower = (contact.title || "").toLowerCase();
+        const isDecisionMaker = targetTitlesLower.some(t => personTitleLower.includes(t)) ||
+          personTitleLower.includes("principal") ||
+          personTitleLower.includes("partner") ||
+          personTitleLower.includes("director") ||
+          personTitleLower.includes("cio") ||
+          personTitleLower.includes("cto") ||
+          personTitleLower.includes("cfo") ||
+          personTitleLower.includes("president") ||
+          personTitleLower.includes("founder") ||
+          personTitleLower.includes("owner") ||
+          personTitleLower.includes("managing");
+
+        if (!isDecisionMaker && config.targetTitles?.length) {
+          continue;
+        }
+
+        const intentResult = calculateIntentScore({
+          title: contact.title,
+          companyName: target.companyName,
+        });
+
+        const nameParts = (contact.name || "").split(" ");
+        const firstName = nameParts[0] || "";
+        const lastName = nameParts.slice(1).join(" ") || "";
+
+        results.push({
+          jobId: target.jobId,
+          targetId: target.id,
+          companyName: target.companyName,
+          firstName,
+          lastName,
+          fullName: contact.name || "",
+          title: contact.title,
+          email: contact.email,
+          phone: contact.phone,
+          cellPhone: null,
+          address: contact.address,
+          city: null,
+          state: null,
+          zip: null,
+          confidenceScore: contact.confidence || 75,
+          intentScore: intentResult.score,
+          intentSignals: intentResult.signals,
+          intentTier: intentResult.tier,
+          providerSource: "a_leads",
+          dataAxleId: null,
+        });
+      }
+    }
+
+    // Strategy 3: If still nothing, try Apify skip trace directly (last resort)
+    if (results.length === 0) {
+      console.log(`[BULK ENRICHMENT] No results from investors/A-Leads, trying Apify skip trace for "${target.companyName}"`);
       
       try {
-        // Try to find people associated with the company using skip trace
-        // Search for the company name - Apify can sometimes find associated people
         const skipResults = await dataProviders.searchPersonSmart(
           target.companyName,
           { state: target.state || undefined }
         );
         
         if (skipResults && skipResults.length > 0) {
-          console.log(`[BULK ENRICHMENT] Apify found ${skipResults.length} people for "${target.companyName}"`);
+          console.log(`[BULK ENRICHMENT] Apify Skip Trace found ${skipResults.length} people for "${target.companyName}"`);
           
-          // Process up to 3 results
           for (const person of skipResults.slice(0, 3)) {
             const firstName = person.firstName || '';
             const lastName = person.lastName || '';
             const fullName = `${firstName} ${lastName}`.trim();
             if (!fullName || fullName.length < 3) continue;
             
-            // Skip if it looks like a company name
             if (/\b(LLC|LP|LLP|Inc|Corp|Corporation|Company|Co|Ltd)\b/i.test(fullName)) {
               continue;
             }

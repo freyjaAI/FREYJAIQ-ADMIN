@@ -661,6 +661,9 @@ export interface TargetingConfig {
   dataCenterIntentFocus?: boolean;
   // Quality filters
   minConfidence?: number; // Minimum family office confidence score (default: 30)
+  limit?: number; // Maximum number of targets to return
   // Data source options
   useSecEdgar?: boolean; // Use FREE SEC EDGAR 13F filings instead of Data Axle Places
+  useOpenMart?: boolean; // Use OpenMart for business discovery with decision-maker contacts
+  useApifyInvestors?: boolean; // Use Apify Startup Investors for decision-maker enrichment
 }

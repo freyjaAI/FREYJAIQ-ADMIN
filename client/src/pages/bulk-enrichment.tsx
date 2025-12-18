@@ -201,6 +201,11 @@ export default function BulkEnrichmentPage() {
   const [selectedTitles, setSelectedTitles] = useState<string[]>(DECISION_MAKER_TITLES.slice(0, 4));
   const [keywords, setKeywords] = useState("family office, capital partners, private wealth");
   const [dataCenterFocus, setDataCenterFocus] = useState(true);
+  
+  // Data source toggles - priority order: SEC EDGAR (FREE) > OpenMart > Data Axle
+  const [useSecEdgar, setUseSecEdgar] = useState(true); // Default to FREE source
+  const [useOpenMart, setUseOpenMart] = useState(false);
+  const [useApifyInvestors, setUseApifyInvestors] = useState(false);
 
   const { data: jobs, isLoading: jobsLoading, refetch: refetchJobs } = useQuery<BulkEnrichmentJob[]>({
     queryKey: ["/api/bulk-enrichment/jobs"],
@@ -253,6 +258,10 @@ export default function BulkEnrichmentPage() {
       targetTitles: selectedTitles,
       dataCenterIntentFocus: dataCenterFocus,
       includeIntentScoring: true,
+      // Data source options
+      useSecEdgar: useSecEdgar,
+      useOpenMart: useOpenMart,
+      useApifyInvestors: useApifyInvestors,
     };
 
     createJobMutation.mutate({ name: jobName, targetingConfig: config });
@@ -473,6 +482,67 @@ export default function BulkEnrichmentPage() {
                       <Label htmlFor={title} className="text-sm">{title}</Label>
                     </div>
                   ))}
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <Label>Data Sources</Label>
+                <p className="text-xs text-muted-foreground">
+                  Select which data sources to use for discovery and enrichment
+                </p>
+                
+                <div className="space-y-2 border rounded-md p-3">
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="useSecEdgar"
+                      checked={useSecEdgar}
+                      onCheckedChange={(checked) => {
+                        setUseSecEdgar(!!checked);
+                        if (checked) setUseOpenMart(false);
+                      }}
+                      data-testid="checkbox-sec-edgar"
+                    />
+                    <Label htmlFor="useSecEdgar" className="flex-1">
+                      <span className="font-medium">SEC EDGAR</span>
+                      <Badge variant="outline" className="ml-2 text-xs">FREE</Badge>
+                      <span className="block text-xs text-muted-foreground">
+                        13F institutional investors managing $100M+ in public equities
+                      </span>
+                    </Label>
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="useOpenMart"
+                      checked={useOpenMart}
+                      onCheckedChange={(checked) => {
+                        setUseOpenMart(!!checked);
+                        if (checked) setUseSecEdgar(false);
+                      }}
+                      data-testid="checkbox-openmart"
+                    />
+                    <Label htmlFor="useOpenMart" className="flex-1">
+                      <span className="font-medium">OpenMart</span>
+                      <span className="block text-xs text-muted-foreground">
+                        Business leads with decision-maker contacts and roles
+                      </span>
+                    </Label>
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="useApifyInvestors"
+                      checked={useApifyInvestors}
+                      onCheckedChange={(checked) => setUseApifyInvestors(!!checked)}
+                      data-testid="checkbox-apify-investors"
+                    />
+                    <Label htmlFor="useApifyInvestors" className="flex-1">
+                      <span className="font-medium">Apify Startup Investors</span>
+                      <span className="block text-xs text-muted-foreground">
+                        9,312+ investor profiles for decision-maker enrichment
+                      </span>
+                    </Label>
+                  </div>
                 </div>
               </div>
 

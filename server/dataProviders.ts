@@ -2,6 +2,8 @@ import pLimit from "p-limit";
 import pRetry from "p-retry";
 import * as PacificEast from "./providers/PacificEastProvider";
 import * as Perplexity from "./providers/PerplexityProvider";
+import { OpenMartProvider, OpenMartBusiness, OpenMartSearchParams } from "./providers/OpenMartProvider";
+import { ApifyStartupInvestorsProvider, InvestorProfile, ApifyInvestorSearchParams } from "./providers/ApifyStartupInvestorsProvider";
 import { parseFromDescription, toAttomQuery, toAttomSplitQuery, isValidForSearch, AddressComponents } from "./addressNormalizer";
 import { apiUsageTracker, withUsageTracking } from "./apiUsageTracker";
 
@@ -1681,6 +1683,8 @@ export class DataProviderManager {
   private google?: GoogleAddressValidationProvider;
   private secEdgar: SECEdgarProvider;  // Always available - FREE, no API key
   private pacificEastEnabled: boolean = false;
+  private openMart?: OpenMartProvider;
+  private apifyInvestors?: ApifyStartupInvestorsProvider;
 
   constructor() {
     console.log("Initializing DataProviderManager...");
@@ -1714,6 +1718,16 @@ export class DataProviderManager {
     // Pacific East is always enabled (uses hardcoded dev key or env var)
     this.pacificEastEnabled = true;
     console.log("✓ Pacific East provider initialized (DataPrime, FPA, EMA, EMV)");
+    // OpenMart - Business leads with decision-maker contacts
+    if (process.env.OPENMART_API_KEY) {
+      this.openMart = new OpenMartProvider(process.env.OPENMART_API_KEY);
+      console.log("✓ OpenMart provider initialized (Business leads discovery)");
+    }
+    // Apify Startup Investors - Investor profiles with contact info
+    if (process.env.APIFY_API_TOKEN) {
+      this.apifyInvestors = new ApifyStartupInvestorsProvider(process.env.APIFY_API_TOKEN);
+      console.log("✓ Apify Startup Investors provider initialized (9,312+ investor profiles)");
+    }
     console.log("Available providers:", this.getAvailableProviders());
   }
 
@@ -1727,6 +1741,8 @@ export class DataProviderManager {
     if (this.google) providers.push("google");
     if (this.secEdgar) providers.push("secedgar");
     if (this.pacificEastEnabled) providers.push("pacificeast");
+    if (this.openMart) providers.push("openmart");
+    if (this.apifyInvestors) providers.push("apifyinvestors");
     return providers;
   }
 
@@ -2749,6 +2765,138 @@ export class DataProviderManager {
       return null;
     }
   }
+
+  // OpenMart - Business leads discovery with decision-maker contacts
+  async searchOpenMartBusinesses(params: OpenMartSearchParams): Promise<OpenMartBusiness[]> {
+    if (!this.openMart) {
+      console.warn("OpenMart provider not configured");
+      return [];
+    }
+
+    try {
+      const response = await this.openMart.searchBusinesses(params);
+      return response.businesses;
+    } catch (error) {
+      console.error("Error searching OpenMart:", error);
+      return [];
+    }
+  }
+
+  async searchOpenMartFamilyOffices(location?: string, limit: number = 100): Promise<OpenMartBusiness[]> {
+    if (!this.openMart) {
+      console.warn("OpenMart provider not configured");
+      return [];
+    }
+
+    try {
+      return await this.openMart.searchFamilyOffices(location, limit);
+    } catch (error) {
+      console.error("Error searching OpenMart family offices:", error);
+      return [];
+    }
+  }
+
+  async searchOpenMartInvestmentFirms(location?: string, limit: number = 100): Promise<OpenMartBusiness[]> {
+    if (!this.openMart) {
+      console.warn("OpenMart provider not configured");
+      return [];
+    }
+
+    try {
+      return await this.openMart.searchInvestmentFirms(location, limit);
+    } catch (error) {
+      console.error("Error searching OpenMart investment firms:", error);
+      return [];
+    }
+  }
+
+  extractOpenMartDecisionMakers(business: OpenMartBusiness): Array<{
+    name: string;
+    title?: string;
+    email?: string;
+    phone?: string;
+    company: string;
+  }> {
+    if (!this.openMart) {
+      return [];
+    }
+    return this.openMart.extractDecisionMakers(business);
+  }
+
+  // Apify Startup Investors - Investor profiles with contact info
+  async searchApifyInvestors(params: ApifyInvestorSearchParams): Promise<InvestorProfile[]> {
+    if (!this.apifyInvestors) {
+      console.warn("Apify Startup Investors provider not configured");
+      return [];
+    }
+
+    try {
+      return await this.apifyInvestors.searchInvestors(params);
+    } catch (error) {
+      console.error("Error searching Apify Investors:", error);
+      return [];
+    }
+  }
+
+  async searchApifyFamilyOfficeInvestors(location?: string, limit: number = 100): Promise<InvestorProfile[]> {
+    if (!this.apifyInvestors) {
+      console.warn("Apify Startup Investors provider not configured");
+      return [];
+    }
+
+    try {
+      return await this.apifyInvestors.searchFamilyOfficeInvestors(location, limit);
+    } catch (error) {
+      console.error("Error searching Apify family office investors:", error);
+      return [];
+    }
+  }
+
+  async searchApifyRealEstateInvestors(location?: string, limit: number = 100): Promise<InvestorProfile[]> {
+    if (!this.apifyInvestors) {
+      console.warn("Apify Startup Investors provider not configured");
+      return [];
+    }
+
+    try {
+      return await this.apifyInvestors.searchRealEstateInvestors(location, limit);
+    } catch (error) {
+      console.error("Error searching Apify real estate investors:", error);
+      return [];
+    }
+  }
+
+  async searchApifyInvestorByName(name: string): Promise<InvestorProfile | null> {
+    if (!this.apifyInvestors) {
+      console.warn("Apify Startup Investors provider not configured");
+      return null;
+    }
+
+    try {
+      return await this.apifyInvestors.searchByInvestorName(name);
+    } catch (error) {
+      console.error("Error searching Apify investor by name:", error);
+      return null;
+    }
+  }
+
+  async searchApifyInvestorsByFirm(firmName: string, limit: number = 10): Promise<InvestorProfile[]> {
+    if (!this.apifyInvestors) {
+      console.warn("Apify Startup Investors provider not configured");
+      return [];
+    }
+
+    try {
+      return await this.apifyInvestors.searchByFirmName(firmName, limit);
+    } catch (error) {
+      console.error("Error searching Apify investors by firm:", error);
+      return [];
+    }
+  }
 }
 
 export const dataProviders = new DataProviderManager();
+
+// Re-export types for use in other modules
+export type { OpenMartBusiness, OpenMartSearchParams } from "./providers/OpenMartProvider";
+export type { InvestorProfile, ApifyInvestorSearchParams } from "./providers/ApifyStartupInvestorsProvider";
