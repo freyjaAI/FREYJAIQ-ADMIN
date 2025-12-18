@@ -27,8 +27,8 @@ const DEFAULT_QUOTAS: Record<string, ProviderQuota> = {
   },
   data_axle_people: {
     provider: "data_axle_people",
-    dailyLimit: parseInt(process.env.QUOTA_DATA_AXLE_PEOPLE_DAILY || "100"),
-    monthlyLimit: parseInt(process.env.QUOTA_DATA_AXLE_PEOPLE_MONTHLY || "1000"),
+    dailyLimit: parseInt(process.env.QUOTA_DATA_AXLE_PEOPLE_DAILY || "0"),  // PAUSED - set to 0 until more calls available
+    monthlyLimit: parseInt(process.env.QUOTA_DATA_AXLE_PEOPLE_MONTHLY || "0"),  // PAUSED
     warningThreshold: 0.8,
   },
   aleads: {
