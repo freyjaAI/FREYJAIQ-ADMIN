@@ -129,6 +129,7 @@ export interface IStorage {
   updateBulkEnrichmentTarget(id: string, updates: Partial<InsertBulkEnrichmentTarget> & { processedAt?: Date }): Promise<BulkEnrichmentTarget | undefined>;
   createBulkEnrichmentResult(result: InsertBulkEnrichmentResult): Promise<BulkEnrichmentResult>;
   getBulkEnrichmentResults(jobId: string): Promise<BulkEnrichmentResult[]>;
+  updateBulkEnrichmentResult(id: string, updates: Partial<InsertBulkEnrichmentResult>): Promise<BulkEnrichmentResult | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -584,6 +585,15 @@ export class DatabaseStorage implements IStorage {
       .from(bulkEnrichmentResults)
       .where(eq(bulkEnrichmentResults.jobId, jobId))
       .orderBy(desc(bulkEnrichmentResults.intentScore));
+  }
+
+  async updateBulkEnrichmentResult(id: string, updates: Partial<InsertBulkEnrichmentResult>): Promise<BulkEnrichmentResult | undefined> {
+    const [updated] = await db
+      .update(bulkEnrichmentResults)
+      .set(updates)
+      .where(eq(bulkEnrichmentResults.id, id))
+      .returning();
+    return updated;
   }
 }
 

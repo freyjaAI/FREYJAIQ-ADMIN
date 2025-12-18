@@ -1073,6 +1073,81 @@ export async function enrichTargetContacts(
   return results;
 }
 
+// Post-processing: Reveal emails and phones for saved contacts
+async function revealContactsForJob(jobId: string): Promise<void> {
+  console.log(`[REVEAL] Starting email/phone reveal for job ${jobId}`);
+  
+  try {
+    // Get all results for this job that need reveals
+    const results = await storage.getBulkEnrichmentResults(jobId);
+    const needsReveal = results.filter(r => 
+      r.linkedinUrl && (!r.email || !r.phone || !r.cellPhone)
+    );
+    
+    if (needsReveal.length === 0) {
+      console.log(`[REVEAL] No contacts need email/phone reveal for job ${jobId}`);
+      return;
+    }
+    
+    console.log(`[REVEAL] Revealing email/phone for ${needsReveal.length} contacts`);
+    
+    // Process reveals in parallel with bounded concurrency
+    const revealLimit = pLimit(5);
+    let revealedEmails = 0;
+    let revealedPhones = 0;
+    
+    const revealTasks = needsReveal.map(result => 
+      revealLimit(async () => {
+        try {
+          // Check if the result has "hasEmail" or "hasPhone" flags from A-Leads
+          const resultData = result as any;
+          const hasEmailFlag = resultData.hasEmail ?? true; // Default to try
+          const hasPhoneFlag = resultData.hasPhone ?? true; // Default to try
+          
+          const revealed = await dataProviders.aLeadsProvider.revealContactInfo({
+            name: result.fullName || "",
+            linkedinUrl: result.linkedinUrl || undefined,
+            email: result.email || undefined,
+            phone: result.phone || result.cellPhone || undefined,
+            hasEmail: hasEmailFlag && !result.email,
+            hasPhone: hasPhoneFlag && !result.phone && !result.cellPhone,
+          });
+          
+          // Update result with revealed data
+          const updates: Record<string, any> = {};
+          if (revealed.email && !result.email) {
+            updates.email = revealed.email;
+            revealedEmails++;
+          }
+          if (revealed.phone) {
+            // Prefer cell phone field for mobile numbers
+            if (!result.cellPhone) {
+              updates.cellPhone = revealed.phone;
+              revealedPhones++;
+            } else if (!result.phone) {
+              updates.phone = revealed.phone;
+              revealedPhones++;
+            }
+          }
+          
+          if (Object.keys(updates).length > 0) {
+            await storage.updateBulkEnrichmentResult(result.id, updates);
+            console.log(`[REVEAL] Updated ${result.fullName}: email=${updates.email || 'same'}, phone=${updates.cellPhone || updates.phone || 'same'}`);
+          }
+        } catch (err: any) {
+          console.error(`[REVEAL] Error for ${result.fullName}:`, err?.message);
+        }
+      })
+    );
+    
+    await Promise.all(revealTasks);
+    console.log(`[REVEAL] Job ${jobId} complete: ${revealedEmails} emails, ${revealedPhones} phones revealed`);
+    
+  } catch (error: any) {
+    console.error(`[REVEAL] Error processing job ${jobId}:`, error?.message);
+  }
+}
+
 export async function processEnrichmentJob(jobId: string): Promise<void> {
   console.log(`[BULK ENRICHMENT] Starting job ${jobId}`);
 
@@ -1158,6 +1233,10 @@ export async function processEnrichmentJob(jobId: string): Promise<void> {
     });
 
     console.log(`[BULK ENRICHMENT] Job ${jobId} completed: ${processedCount} targets, ${enrichedCount} contacts`);
+    
+    // POST-PROCESSING: Reveal emails and phones for contacts with LinkedIn URLs
+    // This runs after job is marked complete so UI updates immediately
+    setTimeout(() => revealContactsForJob(jobId), 100);
 
   } catch (error: any) {
     console.error(`[BULK ENRICHMENT] Job ${jobId} failed:`, error);
