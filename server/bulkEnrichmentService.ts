@@ -416,79 +416,38 @@ export async function enrichTargetContacts(
       });
     }
 
-    // Strategy 2: If A-Leads returned nothing, try OpenCorporates for officers
+    // Strategy 2: If A-Leads returned nothing, try Apify skip trace directly
+    // (Skip OpenCorporates - too expensive)
     if (results.length === 0) {
-      console.log(`[BULK ENRICHMENT] A-Leads returned 0 results, trying OpenCorporates for "${target.companyName}"`);
+      console.log(`[BULK ENRICHMENT] A-Leads returned 0 results, trying Apify skip trace for "${target.companyName}"`);
       
       try {
-        // Use searchLlcOfficers which handles the full lookup flow
-        const officers = await dataProviders.searchLlcOfficers(target.companyName);
+        // Try to find people associated with the company using skip trace
+        // Search for the company name - Apify can sometimes find associated people
+        const skipResults = await dataProviders.searchPersonSmart(
+          target.companyName,
+          { state: target.state || undefined }
+        );
         
-        if (officers && officers.length > 0) {
-          console.log(`[BULK ENRICHMENT] OpenCorporates found ${officers.length} officers`);
+        if (skipResults && skipResults.length > 0) {
+          console.log(`[BULK ENRICHMENT] Apify found ${skipResults.length} people for "${target.companyName}"`);
           
-          // Process each officer - limit to 5 to avoid too many API calls
-          const officersToProcess = officers.slice(0, 5);
-          
-          for (const officer of officersToProcess) {
-            const officerName = officer.name || '';
-            if (!officerName || officerName.length < 3) continue;
+          // Process up to 3 results
+          for (const person of skipResults.slice(0, 3)) {
+            const fullName = person.name || '';
+            if (!fullName || fullName.length < 3) continue;
             
-            // Skip if it looks like a company name (contains LLC, Corp, etc.)
-            if (/\b(LLC|LP|LLP|Inc|Corp|Corporation|Company|Co|Ltd)\b/i.test(officerName)) {
+            // Skip if it looks like a company name
+            if (/\b(LLC|LP|LLP|Inc|Corp|Corporation|Company|Co|Ltd)\b/i.test(fullName)) {
               continue;
-            }
-            
-            // Normalize position - remove annotations like (Resigned), (Inactive)
-            const rawPosition = officer.position || 'Officer';
-            const position = rawPosition.replace(/\s*\([^)]*\)\s*/g, '').trim() || 'Officer';
-            const positionLower = position.toLowerCase();
-            
-            // Check if this is a decision-maker title
-            const isDecisionMaker = targetTitlesLower.some(t => positionLower.includes(t)) ||
-              positionLower.includes("director") ||
-              positionLower.includes("president") ||
-              positionLower.includes("ceo") ||
-              positionLower.includes("cfo") ||
-              positionLower.includes("manager") ||
-              positionLower.includes("member") ||
-              positionLower.includes("partner") ||
-              positionLower.includes("principal") ||
-              positionLower.includes("owner") ||
-              positionLower.includes("agent");
-            
-            if (!isDecisionMaker && config.targetTitles?.length) {
-              continue;
-            }
-            
-            // Try to skip trace this person for contact info
-            let phone: string | undefined;
-            let email: string | undefined;
-            let address: string | undefined;
-            
-            try {
-              // Use Apify skip trace (cheaper) to find contact info
-              const skipResults = await dataProviders.searchPersonSmart(
-                officerName,
-                { state: target.state || undefined }
-              );
-              
-              if (skipResults && skipResults.length > 0) {
-                const firstResult = skipResults[0];
-                phone = firstResult.phones?.[0];
-                email = firstResult.emails?.[0];
-                address = firstResult.address;
-              }
-            } catch (e) {
-              console.log(`[BULK ENRICHMENT] Skip trace failed for ${officerName}`);
             }
             
             const intentResult = calculateIntentScore({
-              title: position,
+              title: "Principal",
               companyName: target.companyName,
             });
             
-            const nameParts = officerName.split(" ");
+            const nameParts = fullName.split(" ");
             const firstName = nameParts[0] || "";
             const lastName = nameParts.slice(1).join(" ") || "";
             
@@ -498,26 +457,26 @@ export async function enrichTargetContacts(
               companyName: target.companyName,
               firstName,
               lastName,
-              fullName: officerName,
-              title: position,
-              email: email || null,
-              phone: phone || null,
-              cellPhone: null,
-              address: address || null,
+              fullName,
+              title: "Principal",
+              email: person.emails?.[0] || null,
+              phone: person.phones?.[0] || null,
+              cellPhone: person.phones?.[1] || null,
+              address: person.address || null,
               city: null,
               state: target.state || null,
               zip: null,
-              confidenceScore: phone || email ? 70 : 50,
+              confidenceScore: (person.phones?.length || person.emails?.length) ? 75 : 50,
               intentScore: intentResult.score,
               intentSignals: intentResult.signals,
               intentTier: intentResult.tier,
-              providerSource: "opencorporates",
+              providerSource: "apify_skip_trace",
               dataAxleId: null,
             });
           }
         }
-      } catch (ocError) {
-        console.error(`[BULK ENRICHMENT] OpenCorporates fallback failed:`, ocError);
+      } catch (apifyError) {
+        console.error(`[BULK ENRICHMENT] Apify skip trace failed:`, apifyError);
       }
     }
 
