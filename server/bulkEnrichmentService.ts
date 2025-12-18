@@ -580,7 +580,9 @@ export async function enrichTargetContacts(
 ): Promise<InsertBulkEnrichmentResult[]> {
   const results: InsertBulkEnrichmentResult[] = [];
   const seenNames = new Set<string>(); // Dedupe by name
-  const MAX_CONTACTS_PER_FIRM = 5;
+  // OPTIMIZATION: Reduced from 5 to 2 for faster processing
+  // User can always drill down for more contacts on specific companies
+  const MAX_CONTACTS_PER_FIRM = 2;
 
   try {
     const normalizedCompany = normalizeCompanyName(target.companyName);
@@ -728,44 +730,13 @@ export async function enrichTargetContacts(
     }
 
     // ========================================
-    // STRATEGY 4: Skip trace for contacts missing email/phone
-    // Enrich contacts that are missing contact info
+    // STRATEGY 4: Skip trace DISABLED for speed
+    // Skip trace adds 3-5 seconds per contact - too slow for bulk processing
+    // Users can enrich individual contacts later via the dossier detail page
     // ========================================
-    const contactsNeedingEnrichment = results.filter(r => !r.email && !r.phone);
-    if (contactsNeedingEnrichment.length > 0) {
-      console.log(`[BULK ENRICHMENT] 4/4 - Running skip trace for ${contactsNeedingEnrichment.length} contacts missing email/phone...`);
-      
-      for (const contact of contactsNeedingEnrichment.slice(0, 3)) {
-        try {
-          const skipResults = await dataProviders.searchPersonSmart(
-            contact.fullName || `${contact.firstName} ${contact.lastName}`,
-            { state: contact.state || target.state || undefined }
-          );
-          
-          if (skipResults && skipResults.length > 0) {
-            const person = skipResults[0];
-            // Update the contact with enriched data
-            if (!contact.email && person.emails?.length) {
-              contact.email = person.emails[0];
-              contact.confidenceScore = Math.min(100, (contact.confidenceScore || 50) + 15);
-            }
-            if (!contact.phone && person.phones?.length) {
-              contact.phone = person.phones[0];
-              contact.confidenceScore = Math.min(100, (contact.confidenceScore || 50) + 15);
-            }
-            if (!contact.cellPhone && person.cellPhones?.length) {
-              contact.cellPhone = person.cellPhones[0];
-            }
-            if (!contact.address && person.address) {
-              contact.address = person.address;
-            }
-            console.log(`[BULK ENRICHMENT] Enriched "${contact.fullName}" with skip trace data`);
-          }
-        } catch (skipError) {
-          console.error(`[BULK ENRICHMENT] Skip trace for "${contact.fullName}" failed:`, skipError);
-        }
-      }
-    }
+    // OPTIMIZATION: Disabled to improve bulk processing speed
+    // const contactsNeedingEnrichment = results.filter(r => !r.email && !r.phone);
+    // if (contactsNeedingEnrichment.length > 0) { ... }
 
     console.log(`[BULK ENRICHMENT] FINAL: ${results.length} decision makers found for "${target.companyName}"`);
     

@@ -1617,9 +1617,10 @@ export class ALeadsProvider {
         
         console.log(`[A-Leads] Variant "${variant}": ${results.length} raw -> ${addedCount} new decision-makers (total: ${filteredResults.length})`);
         
-        // Stop once we have enough decision-makers to save API quota
-        if (filteredResults.length >= 3) {
-          console.log(`[A-Leads] Found ${filteredResults.length} decision-makers, stopping variant search to save API quota`);
+        // OPTIMIZATION: Stop at 2 decision-makers for faster bulk processing
+        // Full enrichment can be done on individual companies later
+        if (filteredResults.length >= 2) {
+          console.log(`[A-Leads] Found ${filteredResults.length} decision-makers, stopping early for speed`);
           break;
         }
       }
