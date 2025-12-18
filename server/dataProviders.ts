@@ -1646,6 +1646,42 @@ export class ALeadsProvider {
     }
   }
 
+  // Reveal email and phone for a contact with LinkedIn URL (used during enrichment phase)
+  async revealContactInfo(contact: ALeadsContact): Promise<{ email?: string; phone?: string }> {
+    const result: { email?: string; phone?: string } = {};
+    
+    if (!contact.linkedinUrl) {
+      return result;
+    }
+    
+    const linkedinUsername = this.extractLinkedInUsername(contact.linkedinUrl);
+    if (!linkedinUsername) {
+      return result;
+    }
+    
+    // Reveal email and phone in parallel for speed
+    const promises: Promise<void>[] = [];
+    
+    if (!contact.email && contact.hasEmail) {
+      promises.push(
+        this.revealEmail(linkedinUsername).then(email => {
+          if (email) result.email = email;
+        })
+      );
+    }
+    
+    if (!contact.phone && contact.hasPhone) {
+      promises.push(
+        this.revealPhone(linkedinUsername).then(phone => {
+          if (phone) result.phone = phone;
+        })
+      );
+    }
+    
+    await Promise.all(promises);
+    return result;
+  }
+
   async searchContacts(query: { name?: string; company?: string; location?: string }): Promise<ALeadsContact[]> {
     const check = apiUsageTracker.canMakeRequest("aleads");
     if (!check.allowed) {
@@ -1972,39 +2008,16 @@ export class ALeadsProvider {
         console.log(`[A-Leads] Sample result (full structure):`, JSON.stringify(sample, null, 2));
       }
 
-      // Map results and reveal emails/phones for contacts with LinkedIn profiles
-      const mappedContacts: ALeadsContact[] = [];
-      
-      for (const contact of results) {
+      // Map results - NO reveals during search (deferred to enrichment phase for speed)
+      // Store LinkedIn info for later reveal via revealContactInfo() method
+      const mappedContacts: ALeadsContact[] = results.map((contact: any) => {
         // Try multiple possible email fields from A-Leads response
-        let email = contact.email || contact.member_email || contact.personal_email || contact.work_email || null;
-        
-        // Get LinkedIn URL for reveal operations
+        const email = contact.email || contact.member_email || contact.personal_email || contact.work_email || null;
         const linkedinUrl = contact.member_linkedin_url;
-        const linkedinUsername = linkedinUrl ? this.extractLinkedInUsername(linkedinUrl) : null;
-        
-        // If no email but we have LinkedIn, try to reveal it
-        if (!email && linkedinUsername) {
-          const revealedEmail = await this.revealEmail(linkedinUsername);
-          if (revealedEmail) {
-            email = revealedEmail;
-          }
-        }
-        
-        // A-Leads Advanced Search returns phone_number_available as a FLAG (boolean)
-        // Use the find-phone endpoint to reveal actual phone numbers
         const hasPhoneFlag = contact.phone_number_available === true || contact.phone_number_available === "true";
-        let phone = contact.phone || contact.phone_number || contact.member_phone || contact.mobile_phone || null;
+        const phone = contact.phone || contact.phone_number || contact.member_phone || contact.mobile_phone || null;
         
-        // If phone flag indicates availability and we have LinkedIn, reveal the phone
-        if (!phone && hasPhoneFlag && linkedinUsername) {
-          const revealedPhone = await this.revealPhone(linkedinUsername);
-          if (revealedPhone) {
-            phone = revealedPhone;
-          }
-        }
-        
-        mappedContacts.push({
+        return {
           name: contact.member_full_name || `${contact.member_name_first || ""} ${contact.member_name_last || ""}`.trim(),
           firstName: contact.member_name_first,
           lastName: contact.member_name_last,
@@ -2018,16 +2031,18 @@ export class ALeadsProvider {
           location: contact.member_location_raw_address || contact.hq_location,
           industry: contact.industry,
           companySize: contact.size_range || (contact.company_headcount ? `${contact.company_headcount} employees` : undefined),
-          source: "a-leads",
+          source: "a-leads" as const,
           confidence: 85,
-          hasEmail: !!email,
+          hasEmail: !!email || contact.email_found === true,
           hasPhone: !!phone || hasPhoneFlag,
-        });
-      }
+        };
+      });
       
       const withEmail = mappedContacts.filter(c => c.email).length;
       const withPhone = mappedContacts.filter(c => c.phone).length;
-      console.log(`[A-Leads] Enriched results: ${withEmail}/${mappedContacts.length} with email, ${withPhone}/${mappedContacts.length} with phone`);
+      const canRevealEmail = mappedContacts.filter(c => !c.email && c.linkedinUrl).length;
+      const canRevealPhone = mappedContacts.filter(c => !c.phone && c.hasPhone && c.linkedinUrl).length;
+      console.log(`[A-Leads] Results: ${withEmail} with email, ${withPhone} with phone | Revealable: ${canRevealEmail} emails, ${canRevealPhone} phones`);
       
       return mappedContacts;
     } catch (error: any) {
