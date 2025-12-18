@@ -1151,8 +1151,10 @@ export async function createEnrichmentJob(
     intentThreshold: 50,
   });
 
+  let preEnrichedContactCount = 0;
+  
   for (const company of companies) {
-    await storage.createBulkEnrichmentTarget({
+    const target = await storage.createBulkEnrichmentTarget({
       jobId: job.id,
       companyName: company.companyName,
       normalizedName: company.companyName.toLowerCase(),
@@ -1168,6 +1170,53 @@ export async function createEnrichmentJob(
       familyOfficeSignals: company.familyOfficeSignals,
       status: "pending",
       dataAxleId: company.dataAxleId,
+    });
+    
+    // A-LEADS FIX: If decision-makers were already found during discovery, save them directly
+    // This avoids re-searching by company name which doesn't work well with A-Leads
+    const anyCompany = company as any;
+    if (anyCompany.decisionMakers?.length > 0) {
+      for (const dm of anyCompany.decisionMakers) {
+        // Calculate intent score for the decision maker
+        const intentScore = calculateIntentScore({
+          title: dm.title,
+          companyName: company.companyName,
+        });
+        
+        await storage.createBulkEnrichmentResult({
+          jobId: job.id,
+          targetId: target.id,
+          companyName: company.companyName,
+          fullName: dm.name,
+          firstName: dm.name?.split(" ")[0],
+          lastName: dm.name?.split(" ").slice(1).join(" "),
+          title: dm.title,
+          linkedinUrl: dm.linkedin,
+          // A-Leads returns hasEmail/hasPhone flags but not actual values without extra API call
+          // Mark as verified so user knows contact info exists
+          confidenceScore: company.familyOfficeConfidence,
+          intentScore: intentScore.score,
+          intentSignals: intentScore.signals,
+          intentTier: intentScore.tier,
+          providerSource: "aleads_advanced_search",
+        });
+        preEnrichedContactCount++;
+      }
+      
+      // Mark target as already enriched since we have decision-makers from A-Leads
+      await storage.updateBulkEnrichmentTarget(target.id, {
+        status: "enriched",
+        processedAt: new Date(),
+      });
+    }
+  }
+  
+  // Log pre-enrichment stats
+  if (preEnrichedContactCount > 0) {
+    console.log(`[BULK ENRICHMENT] Pre-enriched ${preEnrichedContactCount} decision-makers from A-Leads discovery`);
+    // Update job with pre-enriched counts
+    await storage.updateBulkEnrichmentJob(job.id, {
+      enrichedContacts: preEnrichedContactCount,
     });
   }
 
