@@ -148,110 +148,141 @@ function ResultsTable({ results }: { results: BulkEnrichmentResult[] }) {
   }
 
   return (
-    <ScrollArea className="h-[500px]">
-      <div className="space-y-3">
-        {results.map((result) => (
-          <Card key={result.id} data-testid={`result-row-${result.id}`}>
-            <CardContent className="p-4">
-              <div className="flex items-start justify-between gap-4 flex-wrap">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">{result.fullName || "Unknown"}</span>
-                    {result.intentTier && (
-                      <IntentBadge tier={result.intentTier} score={result.intentScore || 0} />
-                    )}
+    <ScrollArea className="h-[600px]">
+      <div className="space-y-4 pr-4">
+        {results.map((result, index) => (
+          <Card 
+            key={result.id} 
+            data-testid={`result-row-${result.id}`}
+            className="overflow-hidden border-l-4 border-l-primary/60"
+          >
+            {/* Contact Header - Clear visual identity */}
+            <div className="bg-muted/30 px-4 py-3 border-b border-border">
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold text-sm">
+                    {(result.fullName || "?").split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase()}
                   </div>
-                  <div className="text-sm text-muted-foreground flex items-center gap-1">
-                    <Briefcase className="w-3 h-3" />
-                    {result.title || "No title"} at {result.companyName}
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-base">{result.fullName || "Unknown"}</span>
+                      <Badge variant="secondary" className="text-xs">#{index + 1}</Badge>
+                    </div>
+                    <div className="text-sm text-muted-foreground flex items-center gap-1">
+                      <Briefcase className="w-3 h-3" />
+                      {result.title || "No title"}
+                    </div>
                   </div>
                 </div>
-                <div className="flex flex-col gap-1 text-sm">
-                  {result.address && (
-                    <span className="flex items-center gap-1 text-muted-foreground">
-                      <MapPin className="w-3 h-3" /> {result.address}
-                    </span>
-                  )}
-                  {!result.address && result.city && result.state && (
-                    <span className="flex items-center gap-1 text-muted-foreground">
-                      <MapPin className="w-3 h-3" /> {result.city}, {result.state}
-                    </span>
-                  )}
-                  {(result.phone || result.cellPhone) && (
-                    <span className="flex items-center gap-1 text-muted-foreground">
-                      <Phone className="w-3 h-3" /> {result.cellPhone || result.phone}
-                    </span>
-                  )}
-                  {result.linkedinUrl && (
-                    <a 
-                      href={result.linkedinUrl} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-1 text-blue-500 hover:text-blue-600"
-                      data-testid={`linkedin-link-${result.id}`}
-                    >
-                      <Linkedin className="w-3 h-3" /> LinkedIn <ExternalLink className="w-3 h-3" />
-                    </a>
-                  )}
-                  {result.email && (
-                    <span className="flex items-center gap-1 text-muted-foreground">
-                      <Mail className="w-3 h-3" /> {result.email}
-                    </span>
-                  )}
-                </div>
+                {result.intentTier && (
+                  <IntentBadge tier={result.intentTier} score={result.intentScore || 0} />
+                )}
               </div>
+            </div>
+
+            <CardContent className="p-4">
+              {/* Company & Location Row */}
+              <div className="flex items-center gap-4 mb-3 pb-3 border-b border-border/50 flex-wrap">
+                <div className="flex items-center gap-2 text-sm">
+                  <Building2 className="w-4 h-4 text-muted-foreground" />
+                  <span className="font-medium">{result.companyName}</span>
+                </div>
+                {(result.address || (result.city && result.state)) && (
+                  <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                    <MapPin className="w-3 h-3" />
+                    {result.address || `${result.city}, ${result.state}`}
+                  </div>
+                )}
+              </div>
+
+              {/* Contact Info Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-3">
+                {result.email && (
+                  <div className="flex items-center gap-2 p-2 rounded-md bg-green-500/10 border border-green-500/20">
+                    <Mail className="w-4 h-4 text-green-500" />
+                    <span className="text-sm truncate">{result.email}</span>
+                  </div>
+                )}
+                {(result.phone || result.cellPhone) && (
+                  <div className="flex items-center gap-2 p-2 rounded-md bg-blue-500/10 border border-blue-500/20">
+                    <Phone className="w-4 h-4 text-blue-500" />
+                    <span className="text-sm">{result.cellPhone || result.phone}</span>
+                  </div>
+                )}
+                {result.linkedinUrl && (
+                  <a 
+                    href={result.linkedinUrl} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 p-2 rounded-md bg-[#0077B5]/10 border border-[#0077B5]/20 hover:bg-[#0077B5]/20 transition-colors"
+                    data-testid={`linkedin-link-${result.id}`}
+                  >
+                    <Linkedin className="w-4 h-4 text-[#0077B5]" />
+                    <span className="text-sm text-[#0077B5]">View Profile</span>
+                    <ExternalLink className="w-3 h-3 text-[#0077B5] ml-auto" />
+                  </a>
+                )}
+              </div>
+
+              {/* AI Summary */}
               {result.aiSummary && (
-                <div className="mt-3 pt-3 border-t border-border">
+                <div className="p-3 rounded-md bg-muted/30 border border-border/50">
                   <p className="text-sm text-muted-foreground italic">
-                    <Sparkles className="w-3 h-3 inline mr-1" />
+                    <Sparkles className="w-3 h-3 inline mr-1 text-primary" />
                     {result.aiSummary}
                   </p>
                 </div>
               )}
               
+              {/* Gemini Deep Research Section */}
               {(result as any).whyReachOut && (
-                <div className="mt-3 pt-3 border-t border-border space-y-3">
-                  <div className="flex items-center gap-2 text-sm font-medium text-primary">
-                    <Sparkles className="w-4 h-4" />
-                    Gemini Deep Research
+                <div className="mt-4 pt-4 border-t-2 border-primary/20">
+                  <div className="flex items-center gap-2 text-sm font-semibold mb-3">
+                    <div className="p-1.5 rounded-md bg-primary/10">
+                      <Sparkles className="w-4 h-4 text-primary" />
+                    </div>
+                    <span>Gemini Deep Research</span>
                     {(result as any).geminiConfidenceScore && (
-                      <Badge variant="outline" className="ml-auto text-xs">
+                      <Badge variant="outline" className="ml-auto text-xs bg-primary/5">
                         {(result as any).geminiConfidenceScore}% confidence
                       </Badge>
                     )}
                   </div>
                   
-                  <div className="grid gap-2 text-sm">
-                    <div className="p-2 rounded-md bg-muted/50">
-                      <p className="font-medium text-xs text-muted-foreground mb-1">Why Reach Out</p>
-                      <p>{(result as any).whyReachOut}</p>
+                  <div className="grid gap-3 text-sm">
+                    <div className="p-3 rounded-md bg-green-500/5 border border-green-500/20">
+                      <p className="font-medium text-xs text-green-600 dark:text-green-400 mb-1 uppercase tracking-wide">Why Reach Out</p>
+                      <p className="text-foreground">{(result as any).whyReachOut}</p>
                     </div>
                     
-                    <div className="p-2 rounded-md bg-muted/50">
-                      <p className="font-medium text-xs text-muted-foreground mb-1">How to Approach</p>
-                      <p>{(result as any).howToReachOut}</p>
+                    <div className="p-3 rounded-md bg-blue-500/5 border border-blue-500/20">
+                      <p className="font-medium text-xs text-blue-600 dark:text-blue-400 mb-1 uppercase tracking-wide">How to Approach</p>
+                      <p className="text-foreground">{(result as any).howToReachOut}</p>
                     </div>
                     
-                    <div className="p-2 rounded-md bg-muted/50">
-                      <p className="font-medium text-xs text-muted-foreground mb-1">Why They'd Be Interested</p>
-                      <p>{(result as any).whyTheyreInterested}</p>
+                    <div className="p-3 rounded-md bg-purple-500/5 border border-purple-500/20">
+                      <p className="font-medium text-xs text-purple-600 dark:text-purple-400 mb-1 uppercase tracking-wide">Why They'd Be Interested</p>
+                      <p className="text-foreground">{(result as any).whyTheyreInterested}</p>
                     </div>
                     
                     {(result as any).keyTalkingPoints && Array.isArray((result as any).keyTalkingPoints) && (
-                      <div className="p-2 rounded-md bg-muted/50">
-                        <p className="font-medium text-xs text-muted-foreground mb-1">Key Talking Points</p>
-                        <ul className="list-disc list-inside space-y-0.5">
+                      <div className="p-3 rounded-md bg-orange-500/5 border border-orange-500/20">
+                        <p className="font-medium text-xs text-orange-600 dark:text-orange-400 mb-2 uppercase tracking-wide">Key Talking Points</p>
+                        <ul className="space-y-1.5">
                           {((result as any).keyTalkingPoints as string[]).map((point, i) => (
-                            <li key={i}>{point}</li>
+                            <li key={i} className="flex items-start gap-2 text-foreground">
+                              <span className="w-5 h-5 rounded-full bg-orange-500/20 text-orange-600 dark:text-orange-400 flex items-center justify-center text-xs font-medium shrink-0 mt-0.5">{i + 1}</span>
+                              <span>{point}</span>
+                            </li>
                           ))}
                         </ul>
                       </div>
                     )}
                     
                     {(result as any).investmentThesis && (
-                      <div className="p-2 rounded-md bg-muted/50">
-                        <p className="font-medium text-xs text-muted-foreground mb-1">Investment Thesis</p>
-                        <p>{(result as any).investmentThesis}</p>
+                      <div className="p-3 rounded-md bg-emerald-500/5 border border-emerald-500/20">
+                        <p className="font-medium text-xs text-emerald-600 dark:text-emerald-400 mb-1 uppercase tracking-wide">Investment Thesis</p>
+                        <p className="text-foreground">{(result as any).investmentThesis}</p>
                       </div>
                     )}
                   </div>
