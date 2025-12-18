@@ -1584,13 +1584,15 @@ export class ALeadsProvider {
       }
 
       const result = await response.json();
+      console.log(`[A-Leads] Email API response for ${linkedinUsername}:`, JSON.stringify(result).slice(0, 500));
       // Only count as API call if email was found (per docs: credits only deducted on success)
-      const email = result?.data?.personal_email || null;
+      // Try multiple possible field names
+      const email = result?.data?.personal_email || result?.data?.email || result?.email || null;
       if (email) {
         apiUsageTracker.recordRequest("aleads", 1);
         console.log(`[A-Leads] Found email for ${linkedinUsername}: ${email}`);
       } else {
-        console.log(`[A-Leads] No email found for ${linkedinUsername}`);
+        console.log(`[A-Leads] No email found for ${linkedinUsername}, response keys: ${Object.keys(result?.data || result || {}).join(', ')}`);
       }
       return email;
     } catch (error: any) {
@@ -1631,13 +1633,14 @@ export class ALeadsProvider {
       }
 
       const result = await response.json();
+      console.log(`[A-Leads] Phone API response for ${linkedinUsername}:`, JSON.stringify(result).slice(0, 500));
       // Try multiple possible phone field names from A-Leads response
-      const phone = result?.data?.phone || result?.data?.mobile_phone || result?.data?.personal_phone || result?.data?.phone_number || null;
+      const phone = result?.data?.phone || result?.data?.mobile_phone || result?.data?.personal_phone || result?.data?.phone_number || result?.phone || null;
       if (phone) {
         apiUsageTracker.recordRequest("aleads", 1);
         console.log(`[A-Leads] Found phone for ${linkedinUsername}: ${phone}`);
       } else {
-        console.log(`[A-Leads] No phone found for ${linkedinUsername}, response:`, JSON.stringify(result).slice(0, 200));
+        console.log(`[A-Leads] No phone found for ${linkedinUsername}, response keys: ${Object.keys(result?.data || result || {}).join(', ')}`);
       }
       return phone;
     } catch (error: any) {
