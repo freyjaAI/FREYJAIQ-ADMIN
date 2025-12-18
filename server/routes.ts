@@ -1734,6 +1734,38 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // Re-run reveal and Gemini research for a completed job
+  app.post("/api/bulk-enrichment/jobs/:id/reprocess", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) {
+        return res.status(401).json({ message: "User not found" });
+      }
+
+      const job = await storage.getBulkEnrichmentJob(req.params.id);
+      if (!job) {
+        return res.status(404).json({ message: "Job not found" });
+      }
+      if (job.userId !== userId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Only allow reprocessing of completed jobs
+      if (job.status !== "succeeded") {
+        return res.status(400).json({ message: "Job must be completed to reprocess" });
+      }
+
+      // Trigger reprocessing in background
+      const { reprocessJobContacts } = await import("./bulkEnrichmentService");
+      reprocessJobContacts(job.id);
+
+      res.json({ message: "Reprocessing started", jobId: job.id });
+    } catch (error) {
+      console.error("Failed to reprocess job:", error);
+      res.status(500).json({ message: "Failed to reprocess job" });
+    }
+  });
+
   // Search endpoint (with rate limiting)
   app.get("/api/search", isAuthenticated, searchRateLimit, async (req: any, res) => {
     try {

@@ -1445,6 +1445,30 @@ export async function createEnrichmentJob(
   return job;
 }
 
+// Re-process a completed job (reveal contacts + Gemini research)
+// Used when server restarts lose the post-processing callbacks
+export async function reprocessJobContacts(jobId: string): Promise<void> {
+  console.log(`[REPROCESS] Starting reprocessing for job ${jobId}`);
+  
+  try {
+    const job = await storage.getBulkEnrichmentJob(jobId);
+    if (!job || job.status !== "succeeded") {
+      console.log(`[REPROCESS] Job ${jobId} not found or not completed`);
+      return;
+    }
+    
+    // Run reveal phase
+    await revealContactsForJob(jobId);
+    
+    // Run Gemini research phase after a short delay
+    setTimeout(() => geminiResearchForJob(jobId), 3000);
+    
+    console.log(`[REPROCESS] Completed reprocessing for job ${jobId}`);
+  } catch (error) {
+    console.error(`[REPROCESS] Error reprocessing job ${jobId}:`, error);
+  }
+}
+
 export const bulkEnrichmentService = {
   createEnrichmentJob,
   processEnrichmentJob,
@@ -1452,4 +1476,5 @@ export const bulkEnrichmentService = {
   enrichTargetContacts,
   detectFamilyOffice,
   calculateIntentScore,
+  reprocessJobContacts,
 };

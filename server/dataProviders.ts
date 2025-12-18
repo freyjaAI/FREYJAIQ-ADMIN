@@ -1651,18 +1651,26 @@ export class ALeadsProvider {
     const result: { email?: string; phone?: string } = {};
     
     if (!contact.linkedinUrl) {
+      console.log(`[A-Leads] No LinkedIn URL for ${contact.name}, skipping reveal`);
       return result;
     }
     
     const linkedinUsername = this.extractLinkedInUsername(contact.linkedinUrl);
     if (!linkedinUsername) {
+      console.log(`[A-Leads] Could not extract LinkedIn username from: ${contact.linkedinUrl}`);
       return result;
     }
     
+    console.log(`[A-Leads] Starting reveal for ${contact.name} (LinkedIn: ${linkedinUsername}), hasEmail=${contact.hasEmail}, hasPhone=${contact.hasPhone}`);
+    
     // Reveal email and phone in parallel for speed
+    // Default to true if hasEmail/hasPhone not specified - always try to reveal if we have LinkedIn
+    const shouldRevealEmail = !contact.email && (contact.hasEmail !== false);
+    const shouldRevealPhone = !contact.phone && (contact.hasPhone !== false);
+    
     const promises: Promise<void>[] = [];
     
-    if (!contact.email && contact.hasEmail) {
+    if (shouldRevealEmail) {
       promises.push(
         this.revealEmail(linkedinUsername).then(email => {
           if (email) result.email = email;
@@ -1670,12 +1678,16 @@ export class ALeadsProvider {
       );
     }
     
-    if (!contact.phone && contact.hasPhone) {
+    if (shouldRevealPhone) {
       promises.push(
         this.revealPhone(linkedinUsername).then(phone => {
           if (phone) result.phone = phone;
         })
       );
+    }
+    
+    if (promises.length === 0) {
+      console.log(`[A-Leads] Nothing to reveal for ${contact.name} (email=${!!contact.email}, phone=${!!contact.phone})`);
     }
     
     await Promise.all(promises);

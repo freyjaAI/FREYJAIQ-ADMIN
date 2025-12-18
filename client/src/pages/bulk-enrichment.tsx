@@ -351,6 +351,26 @@ export default function BulkEnrichmentPage() {
     window.open(`/api/bulk-enrichment/jobs/${jobId}/export`, "_blank");
   };
 
+  const handleReprocess = async (jobId: string) => {
+    try {
+      await apiRequest("POST", `/api/bulk-enrichment/jobs/${jobId}/reprocess`);
+      toast({
+        title: "Re-enrichment started",
+        description: "Refreshing contact data and AI insights. Refresh in a few seconds to see updates.",
+      });
+      // Refresh job data after a short delay
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['/api/bulk-enrichment/jobs', jobId] });
+      }, 3000);
+    } catch (error: any) {
+      toast({
+        title: "Re-enrichment failed",
+        description: error?.message || "Failed to start re-enrichment",
+        variant: "destructive",
+      });
+    }
+  };
+
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -391,14 +411,24 @@ export default function BulkEnrichmentPage() {
                 <div className="flex items-center gap-2">
                   <StatusBadge status={selectedJob.status} />
                   {selectedJob.status === "succeeded" && (
-                    <Button 
-                      variant="outline" 
-                      onClick={() => handleExport(selectedJob.id)}
-                      data-testid="button-export"
-                    >
-                      <Download className="w-4 h-4 mr-2" />
-                      Export CSV
-                    </Button>
+                    <>
+                      <Button 
+                        variant="outline" 
+                        onClick={() => handleReprocess(selectedJob.id)}
+                        data-testid="button-reprocess"
+                      >
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        Re-enrich
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        onClick={() => handleExport(selectedJob.id)}
+                        data-testid="button-export"
+                      >
+                        <Download className="w-4 h-4 mr-2" />
+                        Export CSV
+                      </Button>
+                    </>
                   )}
                 </div>
               </div>
