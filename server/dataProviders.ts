@@ -1964,43 +1964,63 @@ export class ALeadsProvider {
       console.log(`[A-Leads] Industries: ${industries.join(", ")}`);
       console.log(`[A-Leads] Countries: ${countryCodes.join(", ")}`);
 
-      const requestBody: any = {
-        advanced_filters: {
-          job_title: titles,
-          industry: industries,
-        },
-        page_size: limit,
-      };
+      // Paginate to get all requested results
+      const pageSize = 25; // A-Leads default page size
+      const maxPages = Math.ceil(limit / pageSize);
+      const allResults: any[] = [];
       
-      // Add country filter if specified
-      if (countryCodes.length > 0) {
-        requestBody.advanced_filters.member_location_country = countryCodes;
+      console.log(`[A-Leads] Fetching up to ${limit} results (${maxPages} pages of ${pageSize})`);
+
+      for (let page = 1; page <= maxPages && allResults.length < limit; page++) {
+        const requestBody: any = {
+          advanced_filters: {
+            job_title: titles,
+            industry: industries,
+          },
+          page_size: pageSize,
+          current_page: page,
+        };
+        
+        // Add country filter if specified
+        if (countryCodes.length > 0) {
+          requestBody.advanced_filters.member_location_country = countryCodes;
+        }
+
+        console.log(`[A-Leads] Page ${page}: POST ${this.baseUrl}/advanced-search`);
+
+        const response = await fetch(`${this.baseUrl}/advanced-search`, {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+            "x-api-key": this.apiKey,
+          },
+          body: JSON.stringify(requestBody),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error(`[A-Leads] Error (${response.status}):`, errorText.slice(0, 500));
+          break;
+        }
+
+        const data = await response.json();
+        const pageResults = data.data || [];
+        apiUsageTracker.recordRequest("aleads", 1);
+        
+        console.log(`[A-Leads] Page ${page}: Got ${pageResults.length} results (total: ${allResults.length + pageResults.length})`);
+        
+        allResults.push(...pageResults);
+        
+        // Stop if we got fewer than page size (no more results)
+        if (pageResults.length < pageSize) {
+          console.log(`[A-Leads] Reached end of results at page ${page}`);
+          break;
+        }
       }
-
-      console.log(`[A-Leads] Request: POST ${this.baseUrl}/advanced-search`);
-      console.log(`[A-Leads] Body:`, JSON.stringify(requestBody, null, 2));
-
-      const response = await fetch(`${this.baseUrl}/advanced-search`, {
-        method: "POST",
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
-          "x-api-key": this.apiKey,
-        },
-        body: JSON.stringify(requestBody),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`[A-Leads] Error (${response.status}):`, errorText.slice(0, 500));
-        return [];
-      }
-
-      const data = await response.json();
-      const results = data.data || [];
-      apiUsageTracker.recordRequest("aleads", results.length || 1);
       
-      console.log(`[A-Leads] SUCCESS: Found ${results.length} family office decision-makers`);
+      const results = allResults.slice(0, limit);
+      console.log(`[A-Leads] SUCCESS: Found ${results.length} family office decision-makers (requested: ${limit})`);
 
       // Log a sample result with ALL fields to understand the API response structure
       if (results.length > 0) {

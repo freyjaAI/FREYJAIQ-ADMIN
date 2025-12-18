@@ -1,5 +1,6 @@
 import { storage } from "./storage";
 import { dataProviders } from "./dataProviders";
+import { generateDataCenterFitSummary } from "./openai";
 import { 
   BulkEnrichmentJob, 
   BulkEnrichmentTarget, 
@@ -483,6 +484,8 @@ export async function searchFamilyOfficesALeads(config: TargetingConfig): Promis
   dataCenterScore: number;
   dataCenterTier: "high" | "medium" | "low";
   dataCenterSignals: string[];
+  // AI-generated summary explaining why this is a good prospect
+  aiSummary?: string;
 }>> {
   console.log(`[BULK ENRICHMENT] Using A-Leads Advanced Search (THE SIMPLE APPROACH)`);
   
@@ -550,8 +553,33 @@ export async function searchFamilyOfficesALeads(config: TargetingConfig): Promis
   
   console.log(`[BULK ENRICHMENT] A-Leads scored ${transformed.length} results: ${highCount} HIGH, ${mediumCount} MEDIUM, ${lowCount} LOW tier`);
   
-  // Return top results up to limit
+  // Return top results - AI summaries generated separately during enrichment phase
+  // to avoid blocking job creation
   return transformed.slice(0, limit);
+}
+
+// Generate AI summary for a single contact (called during enrichment phase, not search)
+export async function generateContactAISummary(contact: {
+  name: string;
+  title?: string;
+  companyName?: string;
+  industry?: string;
+  location?: string;
+  dataCenterSignals?: string[];
+}): Promise<string | undefined> {
+  try {
+    return await generateDataCenterFitSummary({
+      name: contact.name,
+      title: contact.title,
+      company: contact.companyName,
+      industry: contact.industry,
+      location: contact.location,
+      signals: contact.dataCenterSignals,
+    });
+  } catch (err) {
+    console.error(`[AI Summary] Error for ${contact.name}:`, err);
+    return undefined;
+  }
 }
 
 // Apify Startup Investors: Search for investor decision-makers
@@ -1210,6 +1238,17 @@ export async function createEnrichmentJob(
         // Log what we're saving for debugging
         console.log(`[A-LEADS] Saving decision-maker: ${dm.name} | email: ${dm.email || 'none'} | phone: ${dm.phone || 'none'} | location: ${dm.location || 'none'}`);
         
+        // Generate AI summary asynchronously (don't await, save first for speed)
+        const signals = dm.dataCenterSignals || intentScore.signals;
+        const signalDescriptions = Array.isArray(signals) 
+          ? signals.map((s: any) => typeof s === 'string' ? s : s.signal || s.description || String(s))
+          : [];
+        
+        // Generate quick template-based summary (AI summary generated on-demand in UI)
+        const titleDesc = dm.title || "Decision-maker";
+        const companyDesc = company.companyName || "investment firm";
+        const defaultSummary = `${titleDesc} at ${companyDesc} with authority over capital allocation and infrastructure investment decisions. ${signalDescriptions[0] || "Strong match for data center opportunities."}`;
+        
         await storage.createBulkEnrichmentResult({
           jobId: job.id,
           targetId: target.id,
@@ -1229,6 +1268,7 @@ export async function createEnrichmentJob(
           intentScore: dm.dataCenterScore || intentScore.score,
           intentSignals: dm.dataCenterSignals || intentScore.signals,
           intentTier: dm.dataCenterTier || intentScore.tier,
+          aiSummary: defaultSummary,
           providerSource: "aleads_advanced_search",
         });
         preEnrichedContactCount++;

@@ -38,7 +38,10 @@ async function callOpenAI(prompt: string): Promise<string> {
           if (isRateLimitError(error)) {
             throw error;
           }
-          throw new pRetry.AbortError(error);
+          // Abort retries for non-rate-limit errors
+          const abortError = new Error(error?.message || "OpenAI error");
+          (abortError as any).isAbort = true;
+          throw abortError;
         }
       },
       {
@@ -266,4 +269,40 @@ export async function calculateContactConfidence(
     phoneConfidence: Math.min(100, phoneConfidence),
     emailConfidence: Math.min(100, emailConfidence),
   };
+}
+
+// Generate AI summary explaining why a lead is a good fit for data center outreach
+export async function generateDataCenterFitSummary(params: {
+  name: string;
+  title?: string;
+  company?: string;
+  industry?: string;
+  location?: string;
+  signals?: string[];
+}): Promise<string> {
+  const { name, title, company, industry, location, signals } = params;
+  
+  const signalsList = signals?.length ? signals.join("; ") : "Family office/investment professional";
+  
+  const prompt = `You are a commercial real estate analyst. In 1-2 concise sentences, explain why this person would be a good prospect for data center investment opportunities. Focus on their decision-making authority and investment relevance.
+
+Person: ${name}
+Title: ${title || "Executive"}
+Company: ${company || "Investment Firm"}
+Industry: ${industry || "Investment Management"}
+Location: ${location || "Unknown"}
+Investment Signals: ${signalsList}
+
+Write a brief, professional summary (max 2 sentences) explaining why they're a good data center investment prospect. Focus on their position and firm's likely investment capacity.`;
+
+  try {
+    const response = await callOpenAI(prompt);
+    return response.trim();
+  } catch (error) {
+    console.error("Error generating data center fit summary:", error);
+    // Return a default summary based on available info
+    const titleDesc = title ? `As ${title}` : "As a decision-maker";
+    const companyDesc = company ? `at ${company}` : "in the investment sector";
+    return `${titleDesc} ${companyDesc}, ${name.split(" ")[0]} has authority over capital allocation decisions and is positioned to evaluate data center investment opportunities.`;
+  }
 }

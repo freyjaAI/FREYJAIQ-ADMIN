@@ -29,7 +29,8 @@ import {
   MapPin,
   RefreshCw,
   Linkedin,
-  ExternalLink
+  ExternalLink,
+  Sparkles
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -199,6 +200,14 @@ function ResultsTable({ results }: { results: BulkEnrichmentResult[] }) {
                   )}
                 </div>
               </div>
+              {result.aiSummary && (
+                <div className="mt-3 pt-3 border-t border-border">
+                  <p className="text-sm text-muted-foreground italic">
+                    <Sparkles className="w-3 h-3 inline mr-1" />
+                    {result.aiSummary}
+                  </p>
+                </div>
+              )}
             </CardContent>
           </Card>
         ))}

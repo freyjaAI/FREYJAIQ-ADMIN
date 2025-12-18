@@ -594,6 +594,7 @@ export const bulkEnrichmentResults = pgTable("bulk_enrichment_results", {
   intentScore: integer("intent_score"), // 0-100 likelihood of data center interest
   intentSignals: jsonb("intent_signals"), // reasons for intent score
   intentTier: varchar("intent_tier"), // active | warm | monitor
+  aiSummary: text("ai_summary"), // AI-generated explanation of why this is a good data center prospect
   providerSource: varchar("provider_source"),
   dataAxleId: varchar("data_axle_id"),
   createdAt: timestamp("created_at").defaultNow(),
