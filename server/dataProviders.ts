@@ -807,13 +807,13 @@ export class DataAxleProvider {
   }
 
   // Search for places/businesses using Places v3 with UCC filings
-  async searchPlacesV3(query: string, location?: { city?: string; state?: string; zip?: string }): Promise<DataAxlePlace[]> {
+  async searchPlacesV3(query: string, location?: { city?: string; state?: string; zip?: string }, maxResults = 100): Promise<DataAxlePlace[]> {
     try {
       console.log(`Data Axle searchPlacesV3: "${query}" location:`, location);
       const params: Record<string, string> = {
         query,
         packages: this.placesPackages,
-        limit: "25",
+        limit: String(maxResults),
       };
 
       if (location?.city) params.city = location.city;
@@ -1870,12 +1870,12 @@ export class DataProviderManager {
   }
 
   // Search places/businesses using Data Axle Places v3 with UCC filings
-  async searchPlacesV3(query: string, location?: { city?: string; state?: string; zip?: string }): Promise<DataAxlePlace[]> {
+  async searchPlacesV3(query: string, location?: { city?: string; state?: string; zip?: string }, maxResults = 100): Promise<DataAxlePlace[]> {
     if (!this.dataAxle) {
       console.warn("Data Axle provider not configured");
       return [];
     }
-    return this.dataAxle.searchPlacesV3(query, location);
+    return this.dataAxle.searchPlacesV3(query, location, maxResults);
   }
 
   // Search for people associated with LLC officers (using Data Axle People v2)
