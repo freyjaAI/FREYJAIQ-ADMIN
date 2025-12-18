@@ -595,6 +595,14 @@ export const bulkEnrichmentResults = pgTable("bulk_enrichment_results", {
   intentSignals: jsonb("intent_signals"), // reasons for intent score
   intentTier: varchar("intent_tier"), // active | warm | monitor
   aiSummary: text("ai_summary"), // AI-generated explanation of why this is a good data center prospect
+  whyReachOut: text("why_reach_out"), // Gemini: Why this contact is worth reaching out to
+  howToReachOut: text("how_to_reach_out"), // Gemini: Best approach for outreach
+  whyTheyreInterested: text("why_theyre_interested"), // Gemini: Why they'd be interested in data centers
+  keyTalkingPoints: jsonb("key_talking_points"), // Gemini: Array of talking points
+  investmentThesis: text("investment_thesis"), // Gemini: Likely investment thesis
+  recentActivity: text("recent_activity"), // Gemini: Any recent news/deals
+  geminiConfidenceScore: integer("gemini_confidence_score"), // Gemini: 0-100 confidence
+  geminiResearchedAt: timestamp("gemini_researched_at"), // When Gemini research was done
   providerSource: varchar("provider_source"),
   dataAxleId: varchar("data_axle_id"),
   createdAt: timestamp("created_at").defaultNow(),

@@ -300,7 +300,7 @@ Return your findings as JSON with owners, officers, registeredAgent, summary, an
     }
 
     const result = parseResearchResponse(textContent, llcName);
-    result.citations = [...new Set([...result.citations, ...citations])];
+    result.citations = Array.from(new Set([...result.citations, ...citations]));
     
     return result;
   } catch (error) {
@@ -494,6 +494,145 @@ If you cannot find certain information, use null for that field. Always provide 
     };
   } catch (error) {
     console.error("Gemini Property Research error:", error);
+    return null;
+  }
+}
+
+/**
+ * Contact research result for data center outreach
+ */
+export interface ContactResearchResult {
+  whyReachOut: string;
+  howToReachOut: string;
+  whyTheyreInterested: string;
+  keyTalkingPoints: string[];
+  investmentThesis?: string;
+  recentActivity?: string;
+  confidenceScore: number;
+}
+
+/**
+ * Research a contact for data center investment outreach
+ * Provides actionable intelligence on why/how to reach out
+ */
+export async function researchContactForOutreach(
+  fullName: string,
+  title?: string,
+  company?: string,
+  location?: string,
+  linkedinUrl?: string
+): Promise<ContactResearchResult | null> {
+  if (!GOOGLE_AI_API_KEY) {
+    console.log("[GEMINI] Contact Research: Not configured (missing GOOGLE_AI_API_KEY)");
+    return null;
+  }
+
+  console.log(`[GEMINI] Contact Research: Analyzing ${fullName} at ${company || 'Unknown'}`);
+
+  const prompt = `You are a commercial real estate investment analyst specializing in data center acquisitions.
+
+CONTACT PROFILE:
+- Name: ${fullName}
+- Title: ${title || "Unknown"}
+- Company: ${company || "Unknown"}
+- Location: ${location || "Unknown"}
+${linkedinUrl ? `- LinkedIn: ${linkedinUrl}` : ""}
+
+CONTEXT:
+We are reaching out to family office decision-makers who may be interested in data center investment opportunities. Data centers are attractive because:
+- Stable, long-term cash flows (10-15 year lease terms with hyperscalers like AWS, Google, Microsoft)
+- High barriers to entry (power, fiber, cooling infrastructure)
+- Growing demand from AI/cloud computing boom
+- Inflation-protected rents with annual escalators
+- Tangible real estate assets with strong fundamentals
+
+ANALYZE THIS CONTACT AND PROVIDE:
+
+1. WHY REACH OUT (2-3 sentences): Based on their role, company type, and likely investment mandate, explain why this person is worth contacting for data center opportunities. Be specific about what signals suggest they'd be receptive.
+
+2. HOW TO REACH OUT (2-3 sentences): Recommend the best approach - email vs LinkedIn, formal vs casual tone, what angle to lead with based on their background. Consider their seniority and likely communication preferences.
+
+3. WHY THEY'D BE INTERESTED (2-3 sentences): From their perspective, explain why data centers would appeal to their investment thesis. Consider their likely portfolio strategy, return requirements, and infrastructure experience.
+
+4. KEY TALKING POINTS (3-5 bullet points): Specific points to mention in outreach that would resonate with this person based on their profile.
+
+5. INVESTMENT THESIS (1-2 sentences): What investment thesis would likely appeal to them based on their role and company type.
+
+6. RECENT ACTIVITY (1 sentence): Any known recent deals, announcements, or market moves that might be relevant (or note "Unknown" if uncertain).
+
+7. CONFIDENCE SCORE (0-100): How confident are you this is a strong lead for data center investment opportunities?
+
+Respond in this exact JSON format:
+{
+  "whyReachOut": "...",
+  "howToReachOut": "...",
+  "whyTheyreInterested": "...",
+  "keyTalkingPoints": ["point1", "point2", "point3"],
+  "investmentThesis": "...",
+  "recentActivity": "...",
+  "confidenceScore": 75
+}`;
+
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GOOGLE_AI_API_KEY}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{
+              text: prompt
+            }]
+          }],
+          tools: [{
+            googleSearch: {}
+          }],
+          generationConfig: {
+            temperature: 0.3,
+            maxOutputTokens: 2048,
+          },
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[GEMINI] Contact Research error: ${response.status}`, errorText.slice(0, 300));
+      return null;
+    }
+
+    const data = await response.json();
+    const textContent = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    
+    if (!textContent) {
+      console.log("[GEMINI] Contact Research: No content in response");
+      return null;
+    }
+
+    const jsonMatch = textContent.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.log("[GEMINI] Contact Research: Could not extract JSON from response");
+      return null;
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    
+    console.log(`[GEMINI] Contact Research: Completed for ${fullName} (confidence: ${parsed.confidenceScore})`);
+
+    return {
+      whyReachOut: parsed.whyReachOut || "",
+      howToReachOut: parsed.howToReachOut || "",
+      whyTheyreInterested: parsed.whyTheyreInterested || "",
+      keyTalkingPoints: parsed.keyTalkingPoints || [],
+      investmentThesis: parsed.investmentThesis,
+      recentActivity: parsed.recentActivity,
+      confidenceScore: parsed.confidenceScore || 50,
+    };
+  } catch (error) {
+    console.error("[GEMINI] Contact Research error:", error);
     return null;
   }
 }

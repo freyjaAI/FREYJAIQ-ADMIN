@@ -208,6 +208,55 @@ function ResultsTable({ results }: { results: BulkEnrichmentResult[] }) {
                   </p>
                 </div>
               )}
+              
+              {(result as any).whyReachOut && (
+                <div className="mt-3 pt-3 border-t border-border space-y-3">
+                  <div className="flex items-center gap-2 text-sm font-medium text-primary">
+                    <Sparkles className="w-4 h-4" />
+                    Gemini Deep Research
+                    {(result as any).geminiConfidenceScore && (
+                      <Badge variant="outline" className="ml-auto text-xs">
+                        {(result as any).geminiConfidenceScore}% confidence
+                      </Badge>
+                    )}
+                  </div>
+                  
+                  <div className="grid gap-2 text-sm">
+                    <div className="p-2 rounded-md bg-muted/50">
+                      <p className="font-medium text-xs text-muted-foreground mb-1">Why Reach Out</p>
+                      <p>{(result as any).whyReachOut}</p>
+                    </div>
+                    
+                    <div className="p-2 rounded-md bg-muted/50">
+                      <p className="font-medium text-xs text-muted-foreground mb-1">How to Approach</p>
+                      <p>{(result as any).howToReachOut}</p>
+                    </div>
+                    
+                    <div className="p-2 rounded-md bg-muted/50">
+                      <p className="font-medium text-xs text-muted-foreground mb-1">Why They'd Be Interested</p>
+                      <p>{(result as any).whyTheyreInterested}</p>
+                    </div>
+                    
+                    {(result as any).keyTalkingPoints && Array.isArray((result as any).keyTalkingPoints) && (
+                      <div className="p-2 rounded-md bg-muted/50">
+                        <p className="font-medium text-xs text-muted-foreground mb-1">Key Talking Points</p>
+                        <ul className="list-disc list-inside space-y-0.5">
+                          {((result as any).keyTalkingPoints as string[]).map((point, i) => (
+                            <li key={i}>{point}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    
+                    {(result as any).investmentThesis && (
+                      <div className="p-2 rounded-md bg-muted/50">
+                        <p className="font-medium text-xs text-muted-foreground mb-1">Investment Thesis</p>
+                        <p>{(result as any).investmentThesis}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         ))}

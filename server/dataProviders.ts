@@ -2249,6 +2249,22 @@ export class DataProviderManager {
     return this.aLeads.searchFamilyOfficeDecisionMakers(options);
   }
 
+  // A-LEADS: Reveal email/phone for a contact with LinkedIn URL
+  async revealALeadsContactInfo(contact: {
+    name: string;
+    linkedinUrl?: string;
+    email?: string;
+    phone?: string;
+    hasEmail?: boolean;
+    hasPhone?: boolean;
+  }): Promise<{ email?: string; phone?: string }> {
+    if (!this.aLeads) {
+      console.warn("A-Leads provider not configured");
+      return {};
+    }
+    return this.aLeads.revealContactInfo(contact as ALeadsContact);
+  }
+
   private normalizeAddressForAttom(address: string): string {
     const parsed = parseFromDescription(address);
     if (parsed && isValidForSearch(parsed)) {

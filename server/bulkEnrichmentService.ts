@@ -1073,6 +1073,8 @@ export async function enrichTargetContacts(
   return results;
 }
 
+import * as GeminiResearch from "./providers/GeminiDeepResearchProvider";
+
 // Post-processing: Reveal emails and phones for saved contacts
 async function revealContactsForJob(jobId: string): Promise<void> {
   console.log(`[REVEAL] Starting email/phone reveal for job ${jobId}`);
@@ -1104,7 +1106,7 @@ async function revealContactsForJob(jobId: string): Promise<void> {
           const hasEmailFlag = resultData.hasEmail ?? true; // Default to try
           const hasPhoneFlag = resultData.hasPhone ?? true; // Default to try
           
-          const revealed = await dataProviders.aLeadsProvider.revealContactInfo({
+          const revealed = await dataProviders.revealALeadsContactInfo({
             name: result.fullName || "",
             linkedinUrl: result.linkedinUrl || undefined,
             email: result.email || undefined,
@@ -1145,6 +1147,71 @@ async function revealContactsForJob(jobId: string): Promise<void> {
     
   } catch (error: any) {
     console.error(`[REVEAL] Error processing job ${jobId}:`, error?.message);
+  }
+}
+
+// Post-processing: Deep research for outreach intelligence via Gemini
+async function geminiResearchForJob(jobId: string): Promise<void> {
+  if (!GeminiResearch.isConfigured()) {
+    console.log(`[GEMINI] Skipping research for job ${jobId} - not configured`);
+    return;
+  }
+  
+  console.log(`[GEMINI] Starting deep research for job ${jobId}`);
+  
+  try {
+    const results = await storage.getBulkEnrichmentResults(jobId);
+    // Only research contacts that haven't been researched yet (limit to top 20 by intent score)
+    const needsResearch = results
+      .filter(r => !r.geminiResearchedAt)
+      .slice(0, 20); // Limit to avoid high API costs
+    
+    if (needsResearch.length === 0) {
+      console.log(`[GEMINI] No contacts need research for job ${jobId}`);
+      return;
+    }
+    
+    console.log(`[GEMINI] Researching ${needsResearch.length} contacts`);
+    
+    const researchLimit = pLimit(3); // Lower concurrency for Gemini
+    let researchedCount = 0;
+    
+    const researchTasks = needsResearch.map(result =>
+      researchLimit(async () => {
+        try {
+          const research = await GeminiResearch.researchContactForOutreach(
+            result.fullName || "",
+            result.title || undefined,
+            result.companyName,
+            result.city && result.state ? `${result.city}, ${result.state}` : undefined,
+            result.linkedinUrl || undefined
+          );
+          
+          if (research) {
+            await storage.updateBulkEnrichmentResult(result.id, {
+              whyReachOut: research.whyReachOut,
+              howToReachOut: research.howToReachOut,
+              whyTheyreInterested: research.whyTheyreInterested,
+              keyTalkingPoints: research.keyTalkingPoints,
+              investmentThesis: research.investmentThesis,
+              recentActivity: research.recentActivity,
+              geminiConfidenceScore: research.confidenceScore,
+              geminiResearchedAt: new Date(),
+            });
+            researchedCount++;
+            console.log(`[GEMINI] Researched ${result.fullName} (${researchedCount}/${needsResearch.length})`);
+          }
+        } catch (err: any) {
+          console.error(`[GEMINI] Error researching ${result.fullName}:`, err?.message);
+        }
+      })
+    );
+    
+    await Promise.all(researchTasks);
+    console.log(`[GEMINI] Job ${jobId} research complete: ${researchedCount} contacts researched`);
+    
+  } catch (error: any) {
+    console.error(`[GEMINI] Error processing job ${jobId}:`, error?.message);
   }
 }
 
@@ -1237,6 +1304,9 @@ export async function processEnrichmentJob(jobId: string): Promise<void> {
     // POST-PROCESSING: Reveal emails and phones for contacts with LinkedIn URLs
     // This runs after job is marked complete so UI updates immediately
     setTimeout(() => revealContactsForJob(jobId), 100);
+    
+    // GEMINI RESEARCH: Deep analysis runs after reveal phase to provide outreach intelligence
+    setTimeout(() => geminiResearchForJob(jobId), 5000);
 
   } catch (error: any) {
     console.error(`[BULK ENRICHMENT] Job ${jobId} failed:`, error);
