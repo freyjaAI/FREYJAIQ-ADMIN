@@ -1,0 +1,22 @@
+if i want to find owners / decision makers for these family offices specifically ones that would be interested in purchasing data centers can data axel do that?
+Yes, Data Axle can help, but with caveats: they can get you to the family office entity and likely senior contacts, and their intent data can help you filter to capital allocators looking at “infrastructure / data center” themes, but they will not have a neat “family offices currently buying data centers” flag out of the box.​
+
+What Data Axle Can Do
+Data Axle maintains very deep B2B/B2C identity graphs and firmographic data, including executives and decision makers, and is recognized as a strong performer in B2B intent data and buying group prediction.​
+
+They offer prospecting platforms (e.g., Salesgenie) and APIs that let you pull company records, titles (CIO, Head of Infra, CIO/CTO, Head of Real Assets, etc.), and contact info, plus link business and consumer identities for principals of closely held entities like family offices in many cases.​
+
+Where It Falls Short Natively
+“Family office” is not always a clean SIC/NAICS–driven segment; many family offices are structured as investment LLCs, advisory firms, or holdcos, so classification in any third‑party dataset (including Data Axle) is noisy and often requires additional logic on your side.​
+
+Data Axle’s standard catalog does not contain a specific “interested in buying data centers” or “data center investor” flag; intent is modeled at the level of topics, web behaviors, and content consumption, not a granular mandate like “acquiring data centers in 2025.”​
+
+How You Could Make It Work
+Use Data Axle mainly as an identity + enrichment backbone: pull all entities that match your own family-office heuristics (name patterns, employee count, keywords in description, etc.) and then enrich with executive contacts (CIO, Head of Alternatives, Principal, Director of Real Assets/Infrastructure).​
+
+Layer their intent data (Audience360 / intent offerings) on top of URL/topic taxonomies related to “data centers,” “digital infrastructure,” “colocation,” “hyperscale,” etc., so you can score which family-office‑like entities are engaging with that content online.​
+
+Practical Answer For Your Use Case
+For “owners/decision makers at family offices” Data Axle is a viable upstream provider: firmographics + principals + contact info should be usable as a feed into FREYJAIQ / MMP.​
+
+For “specifically ones that would be interested in purchasing data centers,” you’ll need to combine Data Axle with your own signals (existing DC ownership, CRE records, deal announcements, infra/tech allocations from reports like UBS/Goldman family office studies, etc.) and possibly additional web‑scraped intelligence; Data Axle alone will not perfectly segment that micro‑niche.​

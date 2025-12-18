@@ -1545,6 +1545,146 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // =============================================================================
+  // Bulk Enrichment API - Family Office / Decision Maker Lookup
+  // =============================================================================
+
+  // Create a new bulk enrichment job
+  app.post("/api/bulk-enrichment/jobs", isAuthenticated, enrichmentRateLimit, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) {
+        return res.status(401).json({ message: "User not found" });
+      }
+
+      const { name, targetingConfig } = req.body;
+      if (!name) {
+        return res.status(400).json({ message: "Job name is required" });
+      }
+
+      // Import bulk enrichment service dynamically to avoid circular deps
+      const { bulkEnrichmentService } = await import("./bulkEnrichmentService");
+      const job = await bulkEnrichmentService.createEnrichmentJob(userId, name, targetingConfig || {});
+
+      await auditLogger.logDataEnrichment(userId, job.id, ["data_axle_bulk"]);
+
+      // Start processing the job in the background (non-blocking)
+      setImmediate(async () => {
+        try {
+          console.log(`[BULK ENRICHMENT] Starting background processing for job ${job.id}`);
+          await bulkEnrichmentService.processJob(job.id);
+          console.log(`[BULK ENRICHMENT] Completed processing for job ${job.id}`);
+        } catch (error) {
+          console.error(`[BULK ENRICHMENT] Failed to process job ${job.id}:`, error);
+        }
+      });
+
+      res.status(201).json(job);
+    } catch (error) {
+      console.error("Failed to create bulk enrichment job:", error);
+      res.status(500).json({ message: "Failed to create enrichment job" });
+    }
+  });
+
+  // Get all bulk enrichment jobs for the current user
+  app.get("/api/bulk-enrichment/jobs", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) {
+        return res.status(401).json({ message: "User not found" });
+      }
+
+      const jobs = await storage.getBulkEnrichmentJobs(userId);
+      res.json(jobs);
+    } catch (error) {
+      console.error("Failed to get bulk enrichment jobs:", error);
+      res.status(500).json({ message: "Failed to get enrichment jobs" });
+    }
+  });
+
+  // Get a specific bulk enrichment job
+  app.get("/api/bulk-enrichment/jobs/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) {
+        return res.status(401).json({ message: "User not found" });
+      }
+
+      const job = await storage.getBulkEnrichmentJob(req.params.id);
+      if (!job) {
+        return res.status(404).json({ message: "Job not found" });
+      }
+      if (job.userId !== userId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const targets = await storage.getBulkEnrichmentTargets(job.id);
+      const results = await storage.getBulkEnrichmentResults(job.id);
+
+      res.json({
+        ...job,
+        targets,
+        results,
+      });
+    } catch (error) {
+      console.error("Failed to get bulk enrichment job:", error);
+      res.status(500).json({ message: "Failed to get enrichment job" });
+    }
+  });
+
+  // Export bulk enrichment results as CSV
+  app.get("/api/bulk-enrichment/jobs/:id/export", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) {
+        return res.status(401).json({ message: "User not found" });
+      }
+
+      const job = await storage.getBulkEnrichmentJob(req.params.id);
+      if (!job) {
+        return res.status(404).json({ message: "Job not found" });
+      }
+      if (job.userId !== userId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const results = await storage.getBulkEnrichmentResults(job.id);
+
+      // Generate CSV
+      const headers = [
+        "Company", "Full Name", "Title", "Email", "Phone", "Cell Phone",
+        "Address", "City", "State", "Zip", "Confidence", "Intent Score", "Intent Tier"
+      ];
+      
+      const rows = results.map(r => [
+        r.companyName,
+        r.fullName || "",
+        r.title || "",
+        r.email || "",
+        r.phone || "",
+        r.cellPhone || "",
+        r.address || "",
+        r.city || "",
+        r.state || "",
+        r.zip || "",
+        r.confidenceScore?.toString() || "",
+        r.intentScore?.toString() || "",
+        r.intentTier || "",
+      ]);
+
+      const csv = [headers.join(","), ...rows.map(r => r.map(c => `"${(c || "").replace(/"/g, '""')}"`).join(","))].join("\n");
+
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", `attachment; filename="${job.name}-results.csv"`);
+      res.send(csv);
+
+      await auditLogger.logDossierExport(userId, job.id, "csv");
+    } catch (error) {
+      console.error("Failed to export bulk enrichment results:", error);
+      res.status(500).json({ message: "Failed to export results" });
+    }
+  });
+
   // Search endpoint (with rate limiting)
   app.get("/api/search", isAuthenticated, searchRateLimit, async (req: any, res) => {
     try {

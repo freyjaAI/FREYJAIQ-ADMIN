@@ -510,3 +510,153 @@ export const insertBugReportSchema = createInsertSchema(bugReports).omit({
 
 export type InsertBugReport = z.infer<typeof insertBugReportSchema>;
 export type BugReport = typeof bugReports.$inferSelect;
+
+// =============================================================================
+// Bulk Enrichment - Family Office / Decision Maker Lookup
+// =============================================================================
+
+export const bulkEnrichmentJobs = pgTable("bulk_enrichment_jobs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  name: varchar("name").notNull(),
+  sourceType: varchar("source_type").notNull().default("criteria"), // criteria | upload
+  status: varchar("status").notNull().default("queued"), // queued | running | succeeded | failed | cancelled
+  targetingConfig: jsonb("targeting_config"), // search criteria or upload metadata
+  totalTargets: integer("total_targets").default(0),
+  processedTargets: integer("processed_targets").default(0),
+  enrichedContacts: integer("enriched_contacts").default(0),
+  errorCount: integer("error_count").default(0),
+  intentThreshold: integer("intent_threshold").default(50), // minimum intent score to include
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertBulkEnrichmentJobSchema = createInsertSchema(bulkEnrichmentJobs).omit({
+  id: true,
+  createdAt: true,
+  startedAt: true,
+  completedAt: true,
+});
+export type InsertBulkEnrichmentJob = z.infer<typeof insertBulkEnrichmentJobSchema>;
+export type BulkEnrichmentJob = typeof bulkEnrichmentJobs.$inferSelect;
+
+// Individual targets within a bulk job
+export const bulkEnrichmentTargets = pgTable("bulk_enrichment_targets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  jobId: varchar("job_id").references(() => bulkEnrichmentJobs.id).notNull(),
+  companyName: varchar("company_name").notNull(),
+  normalizedName: varchar("normalized_name"),
+  address: text("address"),
+  city: varchar("city"),
+  state: varchar("state"),
+  zip: varchar("zip"),
+  naicsCode: varchar("naics_code"),
+  sicCode: varchar("sic_code"),
+  employeeCount: integer("employee_count"),
+  salesVolume: integer("sales_volume"),
+  familyOfficeConfidence: integer("family_office_confidence"), // 0-100
+  familyOfficeSignals: jsonb("family_office_signals"), // detection reasons
+  status: varchar("status").notNull().default("pending"), // pending | processing | enriched | skipped | error
+  errorMessage: text("error_message"),
+  dataAxleId: varchar("data_axle_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+  processedAt: timestamp("processed_at"),
+});
+
+export const insertBulkEnrichmentTargetSchema = createInsertSchema(bulkEnrichmentTargets).omit({
+  id: true,
+  createdAt: true,
+  processedAt: true,
+});
+export type InsertBulkEnrichmentTarget = z.infer<typeof insertBulkEnrichmentTargetSchema>;
+export type BulkEnrichmentTarget = typeof bulkEnrichmentTargets.$inferSelect;
+
+// Enriched decision makers from bulk jobs
+export const bulkEnrichmentResults = pgTable("bulk_enrichment_results", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  jobId: varchar("job_id").references(() => bulkEnrichmentJobs.id).notNull(),
+  targetId: varchar("target_id").references(() => bulkEnrichmentTargets.id).notNull(),
+  companyName: varchar("company_name").notNull(),
+  firstName: varchar("first_name"),
+  lastName: varchar("last_name"),
+  fullName: varchar("full_name"),
+  title: varchar("title"),
+  email: varchar("email"),
+  phone: varchar("phone"),
+  cellPhone: varchar("cell_phone"),
+  linkedinUrl: varchar("linkedin_url"),
+  address: text("address"),
+  city: varchar("city"),
+  state: varchar("state"),
+  zip: varchar("zip"),
+  confidenceScore: integer("confidence_score"),
+  intentScore: integer("intent_score"), // 0-100 likelihood of data center interest
+  intentSignals: jsonb("intent_signals"), // reasons for intent score
+  intentTier: varchar("intent_tier"), // active | warm | monitor
+  providerSource: varchar("provider_source"),
+  dataAxleId: varchar("data_axle_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertBulkEnrichmentResultSchema = createInsertSchema(bulkEnrichmentResults).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertBulkEnrichmentResult = z.infer<typeof insertBulkEnrichmentResultSchema>;
+export type BulkEnrichmentResult = typeof bulkEnrichmentResults.$inferSelect;
+
+// Family office detection heuristics
+export const FAMILY_OFFICE_INDICATORS = {
+  naicsCodes: ["523920", "523930", "523991", "525990"], // Investment advisors, family offices, trusts
+  sicCodes: ["6282", "6722", "6726", "6799"], // Investment advice, management investment, unit trusts
+  namePatterns: [
+    "family office", "family capital", "family holdings", "family partners",
+    "capital partners", "capital management", "capital advisors",
+    "wealth management", "private wealth", "asset management",
+    "investment office", "investment holdings", "private capital",
+    "trust company", "family trust", "legacy capital", "legacy partners",
+  ],
+  titlePatterns: [
+    "chief investment officer", "cio", "cto", "chief technology officer",
+    "head of infrastructure", "head of real assets", "head of alternatives",
+    "managing director", "principal", "partner", "director of investments",
+    "portfolio manager", "real estate director", "head of real estate",
+  ],
+  dataCenterKeywords: [
+    "data center", "data centres", "datacenter", "colocation", "colo",
+    "hyperscale", "digital infrastructure", "edge computing",
+    "cloud infrastructure", "hosting", "server farm", "compute",
+  ],
+};
+
+// Intent scoring configuration
+export interface IntentSignal {
+  signal: string;
+  weight: number;
+  score: number;
+  source: string;
+}
+
+export interface TargetingConfig {
+  // Geographic filters
+  states?: string[];
+  cities?: string[];
+  zipCodes?: string[];
+  // Industry filters
+  naicsCodes?: string[];
+  sicCodes?: string[];
+  // Size filters
+  minEmployees?: number;
+  maxEmployees?: number;
+  minSalesVolume?: number;
+  maxSalesVolume?: number;
+  // Name/keyword filters
+  companyNameKeywords?: string[];
+  excludeKeywords?: string[];
+  // Title filters for decision makers
+  targetTitles?: string[];
+  // Enrichment options
+  includeIntentScoring?: boolean;
+  dataCenterIntentFocus?: boolean;
+}

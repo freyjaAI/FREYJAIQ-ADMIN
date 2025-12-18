@@ -32,6 +32,15 @@ import {
   type InsertLlc,
   type LlcOwnershipChain,
   type InsertLlcOwnershipChain,
+  bulkEnrichmentJobs,
+  bulkEnrichmentTargets,
+  bulkEnrichmentResults,
+  type BulkEnrichmentJob,
+  type InsertBulkEnrichmentJob,
+  type BulkEnrichmentTarget,
+  type InsertBulkEnrichmentTarget,
+  type BulkEnrichmentResult,
+  type InsertBulkEnrichmentResult,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, ilike, or, and, desc, sql } from "drizzle-orm";
@@ -109,6 +118,17 @@ export interface IStorage {
   cleanupOldSearchHistory(daysOld: number): Promise<number>;
   cleanupOldDossierCache(daysOld: number): Promise<number>;
   cleanupOldDossierExports(daysOld: number): Promise<number>;
+
+  // Bulk Enrichment
+  createBulkEnrichmentJob(job: InsertBulkEnrichmentJob): Promise<BulkEnrichmentJob>;
+  getBulkEnrichmentJob(id: string): Promise<BulkEnrichmentJob | undefined>;
+  getBulkEnrichmentJobs(userId: string): Promise<BulkEnrichmentJob[]>;
+  updateBulkEnrichmentJob(id: string, updates: Partial<InsertBulkEnrichmentJob> & { startedAt?: Date; completedAt?: Date }): Promise<BulkEnrichmentJob | undefined>;
+  createBulkEnrichmentTarget(target: InsertBulkEnrichmentTarget): Promise<BulkEnrichmentTarget>;
+  getBulkEnrichmentTargets(jobId: string): Promise<BulkEnrichmentTarget[]>;
+  updateBulkEnrichmentTarget(id: string, updates: Partial<InsertBulkEnrichmentTarget> & { processedAt?: Date }): Promise<BulkEnrichmentTarget | undefined>;
+  createBulkEnrichmentResult(result: InsertBulkEnrichmentResult): Promise<BulkEnrichmentResult>;
+  getBulkEnrichmentResults(jobId: string): Promise<BulkEnrichmentResult[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -501,6 +521,69 @@ export class DatabaseStorage implements IStorage {
       })
       .returning();
     return saved;
+  }
+
+  // Bulk Enrichment operations
+  async createBulkEnrichmentJob(job: InsertBulkEnrichmentJob): Promise<BulkEnrichmentJob> {
+    const [newJob] = await db.insert(bulkEnrichmentJobs).values(job).returning();
+    return newJob;
+  }
+
+  async getBulkEnrichmentJob(id: string): Promise<BulkEnrichmentJob | undefined> {
+    const [job] = await db.select().from(bulkEnrichmentJobs).where(eq(bulkEnrichmentJobs.id, id));
+    return job;
+  }
+
+  async getBulkEnrichmentJobs(userId: string): Promise<BulkEnrichmentJob[]> {
+    return await db
+      .select()
+      .from(bulkEnrichmentJobs)
+      .where(eq(bulkEnrichmentJobs.userId, userId))
+      .orderBy(desc(bulkEnrichmentJobs.createdAt));
+  }
+
+  async updateBulkEnrichmentJob(id: string, updates: Partial<InsertBulkEnrichmentJob> & { startedAt?: Date; completedAt?: Date }): Promise<BulkEnrichmentJob | undefined> {
+    const [updated] = await db
+      .update(bulkEnrichmentJobs)
+      .set(updates)
+      .where(eq(bulkEnrichmentJobs.id, id))
+      .returning();
+    return updated;
+  }
+
+  async createBulkEnrichmentTarget(target: InsertBulkEnrichmentTarget): Promise<BulkEnrichmentTarget> {
+    const [newTarget] = await db.insert(bulkEnrichmentTargets).values(target).returning();
+    return newTarget;
+  }
+
+  async getBulkEnrichmentTargets(jobId: string): Promise<BulkEnrichmentTarget[]> {
+    return await db
+      .select()
+      .from(bulkEnrichmentTargets)
+      .where(eq(bulkEnrichmentTargets.jobId, jobId))
+      .orderBy(desc(bulkEnrichmentTargets.familyOfficeConfidence));
+  }
+
+  async updateBulkEnrichmentTarget(id: string, updates: Partial<InsertBulkEnrichmentTarget> & { processedAt?: Date }): Promise<BulkEnrichmentTarget | undefined> {
+    const [updated] = await db
+      .update(bulkEnrichmentTargets)
+      .set(updates)
+      .where(eq(bulkEnrichmentTargets.id, id))
+      .returning();
+    return updated;
+  }
+
+  async createBulkEnrichmentResult(result: InsertBulkEnrichmentResult): Promise<BulkEnrichmentResult> {
+    const [newResult] = await db.insert(bulkEnrichmentResults).values(result).returning();
+    return newResult;
+  }
+
+  async getBulkEnrichmentResults(jobId: string): Promise<BulkEnrichmentResult[]> {
+    return await db
+      .select()
+      .from(bulkEnrichmentResults)
+      .where(eq(bulkEnrichmentResults.jobId, jobId))
+      .orderBy(desc(bulkEnrichmentResults.intentScore));
   }
 }
 

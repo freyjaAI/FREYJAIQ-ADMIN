@@ -10,6 +10,7 @@ import {
   LogOut,
   Bug,
   MapPin,
+  Target,
 } from "lucide-react";
 import {
   Sidebar,
@@ -63,6 +64,11 @@ const menuItems = [
     title: "Map View",
     url: "/map",
     icon: MapPin,
+  },
+  {
+    title: "Bulk Enrichment",
+    url: "/bulk-enrichment",
+    icon: Target,
   },
 ];
 
