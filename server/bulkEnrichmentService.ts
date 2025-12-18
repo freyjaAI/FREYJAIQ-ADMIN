@@ -286,16 +286,16 @@ export async function enrichTargetContacts(
   try {
     console.log(`[BULK ENRICHMENT] Searching for people at "${target.companyName}" in ${target.state || 'any state'}`);
     
-    // Use A-Leads to find people at this company
+    const targetTitlesLower = (config.targetTitles || FAMILY_OFFICE_INDICATORS.titlePatterns)
+      .map(t => t.toLowerCase());
+
+    // Strategy 1: Try A-Leads for people by company name
     const aLeadsContacts = await dataProviders.searchPeopleByCompany(target.companyName, {
       city: target.city || undefined,
       state: target.state || undefined,
     });
     
-    console.log(`[BULK ENRICHMENT] Found ${aLeadsContacts.length} people at "${target.companyName}" via A-Leads`);
-
-    const targetTitlesLower = (config.targetTitles || FAMILY_OFFICE_INDICATORS.titlePatterns)
-      .map(t => t.toLowerCase());
+    console.log(`[BULK ENRICHMENT] A-Leads returned ${aLeadsContacts.length} people at "${target.companyName}"`);
 
     for (const contact of aLeadsContacts) {
       const personTitleLower = (contact.title || "").toLowerCase();
@@ -320,7 +320,6 @@ export async function enrichTargetContacts(
         companyName: target.companyName,
       });
 
-      // Parse name from A-Leads format
       const nameParts = (contact.name || "").split(" ");
       const firstName = nameParts[0] || "";
       const lastName = nameParts.slice(1).join(" ") || "";
@@ -348,6 +347,114 @@ export async function enrichTargetContacts(
         dataAxleId: null,
       });
     }
+
+    // Strategy 2: If A-Leads returned nothing, try OpenCorporates for officers
+    if (results.length === 0) {
+      console.log(`[BULK ENRICHMENT] A-Leads returned 0 results, trying OpenCorporates for "${target.companyName}"`);
+      
+      try {
+        // Use searchLlcOfficers which handles the full lookup flow
+        const officers = await dataProviders.searchLlcOfficers(target.companyName);
+        
+        if (officers && officers.length > 0) {
+          console.log(`[BULK ENRICHMENT] OpenCorporates found ${officers.length} officers`);
+          
+          // Process each officer - limit to 5 to avoid too many API calls
+          const officersToProcess = officers.slice(0, 5);
+          
+          for (const officer of officersToProcess) {
+            const officerName = officer.name || '';
+            if (!officerName || officerName.length < 3) continue;
+            
+            // Skip if it looks like a company name (contains LLC, Corp, etc.)
+            if (/\b(LLC|LP|LLP|Inc|Corp|Corporation|Company|Co|Ltd)\b/i.test(officerName)) {
+              continue;
+            }
+            
+            // Normalize position - remove annotations like (Resigned), (Inactive)
+            const rawPosition = officer.position || 'Officer';
+            const position = rawPosition.replace(/\s*\([^)]*\)\s*/g, '').trim() || 'Officer';
+            const positionLower = position.toLowerCase();
+            
+            // Check if this is a decision-maker title
+            const isDecisionMaker = targetTitlesLower.some(t => positionLower.includes(t)) ||
+              positionLower.includes("director") ||
+              positionLower.includes("president") ||
+              positionLower.includes("ceo") ||
+              positionLower.includes("cfo") ||
+              positionLower.includes("manager") ||
+              positionLower.includes("member") ||
+              positionLower.includes("partner") ||
+              positionLower.includes("principal") ||
+              positionLower.includes("owner") ||
+              positionLower.includes("agent");
+            
+            if (!isDecisionMaker && config.targetTitles?.length) {
+              continue;
+            }
+            
+            // Try to skip trace this person for contact info
+            let phone: string | undefined;
+            let email: string | undefined;
+            let address: string | undefined;
+            
+            try {
+              // Use Apify skip trace (cheaper) to find contact info
+              const skipResults = await dataProviders.searchPersonSmart(
+                officerName,
+                { state: target.state || undefined }
+              );
+              
+              if (skipResults && skipResults.length > 0) {
+                const firstResult = skipResults[0];
+                phone = firstResult.phones?.[0];
+                email = firstResult.emails?.[0];
+                address = firstResult.address;
+              }
+            } catch (e) {
+              console.log(`[BULK ENRICHMENT] Skip trace failed for ${officerName}`);
+            }
+            
+            const intentResult = calculateIntentScore({
+              title: position,
+              companyName: target.companyName,
+            });
+            
+            const nameParts = officerName.split(" ");
+            const firstName = nameParts[0] || "";
+            const lastName = nameParts.slice(1).join(" ") || "";
+            
+            results.push({
+              jobId: target.jobId,
+              targetId: target.id,
+              companyName: target.companyName,
+              firstName,
+              lastName,
+              fullName: officerName,
+              title: position,
+              email: email || null,
+              phone: phone || null,
+              cellPhone: null,
+              address: address || null,
+              city: null,
+              state: target.state || null,
+              zip: null,
+              confidenceScore: phone || email ? 70 : 50,
+              intentScore: intentResult.score,
+              intentSignals: intentResult.signals,
+              intentTier: intentResult.tier,
+              providerSource: "opencorporates",
+              dataAxleId: null,
+            });
+          }
+        }
+      } catch (ocError) {
+        console.error(`[BULK ENRICHMENT] OpenCorporates fallback failed:`, ocError);
+      }
+    }
+
+    console.log(`[BULK ENRICHMENT] Total contacts found for "${target.companyName}": ${results.length}`);
+    
   } catch (error) {
     console.error(`Error enriching contacts for ${target.companyName}:`, error);
   }
