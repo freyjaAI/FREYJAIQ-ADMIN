@@ -496,32 +496,64 @@ export async function searchFamilyOffices(config: TargetingConfig): Promise<Arra
   return deduped;
 }
 
+// Decision maker titles to filter for
+const DECISION_MAKER_TITLES = [
+  "founder", "co-founder", "managing partner", "managing director", 
+  "principal", "chief investment officer", "cio", "head of real assets",
+  "head of infrastructure", "family office director", "president", "owner",
+  "chief executive", "ceo", "partner", "director", "vp", "vice president",
+  "head of", "executive director", "senior partner", "general partner"
+];
+
+// Helper to normalize company names for better API matching
+function normalizeCompanyName(name: string): string {
+  return name
+    .replace(/\b(LLC|L\.L\.C\.|LP|L\.P\.|LLP|L\.L\.P\.|Inc\.?|Corp\.?|Corporation|Company|Co\.?|Ltd\.?|Limited|NA|N\.A\.)\b/gi, "")
+    .replace(/[,.\-_]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Check if a title matches decision maker criteria
+function isDecisionMakerTitle(title: string): boolean {
+  if (!title) return false;
+  const titleLower = title.toLowerCase();
+  return DECISION_MAKER_TITLES.some(dm => titleLower.includes(dm));
+}
+
 export async function enrichTargetContacts(
   target: BulkEnrichmentTarget,
   config: TargetingConfig
 ): Promise<InsertBulkEnrichmentResult[]> {
   const results: InsertBulkEnrichmentResult[] = [];
+  const seenNames = new Set<string>(); // Dedupe by name
+  const MAX_CONTACTS_PER_FIRM = 5;
 
   try {
-    console.log(`[BULK ENRICHMENT] Searching for people at "${target.companyName}" in ${target.state || 'any state'}`);
+    const normalizedCompany = normalizeCompanyName(target.companyName);
+    console.log(`[BULK ENRICHMENT] Stage 2: Enriching decision makers for "${target.companyName}" (normalized: "${normalizedCompany}")`);
     
-    const targetTitlesLower = (config.targetTitles || FAMILY_OFFICE_INDICATORS.titlePatterns)
-      .map(t => t.toLowerCase());
-
-    // NEW PRIORITY ORDER:
-    // 1. Apify Startup Investors (if enabled) - high quality investor decision-makers
-    // 2. A-Leads (fallback) - company contact search
-    // 3. Apify Skip Trace (last resort) - skip tracing
-
-    // Strategy 1: Try Apify Startup Investors first (if enabled)
+    // ========================================
+    // STRATEGY 1: Apify Startup Investors
+    // Search for investors at this firm
+    // ========================================
     if (config.useApifyInvestors) {
       try {
-        const investorResults = await dataProviders.searchApifyInvestorsByFirm(target.companyName, 5);
-        console.log(`[BULK ENRICHMENT] Apify Investors returned ${investorResults.length} investors for "${target.companyName}"`);
+        console.log(`[BULK ENRICHMENT] 1/4 - Trying Apify Investors for "${normalizedCompany}"...`);
+        const investorResults = await dataProviders.searchApifyInvestorsByFirm(normalizedCompany, 10);
+        console.log(`[BULK ENRICHMENT] Apify Investors returned ${investorResults.length} investors`);
         
         for (const investor of investorResults) {
-          if (!investor.name) continue;
+          if (!investor.name || seenNames.has(investor.name.toLowerCase())) continue;
+          if (results.length >= MAX_CONTACTS_PER_FIRM) break;
           
+          // Filter by decision maker title
+          if (!isDecisionMakerTitle(investor.title || "")) {
+            console.log(`[BULK ENRICHMENT] Skipping "${investor.name}" - title "${investor.title}" not a decision maker`);
+            continue;
+          }
+          
+          seenNames.add(investor.name.toLowerCase());
           const nameParts = investor.name.split(" ");
           const firstName = nameParts[0] || "";
           const lastName = nameParts.slice(1).join(" ") || "";
@@ -539,8 +571,8 @@ export async function enrichTargetContacts(
             lastName,
             fullName: investor.name,
             title: investor.title,
-            email: investor.email,
-            phone: investor.phone,
+            email: investor.email || null,
+            phone: investor.phone || null,
             cellPhone: null,
             address: null,
             city: null,
@@ -554,95 +586,104 @@ export async function enrichTargetContacts(
             dataAxleId: null,
           });
         }
+        console.log(`[BULK ENRICHMENT] After Apify Investors: ${results.length} decision makers`);
       } catch (investorError) {
         console.error(`[BULK ENRICHMENT] Apify Investors error:`, investorError);
       }
     }
 
-    // Strategy 2: Try A-Leads for people by company name (fallback)
-    if (results.length === 0) {
-      const aLeadsContacts = await dataProviders.searchPeopleByCompany(target.companyName, {
-        city: target.city || undefined,
-        state: target.state || undefined,
-      });
-      
-      console.log(`[BULK ENRICHMENT] A-Leads returned ${aLeadsContacts.length} people at "${target.companyName}"`);
+    // ========================================
+    // STRATEGY 2: A-Leads (fallback if < 5 people)
+    // Search for people at this company
+    // ========================================
+    if (results.length < MAX_CONTACTS_PER_FIRM) {
+      try {
+        console.log(`[BULK ENRICHMENT] 2/4 - Trying A-Leads for "${normalizedCompany}"...`);
+        const aLeadsContacts = await dataProviders.searchPeopleByCompany(normalizedCompany, {
+          city: target.city || undefined,
+          state: target.state || undefined,
+        });
+        
+        console.log(`[BULK ENRICHMENT] A-Leads returned ${aLeadsContacts.length} people`);
 
-      for (const contact of aLeadsContacts) {
-        const personTitleLower = (contact.title || "").toLowerCase();
-        const isDecisionMaker = targetTitlesLower.some(t => personTitleLower.includes(t)) ||
-          personTitleLower.includes("principal") ||
-          personTitleLower.includes("partner") ||
-          personTitleLower.includes("director") ||
-          personTitleLower.includes("cio") ||
-          personTitleLower.includes("cto") ||
-          personTitleLower.includes("cfo") ||
-          personTitleLower.includes("president") ||
-          personTitleLower.includes("founder") ||
-          personTitleLower.includes("owner") ||
-          personTitleLower.includes("managing");
+        for (const contact of aLeadsContacts) {
+          if (results.length >= MAX_CONTACTS_PER_FIRM) break;
+          
+          const fullName = contact.name || "";
+          if (!fullName || seenNames.has(fullName.toLowerCase())) continue;
+          
+          // Filter by decision maker title
+          if (!isDecisionMakerTitle(contact.title || "")) {
+            continue;
+          }
+          
+          seenNames.add(fullName.toLowerCase());
+          const nameParts = fullName.split(" ");
+          const firstName = nameParts[0] || "";
+          const lastName = nameParts.slice(1).join(" ") || "";
 
-        if (!isDecisionMaker && config.targetTitles?.length) {
-          continue;
+          const intentResult = calculateIntentScore({
+            title: contact.title,
+            companyName: target.companyName,
+          });
+
+          results.push({
+            jobId: target.jobId,
+            targetId: target.id,
+            companyName: target.companyName,
+            firstName,
+            lastName,
+            fullName,
+            title: contact.title,
+            email: contact.email || null,
+            phone: contact.phone || null,
+            cellPhone: null,
+            address: contact.address || null,
+            city: null,
+            state: null,
+            zip: null,
+            confidenceScore: contact.confidence || 75,
+            intentScore: intentResult.score,
+            intentSignals: intentResult.signals,
+            intentTier: intentResult.tier,
+            providerSource: "a_leads",
+            dataAxleId: null,
+          });
         }
-
-        const intentResult = calculateIntentScore({
-          title: contact.title,
-          companyName: target.companyName,
-        });
-
-        const nameParts = (contact.name || "").split(" ");
-        const firstName = nameParts[0] || "";
-        const lastName = nameParts.slice(1).join(" ") || "";
-
-        results.push({
-          jobId: target.jobId,
-          targetId: target.id,
-          companyName: target.companyName,
-          firstName,
-          lastName,
-          fullName: contact.name || "",
-          title: contact.title,
-          email: contact.email,
-          phone: contact.phone,
-          cellPhone: null,
-          address: contact.address,
-          city: null,
-          state: null,
-          zip: null,
-          confidenceScore: contact.confidence || 75,
-          intentScore: intentResult.score,
-          intentSignals: intentResult.signals,
-          intentTier: intentResult.tier,
-          providerSource: "a_leads",
-          dataAxleId: null,
-        });
+        console.log(`[BULK ENRICHMENT] After A-Leads: ${results.length} decision makers`);
+      } catch (aLeadsError) {
+        console.error(`[BULK ENRICHMENT] A-Leads error:`, aLeadsError);
       }
     }
 
-    // Strategy 3: If still nothing, try Apify skip trace directly (last resort)
+    // ========================================
+    // STRATEGY 3: Apify Skip Trace (if still no results)
+    // Last resort - search for anyone at company
+    // ========================================
     if (results.length === 0) {
-      console.log(`[BULK ENRICHMENT] No results from investors/A-Leads, trying Apify skip trace for "${target.companyName}"`);
-      
       try {
+        console.log(`[BULK ENRICHMENT] 3/4 - Trying Apify Skip Trace for "${normalizedCompany}"...`);
         const skipResults = await dataProviders.searchPersonSmart(
-          target.companyName,
+          normalizedCompany,
           { state: target.state || undefined }
         );
         
         if (skipResults && skipResults.length > 0) {
-          console.log(`[BULK ENRICHMENT] Apify Skip Trace found ${skipResults.length} people for "${target.companyName}"`);
+          console.log(`[BULK ENRICHMENT] Apify Skip Trace found ${skipResults.length} people`);
           
           for (const person of skipResults.slice(0, 3)) {
             const firstName = person.firstName || '';
             const lastName = person.lastName || '';
             const fullName = `${firstName} ${lastName}`.trim();
             if (!fullName || fullName.length < 3) continue;
+            if (seenNames.has(fullName.toLowerCase())) continue;
             
+            // Skip if name looks like a company
             if (/\b(LLC|LP|LLP|Inc|Corp|Corporation|Company|Co|Ltd)\b/i.test(fullName)) {
               continue;
             }
             
+            seenNames.add(fullName.toLowerCase());
             const intentResult = calculateIntentScore({
               title: person.title || "Principal",
               companyName: target.companyName,
@@ -672,12 +713,53 @@ export async function enrichTargetContacts(
             });
           }
         }
+        console.log(`[BULK ENRICHMENT] After Skip Trace: ${results.length} contacts`);
       } catch (apifyError) {
         console.error(`[BULK ENRICHMENT] Apify skip trace failed:`, apifyError);
       }
     }
 
-    console.log(`[BULK ENRICHMENT] Total contacts found for "${target.companyName}": ${results.length}`);
+    // ========================================
+    // STRATEGY 4: Skip trace for contacts missing email/phone
+    // Enrich contacts that are missing contact info
+    // ========================================
+    const contactsNeedingEnrichment = results.filter(r => !r.email && !r.phone);
+    if (contactsNeedingEnrichment.length > 0) {
+      console.log(`[BULK ENRICHMENT] 4/4 - Running skip trace for ${contactsNeedingEnrichment.length} contacts missing email/phone...`);
+      
+      for (const contact of contactsNeedingEnrichment.slice(0, 3)) {
+        try {
+          const skipResults = await dataProviders.searchPersonSmart(
+            contact.fullName || `${contact.firstName} ${contact.lastName}`,
+            { state: contact.state || target.state || undefined }
+          );
+          
+          if (skipResults && skipResults.length > 0) {
+            const person = skipResults[0];
+            // Update the contact with enriched data
+            if (!contact.email && person.emails?.length) {
+              contact.email = person.emails[0];
+              contact.confidenceScore = Math.min(100, (contact.confidenceScore || 50) + 15);
+            }
+            if (!contact.phone && person.phones?.length) {
+              contact.phone = person.phones[0];
+              contact.confidenceScore = Math.min(100, (contact.confidenceScore || 50) + 15);
+            }
+            if (!contact.cellPhone && person.cellPhones?.length) {
+              contact.cellPhone = person.cellPhones[0];
+            }
+            if (!contact.address && person.address) {
+              contact.address = person.address;
+            }
+            console.log(`[BULK ENRICHMENT] Enriched "${contact.fullName}" with skip trace data`);
+          }
+        } catch (skipError) {
+          console.error(`[BULK ENRICHMENT] Skip trace for "${contact.fullName}" failed:`, skipError);
+        }
+      }
+    }
+
+    console.log(`[BULK ENRICHMENT] FINAL: ${results.length} decision makers found for "${target.companyName}"`);
     
   } catch (error) {
     console.error(`Error enriching contacts for ${target.companyName}:`, error);

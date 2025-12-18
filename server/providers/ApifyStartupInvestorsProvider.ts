@@ -227,9 +227,52 @@ export class ApifyStartupInvestorsProvider {
   }
 
   async searchByFirmName(firmName: string, limit: number = 10): Promise<InvestorProfile[]> {
-    return this.searchInvestors({
-      investorNames: [firmName],
-      limit
+    // Normalize firm name: strip common legal suffixes for better matching
+    const normalizedName = this.normalizeFirmName(firmName);
+    console.log(`[Apify Investors] Searching for investors at firm: "${normalizedName}" (original: "${firmName}")`);
+    
+    // Search using firm types that might contain investors for this firm
+    // Since the API searches investor names, we need to search broadly
+    // and filter results by firm name match
+    const results = await this.searchInvestors({
+      firmTypes: ["Family Office", "Single Family Office", "Multi-Family Office", 
+                  "Private Equity", "Venture Capital", "Investment Management",
+                  "Asset Management", "Wealth Management", "Hedge Fund"],
+      limit: limit * 10 // Fetch more to filter
     });
+    
+    // Filter results where firm name matches (fuzzy)
+    const normalizedLower = normalizedName.toLowerCase();
+    const filtered = results.filter(investor => {
+      const investorFirm = (investor.firm || "").toLowerCase();
+      const investorFirmNormalized = this.normalizeFirmName(investorFirm).toLowerCase();
+      
+      // Check if firms match (contains or fuzzy)
+      return investorFirmNormalized.includes(normalizedLower) ||
+             normalizedLower.includes(investorFirmNormalized) ||
+             this.fuzzyFirmMatch(normalizedLower, investorFirmNormalized);
+    });
+    
+    console.log(`[Apify Investors] Found ${filtered.length} investors at "${normalizedName}" (from ${results.length} total)`);
+    return filtered.slice(0, limit);
+  }
+  
+  private normalizeFirmName(name: string): string {
+    return name
+      .replace(/\b(LLC|L\.L\.C\.|LP|L\.P\.|LLP|L\.L\.P\.|Inc\.?|Corp\.?|Corporation|Company|Co\.?|Ltd\.?|Limited|NA|N\.A\.)\b/gi, "")
+      .replace(/[,.\-_]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+  
+  private fuzzyFirmMatch(a: string, b: string): boolean {
+    if (!a || !b) return false;
+    
+    // Check if significant words overlap
+    const wordsA = a.split(/\s+/).filter(w => w.length > 2);
+    const wordsB = b.split(/\s+/).filter(w => w.length > 2);
+    
+    const matchCount = wordsA.filter(wa => wordsB.some(wb => wb.includes(wa) || wa.includes(wb))).length;
+    return matchCount >= Math.min(2, Math.min(wordsA.length, wordsB.length));
   }
 }
