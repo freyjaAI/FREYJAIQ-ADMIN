@@ -1292,15 +1292,14 @@ export class SECEdgarProvider {
   private baseUrl = "https://data.sec.gov";
   private userAgent = "FreyjaIQ admin@freyjafinancialgroup.net";
 
-  // Search for 13F filers by name pattern
-  async searchFamilyOfficeFilers(searchTerms: string[] = ["family office"]): Promise<SECEdgarFiler[]> {
+  // Search for investment-related filers by name pattern - ENHANCED for better coverage
+  async searchFamilyOfficeFilers(searchTerms: string[] = ["family office"], limit: number = 500): Promise<SECEdgarFiler[]> {
     const results: SECEdgarFiler[] = [];
     
     try {
-      console.log(`[SEC EDGAR] Searching for filers matching: ${searchTerms.join(", ")}`);
+      console.log(`[SEC EDGAR] Searching for investment filers (limit: ${limit})`);
       
-      // Use SEC full-text search to find 13F filers
-      // We'll search the company tickers/names file which is freely available
+      // Use SEC company tickers which is freely available
       const tickersUrl = "https://www.sec.gov/files/company_tickers.json";
       
       const response = await fetch(tickersUrl, {
@@ -1315,24 +1314,55 @@ export class SECEdgarProvider {
       const data = await response.json();
       const companies = Object.values(data) as Array<{ cik_str: string; title: string; ticker?: string }>;
       
-      // Filter for family office related names
-      const familyOfficePatterns = searchTerms.map(t => t.toLowerCase());
+      console.log(`[SEC EDGAR] Loaded ${companies.length} total companies from SEC`);
+      
+      // Expanded investment-related patterns that capture family offices, hedge funds, PE firms, etc.
+      const investmentPatterns = [
+        // Explicit family office terms
+        "family office", "family capital", "family partners", "family holdings",
+        "family investment", "family trust", "family fund", "family wealth",
+        // Investment management
+        "capital management", "capital partners", "capital advisors", "capital group",
+        "asset management", "investment management", "investment advisors", "investment partners",
+        "wealth management", "wealth advisors", "wealth partners",
+        // Fund types
+        "private equity", "venture capital", "hedge fund", "fund management",
+        "capital fund", "investment fund", "equity fund", "growth fund",
+        // LLC/LP investment vehicles
+        "capital llc", "capital lp", "partners llc", "partners lp",
+        "investments llc", "investments lp", "holdings llc", "holdings lp",
+        // Trust companies
+        "trust company", "trust co", "fiduciary",
+        // Alternative investments
+        "alternative", "real assets", "infrastructure",
+        // Common suffixes for investment firms
+        " advisors", " advisory", " associates",
+        // General investment terms
+        " capital", " investments", " partners", " holdings", " management",
+        // Add user search terms
+        ...searchTerms.map(t => t.toLowerCase())
+      ];
+      
+      // Use a Set to deduplicate patterns
+      const uniquePatterns = [...new Set(investmentPatterns)];
       
       for (const company of companies) {
-        const nameLower = company.title.toLowerCase();
-        const isMatch = familyOfficePatterns.some(pattern => nameLower.includes(pattern));
+        if (results.length >= limit) break;
         
-        if (isMatch) {
+        const nameLower = company.title.toLowerCase();
+        
+        // Check if company name matches any investment pattern
+        if (uniquePatterns.some(pattern => nameLower.includes(pattern))) {
           results.push({
             cik: String(company.cik_str).padStart(10, "0"),
             name: company.title,
-            filingCount: 0, // Would need additional API call to get this
+            filingCount: 0,
             entityType: "13F Filer",
           });
         }
       }
       
-      console.log(`[SEC EDGAR] Found ${results.length} filers matching search terms`);
+      console.log(`[SEC EDGAR] Found ${results.length} investment-related filers (from ${companies.length} total)`);
       
     } catch (error) {
       console.error("[SEC EDGAR] Search error:", error);
