@@ -167,71 +167,114 @@ export async function searchFamilyOffices(config: TargetingConfig): Promise<Arra
 }>> {
   const results: Array<any> = [];
 
-  const searchQueries: string[] = [];
-  if (config.companyNameKeywords?.length) {
-    searchQueries.push(...config.companyNameKeywords);
-  } else {
-    searchQueries.push("family office", "capital partners", "private wealth", "investment holdings");
-  }
+  // Expanded default search keywords for better coverage
+  const defaultKeywords = [
+    // Core family office terms
+    "family office", "single family office", "multi family office",
+    "family capital", "family holdings", "family partners", "family investments",
+    // Investment/wealth management
+    "capital partners", "capital management", "capital advisors", "capital group",
+    "wealth management", "private wealth", "wealth advisors",
+    "asset management", "investment management", "investment advisors",
+    "private capital", "private equity", "venture capital",
+    // Trust and legacy
+    "trust company", "family trust", "legacy capital", "legacy partners",
+    // Infrastructure-focused
+    "infrastructure capital", "real assets", "alternative investments",
+    "digital infrastructure", "data center invest",
+  ];
+
+  const searchQueries: string[] = config.companyNameKeywords?.length 
+    ? config.companyNameKeywords 
+    : defaultKeywords;
+
+  // Search across ALL specified states (not just the first)
+  const statesToSearch = config.states?.length ? config.states : [undefined];
+  const citiesToSearch = config.cities?.length ? config.cities : [undefined];
+
+  // Minimum confidence threshold (raised from 20 to 30 for better quality)
+  const minConfidence = config.minConfidence ?? 30;
+
+  console.log(`[BULK ENRICHMENT] Searching ${searchQueries.length} keywords across ${statesToSearch.length} states`);
 
   for (const query of searchQueries) {
-    try {
-      const places = await dataProviders.searchPlacesV3(query, {
-        city: config.cities?.[0],
-        state: config.states?.[0],
-        zip: config.zipCodes?.[0],
-      });
-
-      for (const place of places) {
-        if (config.naicsCodes?.length && place.naicsCode && !config.naicsCodes.includes(place.naicsCode)) {
-          continue;
-        }
-        if (config.sicCodes?.length && place.sicCode && !config.sicCodes.includes(place.sicCode)) {
-          continue;
-        }
-        if (config.minEmployees && place.employees && place.employees < config.minEmployees) {
-          continue;
-        }
-        if (config.maxEmployees && place.employees && place.employees > config.maxEmployees) {
-          continue;
-        }
-
-        const familyOfficeScore = detectFamilyOffice({
-          name: place.name,
-          naicsCode: place.naicsCode,
-          sicCode: place.sicCode,
-          employeeCount: place.employees,
-        });
-
-        if (familyOfficeScore.confidence >= 20) {
-          results.push({
-            companyName: place.name,
-            address: place.address,
-            city: place.city,
-            state: place.state,
-            zip: place.zip,
-            naicsCode: place.naicsCode,
-            sicCode: place.sicCode,
-            employeeCount: place.employees,
-            salesVolume: place.salesVolume,
-            familyOfficeConfidence: familyOfficeScore.confidence,
-            familyOfficeSignals: familyOfficeScore.signals,
-            dataAxleId: place.infousa_id,
+    for (const state of statesToSearch) {
+      for (const city of citiesToSearch) {
+        try {
+          const places = await dataProviders.searchPlacesV3(query, {
+            city: city,
+            state: state,
+            zip: config.zipCodes?.[0],
           });
+
+          console.log(`[BULK ENRICHMENT] "${query}" in ${state || 'any state'}: ${places.length} results`);
+
+          for (const place of places) {
+            // Apply NAICS filter
+            if (config.naicsCodes?.length && place.naicsCode && !config.naicsCodes.includes(place.naicsCode)) {
+              continue;
+            }
+            // Apply SIC filter
+            if (config.sicCodes?.length && place.sicCode && !config.sicCodes.includes(place.sicCode)) {
+              continue;
+            }
+            // Apply employee count filters
+            if (config.minEmployees && place.employees && place.employees < config.minEmployees) {
+              continue;
+            }
+            if (config.maxEmployees && place.employees && place.employees > config.maxEmployees) {
+              continue;
+            }
+
+            const familyOfficeScore = detectFamilyOffice({
+              name: place.name,
+              naicsCode: place.naicsCode,
+              sicCode: place.sicCode,
+              employeeCount: place.employees,
+            });
+
+            // Use configurable minimum confidence
+            if (familyOfficeScore.confidence >= minConfidence) {
+              results.push({
+                companyName: place.name,
+                address: place.address,
+                city: place.city,
+                state: place.state,
+                zip: place.zip,
+                naicsCode: place.naicsCode,
+                sicCode: place.sicCode,
+                employeeCount: place.employees,
+                salesVolume: place.salesVolume,
+                familyOfficeConfidence: familyOfficeScore.confidence,
+                familyOfficeSignals: familyOfficeScore.signals,
+                dataAxleId: place.infousa_id,
+              });
+            }
+          }
+        } catch (error) {
+          console.error(`Error searching for "${query}" in ${state}:`, error);
         }
       }
-    } catch (error) {
-      console.error(`Error searching for "${query}":`, error);
     }
   }
 
+  // Deduplicate by company name (case-insensitive) and Data Axle ID
   const seen = new Set<string>();
-  return results.filter(r => {
-    const key = r.companyName.toLowerCase();
-    if (seen.has(key)) return false;
-    seen.add(key);
+  const deduped = results.filter(r => {
+    const nameKey = r.companyName.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const idKey = r.dataAxleId || '';
+    const compositeKey = `${nameKey}|${idKey}`;
+    if (seen.has(compositeKey)) return false;
+    seen.add(compositeKey);
     return true;
   });
+
+  // Sort by confidence descending
+  deduped.sort((a, b) => b.familyOfficeConfidence - a.familyOfficeConfidence);
+
+  console.log(`[BULK ENRICHMENT] Found ${deduped.length} unique companies (from ${results.length} raw matches)`);
+
+  return deduped;
 }
 
 export async function enrichTargetContacts(

@@ -659,4 +659,6 @@ export interface TargetingConfig {
   // Enrichment options
   includeIntentScoring?: boolean;
   dataCenterIntentFocus?: boolean;
+  // Quality filters
+  minConfidence?: number; // Minimum family office confidence score (default: 30)
 }
