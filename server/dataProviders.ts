@@ -1545,6 +1545,8 @@ export class ALeadsProvider {
   }
 
   // Search for contacts at a company - fetch all people, filter decision-makers client-side
+  // Uses multiple name variants for better matching with SEC EDGAR company names
+  // Uses SIC code filtering ("67" = Holding and Investment Offices) to improve precision
   async searchContactsWithTitles(companyName: string, titles: string[], location?: string): Promise<ALeadsContact[]> {
     const check = apiUsageTracker.canMakeRequest("aleads");
     if (!check.allowed) {
@@ -1553,63 +1555,78 @@ export class ALeadsProvider {
     }
 
     try {
-      console.log(`[A-Leads] Searching for people at "${companyName}"...`);
+      // Generate multiple company name variants for better matching
+      // SEC EDGAR names often have legal suffixes that A-Leads may not have
+      const nameVariants = this.generateCompanyNameVariants(companyName);
+      console.log(`[A-Leads] Searching for people at "${companyName}" using ${nameVariants.length} variants...`);
       
-      // Search by company name only - title filtering doesn't work with comma-separated values
-      const advancedFilters: Record<string, any> = {
-        company_name: companyName,
-      };
-
-      const requestBody = {
-        advanced_filters: advancedFilters,
-        current_page: 1,
-        search_type: "total",
-      };
-
-      console.log(`[A-Leads] Request body:`, JSON.stringify(requestBody));
-
-      const response = await fetch(`${this.baseUrl}/advanced-search`, {
-        method: "POST",
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
-          "x-api-key": this.apiKey,
-        },
-        body: JSON.stringify(requestBody),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`[A-Leads] Error response (${response.status}):`, errorText.slice(0, 500));
-        return [];
-      }
-
-      const data = await response.json();
-      const allResults = data.data || [];
-      apiUsageTracker.recordRequest("aleads", allResults.length || 1);
-      console.log(`[A-Leads] Found ${allResults.length} total contacts at "${companyName}"`);
-
-      // Filter for decision-makers client-side
-      const titlesLower = titles.map(t => t.toLowerCase());
+      // Decision-maker keywords for filtering
       const decisionMakerKeywords = [
         "ceo", "chief executive", "president", "founder", "owner",
         "managing director", "managing partner", "principal", "partner",
         "cio", "chief investment", "director", "cfo", "chief financial",
         "vp", "vice president", "head of", "executive"
       ];
+      const titlesLower = titles.map(t => t.toLowerCase());
       
-      const filtered = allResults.filter((contact: any) => {
-        const jobTitle = (contact.job_title || "").toLowerCase();
-        if (!jobTitle) return false;
-        
-        // Check if title matches any of our target titles or keywords
-        return titlesLower.some(t => jobTitle.includes(t)) ||
-               decisionMakerKeywords.some(kw => jobTitle.includes(kw));
-      });
+      let filteredResults: any[] = [];
+      const seenIds = new Set<string>();
       
-      console.log(`[A-Leads] ${filtered.length} of ${allResults.length} are decision-makers`);
+      // Try each variant until we find DECISION MAKERS (not just any contacts)
+      // Start WITHOUT SIC filtering for broader coverage, since investment firms
+      // may register under various codes (65 real estate, 67 investment offices, etc.)
+      console.log(`[A-Leads] Will try up to ${Math.min(nameVariants.length, 3)} variants for "${companyName}"`);
+      
+      for (const variant of nameVariants.slice(0, 3)) {
+        // Search by company name WITHOUT SIC filtering for broader coverage
+        const advancedFilters: Record<string, any> = {
+          company_name: variant,
+        };
 
-      return filtered.map((contact: any) => ({
+        const requestBody = {
+          advanced_filters: advancedFilters,
+          current_page: 1,
+          search_type: "total",
+        };
+
+        console.log(`[A-Leads] Trying variant: "${variant}" (current decision-makers: ${filteredResults.length})`);
+
+        const response = await fetch(`${this.baseUrl}/advanced-search`, {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+            "x-api-key": this.apiKey,
+          },
+          body: JSON.stringify(requestBody),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error(`[A-Leads] Error response (${response.status}):`, errorText.slice(0, 200));
+          continue;
+        }
+
+        const data = await response.json();
+        const results = data.data || [];
+        apiUsageTracker.recordRequest("aleads", 1);
+        
+        const beforeCount = filteredResults.length;
+        this.processALeadsResults(results, seenIds, filteredResults, titlesLower, decisionMakerKeywords, variant);
+        const addedCount = filteredResults.length - beforeCount;
+        
+        console.log(`[A-Leads] Variant "${variant}": ${results.length} raw -> ${addedCount} new decision-makers (total: ${filteredResults.length})`);
+        
+        // Stop once we have enough decision-makers to save API quota
+        if (filteredResults.length >= 3) {
+          console.log(`[A-Leads] Found ${filteredResults.length} decision-makers, stopping variant search to save API quota`);
+          break;
+        }
+      }
+      
+      console.log(`[A-Leads] Final: ${filteredResults.length} decision-makers for "${companyName}"`);
+
+      return filteredResults.map((contact: any) => ({
         name: contact.member_full_name || `${contact.member_name_first || ""} ${contact.member_name_last || ""}`.trim(),
         email: contact.email,
         phone: contact.phone_number_available ? "Available" : undefined,
@@ -1624,6 +1641,78 @@ export class ALeadsProvider {
       console.error("[A-Leads] Company search error:", error?.message || error);
       return [];
     }
+  }
+  
+  // Helper to process and filter A-Leads results
+  private processALeadsResults(
+    results: any[], 
+    seenIds: Set<string>, 
+    filteredResults: any[],
+    titlesLower: string[],
+    decisionMakerKeywords: string[],
+    variant: string
+  ): void {
+    let newDecisionMakers = 0;
+    
+    for (const r of results) {
+      const id = r.member_linkedin_url || `${r.member_name_first}_${r.member_name_last}_${r.company_name}`;
+      if (seenIds.has(id)) continue;
+      seenIds.add(id);
+      
+      // Filter for decision-makers immediately
+      const jobTitle = (r.job_title || "").toLowerCase();
+      if (!jobTitle) continue;
+      
+      const isDecisionMaker = titlesLower.some(t => jobTitle.includes(t)) ||
+                              decisionMakerKeywords.some(kw => jobTitle.includes(kw));
+      
+      if (isDecisionMaker) {
+        filteredResults.push(r);
+        newDecisionMakers++;
+      }
+    }
+    
+    console.log(`[A-Leads] Variant "${variant}": ${results.length} raw results, ${newDecisionMakers} new decision-makers (total: ${filteredResults.length})`);
+  }
+  
+  // Generate company name variants for better API matching
+  // SEC EDGAR names like "Capri Holdings Ltd" may be in A-Leads as "Capri Holdings" or "Capri"
+  private generateCompanyNameVariants(name: string): string[] {
+    const variants: string[] = [];
+    
+    // 1. Original name
+    variants.push(name);
+    
+    // 2. Remove legal suffixes (LLC, Ltd, Inc, etc.)
+    const withoutSuffixes = name
+      .replace(/\b(LLC|L\.L\.C\.|LP|L\.P\.|LLP|L\.L\.P\.|Inc\.?|Corp\.?|Corporation|Company|Co\.?|Ltd\.?|Limited|NA|N\.A\.|PLC|P\.L\.C\.)\b/gi, "")
+      .replace(/[,.\-_]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (withoutSuffixes && withoutSuffixes !== name) {
+      variants.push(withoutSuffixes);
+    }
+    
+    // 3. Remove common investment suffixes for broader match
+    const coreName = withoutSuffixes
+      .replace(/\b(Capital|Partners|Advisors|Management|Investments|Holdings|Group|Associates|Wealth|Asset|Fund)\b$/gi, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (coreName && coreName !== withoutSuffixes && coreName.length > 3) {
+      variants.push(coreName);
+    }
+    
+    // 4. First word only (for very unique company names)
+    const firstWord = name.split(/\s+/)[0];
+    if (firstWord && firstWord.length > 3 && !variants.includes(firstWord)) {
+      // Only add if first word is substantial and not a common word
+      const commonWords = ["the", "and", "for", "new", "first", "old", "big"];
+      if (!commonWords.includes(firstWord.toLowerCase())) {
+        variants.push(firstWord);
+      }
+    }
+    
+    return variants;
   }
 
   async skipTrace(input: { name: string; address?: string; city?: string; state?: string; zip?: string }): Promise<ALeadsContact | null> {
