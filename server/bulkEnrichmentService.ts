@@ -649,13 +649,25 @@ export async function searchFamilyOffices(config: TargetingConfig): Promise<Arra
         r.linkedin ? "Has LinkedIn" : "",
       ].filter(Boolean),
       // A-Leads provides decision-maker directly - no separate enrichment needed
+      // CRITICAL: Include ALL contact fields from A-Leads response
       decisionMakers: [{
         name: r.name,
         title: r.title,
+        email: r.email,
+        phone: r.phone,
         linkedin: r.linkedin,
+        location: r.location,
+        industry: r.industry,
+        companySize: r.companySize,
         hasEmail: r.hasEmail,
         hasPhone: r.hasPhone,
+        dataCenterScore: r.dataCenterScore,
+        dataCenterTier: r.dataCenterTier,
+        dataCenterSignals: r.dataCenterSignals,
       }],
+      // Also pass through location for the company
+      address: r.location,
+      industry: r.industry,
     })) as any;
   }
   
@@ -1183,6 +1195,21 @@ export async function createEnrichmentJob(
           companyName: company.companyName,
         });
         
+        // Parse location into city/state if available (format: "City, State, Country" or "City, State")
+        let parsedCity: string | undefined;
+        let parsedState: string | undefined;
+        if (dm.location) {
+          const locationParts = dm.location.split(",").map((p: string) => p.trim());
+          if (locationParts.length >= 2) {
+            parsedCity = locationParts[0];
+            // State could be second part or have country after it
+            parsedState = locationParts[1].replace(/\s*United States$/i, "").trim();
+          }
+        }
+        
+        // Log what we're saving for debugging
+        console.log(`[A-LEADS] Saving decision-maker: ${dm.name} | email: ${dm.email || 'none'} | phone: ${dm.phone || 'none'} | location: ${dm.location || 'none'}`);
+        
         await storage.createBulkEnrichmentResult({
           jobId: job.id,
           targetId: target.id,
@@ -1191,13 +1218,17 @@ export async function createEnrichmentJob(
           firstName: dm.name?.split(" ")[0],
           lastName: dm.name?.split(" ").slice(1).join(" "),
           title: dm.title,
+          // CRITICAL: Include actual contact info from A-Leads
+          email: dm.email,
+          phone: dm.phone,
           linkedinUrl: dm.linkedin,
-          // A-Leads returns hasEmail/hasPhone flags but not actual values without extra API call
-          // Mark as verified so user knows contact info exists
+          address: dm.location,
+          city: parsedCity,
+          state: parsedState,
           confidenceScore: company.familyOfficeConfidence,
-          intentScore: intentScore.score,
-          intentSignals: intentScore.signals,
-          intentTier: intentScore.tier,
+          intentScore: dm.dataCenterScore || intentScore.score,
+          intentSignals: dm.dataCenterSignals || intentScore.signals,
+          intentTier: dm.dataCenterTier || intentScore.tier,
           providerSource: "aleads_advanced_search",
         });
         preEnrichedContactCount++;
