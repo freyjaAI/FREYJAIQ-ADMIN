@@ -1512,6 +1512,77 @@ export class ALeadsProvider {
     }
   }
 
+  // Search for contacts at a company with specific job titles
+  async searchContactsWithTitles(companyName: string, titles: string[], location?: string): Promise<ALeadsContact[]> {
+    const check = apiUsageTracker.canMakeRequest("aleads");
+    if (!check.allowed) {
+      console.error(`[A-LEADS BLOCKED] ${check.reason}`);
+      return [];
+    }
+
+    try {
+      console.log(`[A-Leads] Searching for titles at "${companyName}": ${titles.slice(0, 3).join(', ')}...`);
+      
+      const advancedFilters: Record<string, any> = {
+        company_name: companyName,
+      };
+      
+      // Add location filter if provided
+      if (location && location.trim()) {
+        advancedFilters.member_location_raw_address = location;
+      }
+      
+      // A-Leads uses job_title field for title search
+      // We'll try searching with the first few key titles
+      const primaryTitles = titles.slice(0, 5);
+      advancedFilters.job_title = primaryTitles.join(",");
+
+      const requestBody = {
+        advanced_filters: advancedFilters,
+        current_page: 1,
+        search_type: "total",
+      };
+
+      console.log(`[A-Leads] Request body:`, JSON.stringify(requestBody));
+
+      const response = await fetch(`${this.baseUrl}/advanced-search`, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          "x-api-key": this.apiKey,
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[A-Leads] Error response (${response.status}):`, errorText.slice(0, 500));
+        return [];
+      }
+
+      const data = await response.json();
+      const results = data.data || [];
+      apiUsageTracker.recordRequest("aleads", results.length || 1);
+      console.log(`[A-Leads] Found ${results.length} contacts with decision-maker titles`);
+
+      return results.map((contact: any) => ({
+        name: contact.member_full_name || `${contact.member_name_first || ""} ${contact.member_name_last || ""}`.trim(),
+        email: contact.email,
+        phone: contact.phone_number_available ? "Available" : undefined,
+        address: contact.member_location_raw_address || contact.hq_full_address,
+        company: contact.company_name,
+        title: contact.job_title,
+        linkedinUrl: contact.member_linkedin_url,
+        source: "a-leads",
+        confidence: 80,
+      }));
+    } catch (error: any) {
+      console.error("[A-Leads] Title search error:", error?.message || error);
+      return [];
+    }
+  }
+
   async skipTrace(input: { name: string; address?: string; city?: string; state?: string; zip?: string }): Promise<ALeadsContact | null> {
     const check = apiUsageTracker.canMakeRequest("aleads");
     if (!check.allowed) {
@@ -2399,7 +2470,8 @@ export class DataProviderManager {
     }
   }
 
-  // Search for people by company name using A-Leads
+  // Search for decision-makers by company name using A-Leads
+  // Must specify titles because A-Leads needs filters beyond just company name
   async searchPeopleByCompany(companyName: string, location?: { city?: string; state?: string }): Promise<ALeadsContact[]> {
     if (!this.aLeads) {
       console.warn("A-Leads provider not configured");
@@ -2408,8 +2480,17 @@ export class DataProviderManager {
     
     try {
       const locationStr = location ? `${location.city || ""}, ${location.state || ""}`.trim() : undefined;
-      console.log(`[A-Leads] Searching for people at company: "${companyName}" location: "${locationStr}"`);
-      return await this.aLeads.searchContacts({ company: companyName, location: locationStr });
+      console.log(`[A-Leads] Searching for decision-makers at company: "${companyName}" location: "${locationStr}"`);
+      
+      // A-Leads needs title filters to find people at a company - just company name doesn't work
+      // Search for common decision-maker titles
+      const decisionMakerTitles = [
+        "CEO", "Chief Executive", "President", "Founder", "Owner",
+        "Managing Director", "Managing Partner", "Principal", "Partner",
+        "CIO", "Chief Investment", "Director", "CFO", "Chief Financial"
+      ];
+      
+      return await this.aLeads.searchContactsWithTitles(companyName, decisionMakerTitles, locationStr);
     } catch (error) {
       console.error(`A-Leads company search error:`, error);
       return [];

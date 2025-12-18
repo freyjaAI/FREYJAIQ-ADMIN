@@ -434,7 +434,9 @@ export async function enrichTargetContacts(
           
           // Process up to 3 results
           for (const person of skipResults.slice(0, 3)) {
-            const fullName = person.name || '';
+            const firstName = person.firstName || '';
+            const lastName = person.lastName || '';
+            const fullName = `${firstName} ${lastName}`.trim();
             if (!fullName || fullName.length < 3) continue;
             
             // Skip if it looks like a company name
@@ -443,13 +445,9 @@ export async function enrichTargetContacts(
             }
             
             const intentResult = calculateIntentScore({
-              title: "Principal",
+              title: person.title || "Principal",
               companyName: target.companyName,
             });
-            
-            const nameParts = fullName.split(" ");
-            const firstName = nameParts[0] || "";
-            const lastName = nameParts.slice(1).join(" ") || "";
             
             results.push({
               jobId: target.jobId,
@@ -458,20 +456,20 @@ export async function enrichTargetContacts(
               firstName,
               lastName,
               fullName,
-              title: "Principal",
+              title: person.title || "Principal",
               email: person.emails?.[0] || null,
               phone: person.phones?.[0] || null,
-              cellPhone: person.phones?.[1] || null,
+              cellPhone: person.cellPhones?.[0] || null,
               address: person.address || null,
-              city: null,
-              state: target.state || null,
-              zip: null,
+              city: person.city || null,
+              state: person.state || target.state || null,
+              zip: person.zip || null,
               confidenceScore: (person.phones?.length || person.emails?.length) ? 75 : 50,
               intentScore: intentResult.score,
               intentSignals: intentResult.signals,
               intentTier: intentResult.tier,
               providerSource: "apify_skip_trace",
-              dataAxleId: null,
+              dataAxleId: person.infousa_id || null,
             });
           }
         }
