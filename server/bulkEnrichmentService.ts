@@ -168,7 +168,8 @@ export async function searchFamilyOfficesSEC(config: TargetingConfig): Promise<A
   dataAxleId?: string;
   cik?: string;
 }>> {
-  console.log(`[BULK ENRICHMENT] Using SEC EDGAR (FREE) for family office discovery`);
+  const limit = config.limit || 100;
+  console.log(`[BULK ENRICHMENT] Using SEC EDGAR (FREE) for family office discovery (limit: ${limit})`);
   
   // Default search terms for family offices
   const searchTerms = config.companyNameKeywords?.length 
@@ -178,9 +179,9 @@ export async function searchFamilyOfficesSEC(config: TargetingConfig): Promise<A
         "holdings", "partners", "advisors", "management"
       ];
   
-  const secFilers = await dataProviders.searchSECFamilyOffices(searchTerms);
+  const secFilers = await dataProviders.searchSECFamilyOffices(searchTerms, limit);
   
-  console.log(`[SEC EDGAR] Found ${secFilers.length} filers matching criteria`);
+  console.log(`[SEC EDGAR] Found ${secFilers.length} filers matching criteria (limit: ${limit})`);
   
   const results: Array<any> = [];
   

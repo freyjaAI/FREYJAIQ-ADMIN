@@ -1866,8 +1866,8 @@ export class DataProviderManager {
   }
 
   // SEC EDGAR - FREE family office/13F filer search
-  async searchSECFamilyOffices(searchTerms?: string[]): Promise<SECEdgarFiler[]> {
-    return this.secEdgar.searchFamilyOfficeFilers(searchTerms);
+  async searchSECFamilyOffices(searchTerms?: string[], limit?: number): Promise<SECEdgarFiler[]> {
+    return this.secEdgar.searchFamilyOfficeFilers(searchTerms, limit);
   }
 
   async searchSEC13FFilers(limit?: number): Promise<SECEdgarFiler[]> {
