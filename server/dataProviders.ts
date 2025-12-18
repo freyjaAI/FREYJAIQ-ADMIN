@@ -1635,7 +1635,14 @@ export class ALeadsProvider {
       const result = await response.json();
       console.log(`[A-Leads] Phone API response for ${linkedinUsername}:`, JSON.stringify(result).slice(0, 500));
       // Try multiple possible phone field names from A-Leads response
-      const phone = result?.data?.phone || result?.data?.mobile_phone || result?.data?.personal_phone || result?.data?.phone_number || result?.phone || null;
+      // Note: Phone is nested under data.response.phone_number in actual API
+      const phone = result?.data?.response?.phone_number 
+        || result?.data?.phone 
+        || result?.data?.mobile_phone 
+        || result?.data?.personal_phone 
+        || result?.data?.phone_number 
+        || result?.phone 
+        || null;
       if (phone) {
         apiUsageTracker.recordRequest("aleads", 1);
         console.log(`[A-Leads] Found phone for ${linkedinUsername}: ${phone}`);
