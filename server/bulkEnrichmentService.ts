@@ -284,11 +284,15 @@ export async function enrichTargetContacts(
   const results: InsertBulkEnrichmentResult[] = [];
 
   try {
-    const people = await dataProviders.searchPeopleV2(target.companyName, {
+    console.log(`[BULK ENRICHMENT] Searching for people at "${target.companyName}" in ${target.state || 'any state'}`);
+    
+    const people = await dataProviders.searchPeopleByEmployer(target.companyName, {
       city: target.city || undefined,
       state: target.state || undefined,
       zip: target.zip || undefined,
     });
+    
+    console.log(`[BULK ENRICHMENT] Found ${people.length} people at "${target.companyName}"`);
 
     const targetTitlesLower = (config.targetTitles || FAMILY_OFFICE_INDICATORS.titlePatterns)
       .map(t => t.toLowerCase());

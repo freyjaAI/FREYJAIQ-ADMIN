@@ -806,6 +806,44 @@ export class DataAxleProvider {
     }
   }
 
+  // Search for people by employer/company name
+  async searchPeopleByEmployer(companyName: string, location?: { city?: string; state?: string; zip?: string }): Promise<DataAxlePerson[]> {
+    try {
+      console.log(`Data Axle searchPeopleByEmployer: "${companyName}" location:`, location);
+      const params: Record<string, string> = {
+        employer_name: companyName,
+        packages: this.peoplePackages,
+        limit: "50",
+      };
+
+      if (location?.city) params.city = location.city;
+      if (location?.state) params.state = location.state;
+      if (location?.zip) params.postal_code = location.zip;
+
+      const data = await this.request<any>("/people/search", params);
+      console.log(`Data Axle People by employer returned ${data.documents?.length || 0} results`);
+
+      return (data.documents || []).map((doc: any) => ({
+        firstName: doc.first_name || "",
+        lastName: doc.last_name || "",
+        emails: this.extractEmails(doc),
+        phones: this.extractPhones(doc),
+        cellPhones: this.extractCellPhones(doc),
+        title: doc.title || doc.occupation,
+        company: doc.employer_name || doc.business_name,
+        address: doc.street || doc.address_line_1,
+        city: doc.city,
+        state: doc.state,
+        zip: doc.postal_code || doc.zip,
+        infousa_id: doc.infousa_id,
+        confidenceScore: doc.match_score || doc.confidence_score || 75,
+      }));
+    } catch (error: any) {
+      console.error("Data Axle People by employer search error:", error?.message || error);
+      return [];
+    }
+  }
+
   // Search for places/businesses using Places v3 with UCC filings
   async searchPlacesV3(query: string, location?: { city?: string; state?: string; zip?: string }, maxResults = 100): Promise<DataAxlePlace[]> {
     try {
@@ -1867,6 +1905,15 @@ export class DataProviderManager {
       return [];
     }
     return this.dataAxle.searchPeopleV2(name, location);
+  }
+
+  // Search people by employer/company name
+  async searchPeopleByEmployer(companyName: string, location?: { city?: string; state?: string; zip?: string }): Promise<DataAxlePerson[]> {
+    if (!this.dataAxle) {
+      console.warn("Data Axle provider not configured");
+      return [];
+    }
+    return this.dataAxle.searchPeopleByEmployer(companyName, location);
   }
 
   // Search places/businesses using Data Axle Places v3 with UCC filings
