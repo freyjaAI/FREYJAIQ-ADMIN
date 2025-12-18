@@ -666,4 +666,5 @@ export interface TargetingConfig {
   useSecEdgar?: boolean; // Use FREE SEC EDGAR 13F filings instead of Data Axle Places
   useOpenMart?: boolean; // Use OpenMart for business discovery with decision-maker contacts
   useApifyInvestors?: boolean; // Use Apify Startup Investors for decision-maker enrichment
+  useALeads?: boolean; // Use A-Leads Advanced Search (THE SIMPLE APPROACH - one call returns decision-makers with contacts)
 }

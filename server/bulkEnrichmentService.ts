@@ -294,6 +294,70 @@ export async function searchFamilyOfficesOpenMart(config: TargetingConfig): Prom
   return results.slice(0, limit);
 }
 
+// A-LEADS ADVANCED SEARCH: THE SIMPLE APPROACH
+// One API call returns decision-makers with their contact info and company details
+// No need for multi-step SEC EDGAR -> enrichment pipeline
+export async function searchFamilyOfficesALeads(config: TargetingConfig): Promise<Array<{
+  companyName: string;
+  name: string;
+  title?: string;
+  email?: string;
+  phone?: string;
+  linkedin?: string;
+  location?: string;
+  industry?: string;
+  companySize?: string;
+  confidence: number;
+  source: string;
+  hasEmail: boolean;
+  hasPhone: boolean;
+}>> {
+  console.log(`[BULK ENRICHMENT] Using A-Leads Advanced Search (THE SIMPLE APPROACH)`);
+  
+  const limit = config.limit || 100;
+  
+  // Call A-Leads with correct lowercase industry values
+  const results = await dataProviders.searchFamilyOfficeDecisionMakers({
+    limit
+  });
+  
+  console.log(`[BULK ENRICHMENT] A-Leads returned ${results.length} family office decision-makers`);
+  
+  // Transform to our standard format
+  const transformed = results
+    .filter(r => r.companyName) // Skip entries without company name
+    .map(r => {
+      // Calculate confidence based on available contact info
+      let confidence = 50; // base
+      if (r.hasEmail) confidence += 25;
+      if (r.hasPhone) confidence += 15;
+      if (r.linkedinUrl) confidence += 10;
+      
+      return {
+        companyName: r.companyName || "Unknown Company",
+        name: `${r.firstName || ""} ${r.lastName || ""}`.trim() || r.name,
+        title: r.title,
+        email: undefined as string | undefined, // Email requires reveal
+        phone: undefined as string | undefined, // Phone requires reveal
+        linkedin: r.linkedinUrl,
+        location: r.location,
+        industry: r.industry,
+        companySize: r.companySize,
+        confidence: Math.min(100, confidence),
+        source: "aleads_advanced_search",
+        hasEmail: r.hasEmail || false,
+        hasPhone: r.hasPhone || false,
+      };
+    });
+  
+  // Sort by confidence
+  transformed.sort((a, b) => b.confidence - a.confidence);
+  
+  console.log(`[BULK ENRICHMENT] A-Leads transformed ${transformed.length} results`);
+  
+  return transformed;
+}
+
 // Apify Startup Investors: Search for investor decision-makers
 export async function searchInvestorDecisionMakers(config: TargetingConfig): Promise<Array<{
   companyName: string;
@@ -373,7 +437,33 @@ export async function searchFamilyOffices(config: TargetingConfig): Promise<Arra
   familyOfficeSignals: string[];
   dataAxleId?: string;
 }>> {
-  // Check if user wants to use SEC EDGAR (free) - highest priority
+  // A-LEADS ADVANCED SEARCH - THE SIMPLE APPROACH (highest priority when selected)
+  // One API call returns decision-makers with their contact info - no multi-step enrichment needed
+  if (config.useALeads) {
+    console.log(`[BULK ENRICHMENT] A-Leads Advanced Search selected (THE SIMPLE APPROACH)`);
+    const aleadsResults = await searchFamilyOfficesALeads(config);
+    // Transform A-Leads results to match expected format
+    return aleadsResults.map(r => ({
+      companyName: r.companyName,
+      familyOfficeConfidence: r.confidence,
+      familyOfficeSignals: [
+        r.industry ? `Industry: ${r.industry}` : "",
+        r.hasEmail ? "Has Email" : "",
+        r.hasPhone ? "Has Phone" : "",
+        r.linkedin ? "Has LinkedIn" : "",
+      ].filter(Boolean),
+      // A-Leads provides decision-maker directly - no separate enrichment needed
+      decisionMakers: [{
+        name: r.name,
+        title: r.title,
+        linkedin: r.linkedin,
+        hasEmail: r.hasEmail,
+        hasPhone: r.hasPhone,
+      }],
+    })) as any;
+  }
+  
+  // Check if user wants to use SEC EDGAR (free) - second priority
   if (config.useSecEdgar) {
     console.log(`[BULK ENRICHMENT] SEC EDGAR source selected (FREE)`);
     return searchFamilyOfficesSEC(config);

@@ -115,14 +115,22 @@ interface MelissaAddressResult {
 
 interface ALeadsContact {
   name: string;
+  firstName?: string;
+  lastName?: string;
   email?: string;
   phone?: string;
   address?: string;
   company?: string;
+  companyName?: string;
   title?: string;
   linkedinUrl?: string;
+  location?: string;
+  industry?: string;
+  companySize?: string;
   source: string;
   confidence: number;
+  hasEmail?: boolean;
+  hasPhone?: boolean;
 }
 
 interface GoogleAddressValidationResult {
@@ -1871,18 +1879,22 @@ export class ALeadsProvider {
 
       return results.map((contact: any) => ({
         name: contact.member_full_name || `${contact.member_name_first || ""} ${contact.member_name_last || ""}`.trim(),
+        firstName: contact.member_name_first,
+        lastName: contact.member_name_last,
         email: contact.email,
         phone: contact.phone_number_available ? "Available" : undefined,
         address: contact.member_location_raw_address || contact.hq_full_address,
         company: contact.company_name,
+        companyName: contact.company_name,
         title: contact.job_title,
         linkedinUrl: contact.member_linkedin_url,
+        location: contact.member_location_raw_address || contact.hq_location,
+        industry: contact.industry,
+        companySize: contact.size_range || (contact.company_headcount ? `${contact.company_headcount} employees` : undefined),
         source: "a-leads",
         confidence: 85,
-        // Extra fields for bulk enrichment
-        industry: contact.industry,
-        companySize: contact.company_size,
-        companyLinkedIn: contact.company_linkedin_url,
+        hasEmail: !!contact.email_found,
+        hasPhone: !!contact.phone_number_available,
       }));
     } catch (error: any) {
       console.error("[A-Leads] Family office search error:", error?.message || error);

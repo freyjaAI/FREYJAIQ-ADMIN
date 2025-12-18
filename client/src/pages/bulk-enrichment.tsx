@@ -203,8 +203,9 @@ export default function BulkEnrichmentPage() {
   const [dataCenterFocus, setDataCenterFocus] = useState(true);
   const [companyLimit, setCompanyLimit] = useState<number>(50); // How many companies to pull
   
-  // Data source toggles - priority order: SEC EDGAR (FREE) > OpenMart > Data Axle
-  const [useSecEdgar, setUseSecEdgar] = useState(true); // Default to FREE source
+  // Data source toggles - priority order: A-Leads (SIMPLE) > SEC EDGAR (FREE) > OpenMart > Data Axle
+  const [useALeads, setUseALeads] = useState(true); // Default: A-Leads Advanced Search (THE SIMPLE APPROACH)
+  const [useSecEdgar, setUseSecEdgar] = useState(false);
   const [useOpenMart, setUseOpenMart] = useState(false);
   const [useApifyInvestors, setUseApifyInvestors] = useState(true); // Default ON for decision-maker enrichment
 
@@ -261,6 +262,7 @@ export default function BulkEnrichmentPage() {
       includeIntentScoring: true,
       limit: companyLimit,
       // Data source options
+      useALeads: useALeads,
       useSecEdgar: useSecEdgar,
       useOpenMart: useOpenMart,
       useApifyInvestors: useApifyInvestors,
@@ -518,11 +520,36 @@ export default function BulkEnrichmentPage() {
                 <div className="space-y-2 border rounded-md p-3">
                   <div className="flex items-center gap-2">
                     <Checkbox
+                      id="useALeads"
+                      checked={useALeads}
+                      onCheckedChange={(checked) => {
+                        setUseALeads(!!checked);
+                        if (checked) {
+                          setUseSecEdgar(false);
+                          setUseOpenMart(false);
+                        }
+                      }}
+                      data-testid="checkbox-aleads"
+                    />
+                    <Label htmlFor="useALeads" className="flex-1">
+                      <span className="font-medium">A-Leads Advanced Search</span>
+                      <Badge className="ml-2 text-xs">RECOMMENDED</Badge>
+                      <span className="block text-xs text-muted-foreground">
+                        105K+ family office decision-makers with emails and phones in ONE call
+                      </span>
+                    </Label>
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                    <Checkbox
                       id="useSecEdgar"
                       checked={useSecEdgar}
                       onCheckedChange={(checked) => {
                         setUseSecEdgar(!!checked);
-                        if (checked) setUseOpenMart(false);
+                        if (checked) {
+                          setUseALeads(false);
+                          setUseOpenMart(false);
+                        }
                       }}
                       data-testid="checkbox-sec-edgar"
                     />
@@ -541,7 +568,10 @@ export default function BulkEnrichmentPage() {
                       checked={useOpenMart}
                       onCheckedChange={(checked) => {
                         setUseOpenMart(!!checked);
-                        if (checked) setUseSecEdgar(false);
+                        if (checked) {
+                          setUseALeads(false);
+                          setUseSecEdgar(false);
+                        }
                       }}
                       data-testid="checkbox-openmart"
                     />
