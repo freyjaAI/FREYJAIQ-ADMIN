@@ -201,6 +201,7 @@ export default function BulkEnrichmentPage() {
   const [selectedTitles, setSelectedTitles] = useState<string[]>(DECISION_MAKER_TITLES.slice(0, 4));
   const [keywords, setKeywords] = useState("family office, capital partners, private wealth");
   const [dataCenterFocus, setDataCenterFocus] = useState(true);
+  const [companyLimit, setCompanyLimit] = useState<number>(50); // How many companies to pull
   
   // Data source toggles - priority order: SEC EDGAR (FREE) > OpenMart > Data Axle
   const [useSecEdgar, setUseSecEdgar] = useState(true); // Default to FREE source
@@ -258,6 +259,7 @@ export default function BulkEnrichmentPage() {
       targetTitles: selectedTitles,
       dataCenterIntentFocus: dataCenterFocus,
       includeIntentScoring: true,
+      limit: companyLimit,
       // Data source options
       useSecEdgar: useSecEdgar,
       useOpenMart: useOpenMart,
@@ -393,6 +395,28 @@ export default function BulkEnrichmentPage() {
                   onChange={(e) => setJobName(e.target.value)}
                   data-testid="input-job-name"
                 />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="companyLimit">Number of Companies to Pull</Label>
+                <Select 
+                  value={String(companyLimit)} 
+                  onValueChange={(v) => setCompanyLimit(Number(v))}
+                >
+                  <SelectTrigger data-testid="select-company-limit">
+                    <SelectValue placeholder="Select limit..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="25">25 companies</SelectItem>
+                    <SelectItem value="50">50 companies</SelectItem>
+                    <SelectItem value="100">100 companies</SelectItem>
+                    <SelectItem value="200">200 companies</SelectItem>
+                    <SelectItem value="500">500 companies</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  More companies = longer processing time but more leads
+                </p>
               </div>
 
               <div className="space-y-2">
