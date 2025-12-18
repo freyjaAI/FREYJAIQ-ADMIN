@@ -1344,7 +1344,7 @@ export class SECEdgarProvider {
       ];
       
       // Use a Set to deduplicate patterns
-      const uniquePatterns = [...new Set(investmentPatterns)];
+      const uniquePatterns = Array.from(new Set(investmentPatterns));
       
       for (const company of companies) {
         if (results.length >= limit) break;

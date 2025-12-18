@@ -505,6 +505,14 @@ const DECISION_MAKER_TITLES = [
   "head of", "executive director", "senior partner", "general partner"
 ];
 
+// Corporate keywords that indicate a name is a company, not a person
+const CORPORATE_KEYWORDS = [
+  "holdings", "capital", "management", "partners", "fund", "investment",
+  "advisors", "asset", "wealth", "trust", "group", "associates",
+  "financial", "equity", "ventures", "enterprises", "solutions",
+  "securities", "global", "international", "real estate", "properties"
+];
+
 // Helper to normalize company names for better API matching
 function normalizeCompanyName(name: string): string {
   return name
@@ -519,6 +527,50 @@ function isDecisionMakerTitle(title: string): boolean {
   if (!title) return false;
   const titleLower = title.toLowerCase();
   return DECISION_MAKER_TITLES.some(dm => titleLower.includes(dm));
+}
+
+// Validate that a name looks like a real person, not a company name
+function isValidPersonName(fullName: string, companyName: string): boolean {
+  if (!fullName || fullName.length < 4) return false;
+  
+  const nameLower = fullName.toLowerCase().trim();
+  const companyLower = companyName.toLowerCase().trim();
+  const companyNormalized = normalizeCompanyName(companyName).toLowerCase();
+  
+  // Reject if name equals or contains company name
+  if (nameLower === companyLower || nameLower === companyNormalized) {
+    console.log(`[VALIDATION] Rejected "${fullName}" - matches company name "${companyName}"`);
+    return false;
+  }
+  
+  // Reject if name is contained within company name (indicates parsing error)
+  if (companyLower.includes(nameLower) || companyNormalized.includes(nameLower)) {
+    console.log(`[VALIDATION] Rejected "${fullName}" - is part of company name "${companyName}"`);
+    return false;
+  }
+  
+  // Reject if name contains corporate keywords
+  for (const keyword of CORPORATE_KEYWORDS) {
+    if (nameLower.includes(keyword)) {
+      console.log(`[VALIDATION] Rejected "${fullName}" - contains corporate keyword "${keyword}"`);
+      return false;
+    }
+  }
+  
+  // Reject if name has legal entity suffixes
+  if (/\b(LLC|LP|LLP|Inc|Corp|Corporation|Company|Co|Ltd|Limited|Fund|Trust)\b/i.test(fullName)) {
+    console.log(`[VALIDATION] Rejected "${fullName}" - contains legal entity suffix`);
+    return false;
+  }
+  
+  // Name should have at least 2 parts (first + last)
+  const parts = fullName.split(/\s+/).filter(p => p.length > 1);
+  if (parts.length < 2) {
+    console.log(`[VALIDATION] Rejected "${fullName}" - only ${parts.length} name part(s)`);
+    return false;
+  }
+  
+  return true;
 }
 
 export async function enrichTargetContacts(
@@ -612,6 +664,11 @@ export async function enrichTargetContacts(
           const fullName = contact.name || "";
           if (!fullName || seenNames.has(fullName.toLowerCase())) continue;
           
+          // Validate this is a real person name, not a company name
+          if (!isValidPersonName(fullName, target.companyName)) {
+            continue;
+          }
+          
           // Filter by decision maker title
           if (!isDecisionMakerTitle(contact.title || "")) {
             continue;
@@ -657,66 +714,16 @@ export async function enrichTargetContacts(
     }
 
     // ========================================
-    // STRATEGY 3: Apify Skip Trace (if still no results)
-    // Last resort - search for anyone at company
+    // NOTE: Skip Trace REMOVED from company-to-person discovery
+    // Skip Trace is designed for PERSON name searches, not company lookups.
+    // Passing company names to Skip Trace causes it to parse the company
+    // name as a person (e.g., "Capri Holdings" becomes firstName="Capri", lastName="Holdings")
+    // This produces garbage data. Skip Trace should only be used for enriching
+    // contacts that we already have real person names for.
     // ========================================
     if (results.length === 0) {
-      try {
-        console.log(`[BULK ENRICHMENT] 3/4 - Trying Apify Skip Trace for "${normalizedCompany}"...`);
-        const skipResults = await dataProviders.searchPersonSmart(
-          normalizedCompany,
-          { state: target.state || undefined }
-        );
-        
-        if (skipResults && skipResults.length > 0) {
-          console.log(`[BULK ENRICHMENT] Apify Skip Trace found ${skipResults.length} people`);
-          
-          for (const person of skipResults.slice(0, 3)) {
-            const firstName = person.firstName || '';
-            const lastName = person.lastName || '';
-            const fullName = `${firstName} ${lastName}`.trim();
-            if (!fullName || fullName.length < 3) continue;
-            if (seenNames.has(fullName.toLowerCase())) continue;
-            
-            // Skip if name looks like a company
-            if (/\b(LLC|LP|LLP|Inc|Corp|Corporation|Company|Co|Ltd)\b/i.test(fullName)) {
-              continue;
-            }
-            
-            seenNames.add(fullName.toLowerCase());
-            const intentResult = calculateIntentScore({
-              title: person.title || "Principal",
-              companyName: target.companyName,
-            });
-            
-            results.push({
-              jobId: target.jobId,
-              targetId: target.id,
-              companyName: target.companyName,
-              firstName,
-              lastName,
-              fullName,
-              title: person.title || "Principal",
-              email: person.emails?.[0] || null,
-              phone: person.phones?.[0] || null,
-              cellPhone: person.cellPhones?.[0] || null,
-              address: person.address || null,
-              city: person.city || null,
-              state: person.state || target.state || null,
-              zip: person.zip || null,
-              confidenceScore: (person.phones?.length || person.emails?.length) ? 75 : 50,
-              intentScore: intentResult.score,
-              intentSignals: intentResult.signals,
-              intentTier: intentResult.tier,
-              providerSource: "apify_skip_trace",
-              dataAxleId: person.infousa_id || null,
-            });
-          }
-        }
-        console.log(`[BULK ENRICHMENT] After Skip Trace: ${results.length} contacts`);
-      } catch (apifyError) {
-        console.error(`[BULK ENRICHMENT] Apify skip trace failed:`, apifyError);
-      }
+      console.log(`[BULK ENRICHMENT] 3/4 - No decision makers found for "${normalizedCompany}" via A-Leads`);
+      console.log(`[BULK ENRICHMENT] Note: Skip Trace not used for company-to-person discovery (designed for person name search only)`);
     }
 
     // ========================================
