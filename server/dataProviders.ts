@@ -1599,6 +1599,53 @@ export class ALeadsProvider {
     }
   }
 
+  // Reveal phone using LinkedIn username via find-phone endpoint
+  async revealPhone(linkedinUsername: string): Promise<string | null> {
+    const check = apiUsageTracker.canMakeRequest("aleads");
+    if (!check.allowed) {
+      console.error(`[A-LEADS BLOCKED] ${check.reason}`);
+      return null;
+    }
+
+    try {
+      console.log(`[A-Leads] Revealing phone for LinkedIn: ${linkedinUsername}`);
+      
+      const response = await fetch(`${this.baseUrl}/find-phone`, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          "x-api-key": this.apiKey,
+        },
+        body: JSON.stringify({
+          data: {
+            linkedin_username: linkedinUsername,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[A-Leads] Phone reveal error (${response.status}):`, errorText.slice(0, 200));
+        return null;
+      }
+
+      const result = await response.json();
+      // Try multiple possible phone field names from A-Leads response
+      const phone = result?.data?.phone || result?.data?.mobile_phone || result?.data?.personal_phone || result?.data?.phone_number || null;
+      if (phone) {
+        apiUsageTracker.recordRequest("aleads", 1);
+        console.log(`[A-Leads] Found phone for ${linkedinUsername}: ${phone}`);
+      } else {
+        console.log(`[A-Leads] No phone found for ${linkedinUsername}, response:`, JSON.stringify(result).slice(0, 200));
+      }
+      return phone;
+    } catch (error: any) {
+      console.error(`[A-Leads] Phone reveal error:`, error?.message || error);
+      return null;
+    }
+  }
+
   async searchContacts(query: { name?: string; company?: string; location?: string }): Promise<ALeadsContact[]> {
     const check = apiUsageTracker.canMakeRequest("aleads");
     if (!check.allowed) {
@@ -1925,27 +1972,37 @@ export class ALeadsProvider {
         console.log(`[A-Leads] Sample result (full structure):`, JSON.stringify(sample, null, 2));
       }
 
-      // Map results and reveal emails for contacts with LinkedIn profiles
+      // Map results and reveal emails/phones for contacts with LinkedIn profiles
       const mappedContacts: ALeadsContact[] = [];
       
       for (const contact of results) {
         // Try multiple possible email fields from A-Leads response
         let email = contact.email || contact.member_email || contact.personal_email || contact.work_email || null;
         
-        // If no email but we have LinkedIn, try to reveal it
+        // Get LinkedIn URL for reveal operations
         const linkedinUrl = contact.member_linkedin_url;
-        if (!email && linkedinUrl) {
-          const linkedinUsername = this.extractLinkedInUsername(linkedinUrl);
-          if (linkedinUsername) {
-            const revealedEmail = await this.revealEmail(linkedinUsername);
-            if (revealedEmail) {
-              email = revealedEmail;
-            }
+        const linkedinUsername = linkedinUrl ? this.extractLinkedInUsername(linkedinUrl) : null;
+        
+        // If no email but we have LinkedIn, try to reveal it
+        if (!email && linkedinUsername) {
+          const revealedEmail = await this.revealEmail(linkedinUsername);
+          if (revealedEmail) {
+            email = revealedEmail;
           }
         }
         
-        // Try multiple possible phone fields
-        const phone = contact.phone || contact.phone_number || contact.member_phone || contact.mobile_phone || null;
+        // A-Leads Advanced Search returns phone_number_available as a FLAG (boolean)
+        // Use the find-phone endpoint to reveal actual phone numbers
+        const hasPhoneFlag = contact.phone_number_available === true || contact.phone_number_available === "true";
+        let phone = contact.phone || contact.phone_number || contact.member_phone || contact.mobile_phone || null;
+        
+        // If phone flag indicates availability and we have LinkedIn, reveal the phone
+        if (!phone && hasPhoneFlag && linkedinUsername) {
+          const revealedPhone = await this.revealPhone(linkedinUsername);
+          if (revealedPhone) {
+            phone = revealedPhone;
+          }
+        }
         
         mappedContacts.push({
           name: contact.member_full_name || `${contact.member_name_first || ""} ${contact.member_name_last || ""}`.trim(),
@@ -1964,7 +2021,7 @@ export class ALeadsProvider {
           source: "a-leads",
           confidence: 85,
           hasEmail: !!email,
-          hasPhone: !!phone,
+          hasPhone: !!phone || hasPhoneFlag,
         });
       }
       
