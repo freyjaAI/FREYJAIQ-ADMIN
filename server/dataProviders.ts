@@ -1288,6 +1288,7 @@ export class GoogleAddressValidationProvider {
 
 // SEC EDGAR Provider - 100% FREE, no API key required
 // Searches for 13F filers (family offices managing $100M+)
+// Enhanced: Also used for company lookups to reduce paid API calls
 export interface SECEdgarFiler {
   cik: string;
   name: string;
@@ -1296,9 +1297,272 @@ export interface SECEdgarFiler {
   entityType?: string;
 }
 
+export interface SECEdgarCompany {
+  cik: string;
+  name: string;
+  ticker?: string;
+  sic?: string;
+  sicDescription?: string;
+  stateOfIncorporation?: string;
+  businessAddress?: {
+    street1?: string;
+    street2?: string;
+    city?: string;
+    state?: string;
+    zip?: string;
+  };
+  mailingAddress?: {
+    street1?: string;
+    street2?: string;
+    city?: string;
+    state?: string;
+    zip?: string;
+  };
+  officers?: Array<{
+    name: string;
+    title: string;
+  }>;
+  filings?: Array<{
+    form: string;
+    filingDate: string;
+    description?: string;
+  }>;
+}
+
+// In-memory cache for company tickers (loaded once, refreshed daily)
+let companyTickersCache: Map<string, { cik: string; name: string; ticker?: string }> | null = null;
+let companyTickersCacheTime: number = 0;
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
 export class SECEdgarProvider {
   private baseUrl = "https://data.sec.gov";
   private userAgent = "FreyjaIQ admin@freyjafinancialgroup.net";
+  
+  // Load and cache the company tickers file (called once, then reused)
+  private async loadCompanyTickers(): Promise<Map<string, { cik: string; name: string; ticker?: string }>> {
+    // Return cached data if still fresh
+    if (companyTickersCache && (Date.now() - companyTickersCacheTime) < CACHE_TTL_MS) {
+      return companyTickersCache;
+    }
+    
+    console.log("[SEC EDGAR] Loading company tickers (cached for 24h)...");
+    
+    try {
+      const response = await fetch("https://www.sec.gov/files/company_tickers.json", {
+        headers: { "User-Agent": this.userAgent }
+      });
+      
+      if (!response.ok) {
+        console.error(`[SEC EDGAR] Failed to fetch company tickers: ${response.status}`);
+        return companyTickersCache || new Map();
+      }
+      
+      const data = await response.json();
+      const companies = Object.values(data) as Array<{ cik_str: string; title: string; ticker?: string }>;
+      
+      // Build normalized name -> company mapping for fast lookups
+      const cache = new Map<string, { cik: string; name: string; ticker?: string }>();
+      
+      for (const company of companies) {
+        const normalizedName = this.normalizeCompanyName(company.title);
+        cache.set(normalizedName, {
+          cik: String(company.cik_str).padStart(10, "0"),
+          name: company.title,
+          ticker: company.ticker,
+        });
+        
+        // Also add ticker as key for faster ticker lookups
+        if (company.ticker) {
+          cache.set(company.ticker.toLowerCase(), {
+            cik: String(company.cik_str).padStart(10, "0"),
+            name: company.title,
+            ticker: company.ticker,
+          });
+        }
+      }
+      
+      console.log(`[SEC EDGAR] Cached ${cache.size} companies (${companies.length} unique)`);
+      
+      companyTickersCache = cache;
+      companyTickersCacheTime = Date.now();
+      return cache;
+      
+    } catch (error) {
+      console.error("[SEC EDGAR] Error loading company tickers:", error);
+      return companyTickersCache || new Map();
+    }
+  }
+  
+  // Normalize company name for matching
+  private normalizeCompanyName(name: string): string {
+    return name
+      .toLowerCase()
+      .replace(/[,.'"\-\/\\()]/g, " ")
+      .replace(/\b(inc|llc|llp|lp|ltd|corp|corporation|company|co|holdings|holding|group|enterprises|enterprise)\b/gi, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+  
+  // Lookup a company by name - returns SEC data if found (FREE!)
+  async lookupCompanyByName(companyName: string): Promise<SECEdgarCompany | null> {
+    console.log(`[SEC EDGAR] Looking up company: "${companyName}"`);
+    
+    const tickers = await this.loadCompanyTickers();
+    const normalizedSearch = this.normalizeCompanyName(companyName);
+    
+    // Try exact match first
+    let match = tickers.get(normalizedSearch);
+    
+    // If no exact match, try fuzzy matching
+    if (!match) {
+      // Try prefix matching
+      const entries = Array.from(tickers.entries());
+      for (const [key, value] of entries) {
+        if (key.startsWith(normalizedSearch) || normalizedSearch.startsWith(key)) {
+          match = value;
+          console.log(`[SEC EDGAR] Prefix match: "${key}" for "${normalizedSearch}"`);
+          break;
+        }
+      }
+    }
+    
+    // Try word-based matching if still no match
+    if (!match) {
+      const searchWords = normalizedSearch.split(" ").filter((w: string) => w.length > 2);
+      if (searchWords.length > 0) {
+        const entries = Array.from(tickers.entries());
+        for (const [key, value] of entries) {
+          const keyWords = key.split(" ").filter((w: string) => w.length > 2);
+          const matchCount = searchWords.filter((w: string) => keyWords.includes(w)).length;
+          if (matchCount >= Math.min(2, searchWords.length)) {
+            match = value;
+            console.log(`[SEC EDGAR] Word match (${matchCount} words): "${key}" for "${normalizedSearch}"`);
+            break;
+          }
+        }
+      }
+    }
+    
+    if (!match) {
+      console.log(`[SEC EDGAR] No match found for "${companyName}"`);
+      return null;
+    }
+    
+    // Fetch detailed company info from SEC
+    return this.getCompanyDetails(match.cik);
+  }
+  
+  // Get detailed company information from SEC
+  async getCompanyDetails(cik: string): Promise<SECEdgarCompany | null> {
+    try {
+      const paddedCik = cik.padStart(10, "0");
+      const url = `${this.baseUrl}/submissions/CIK${paddedCik}.json`;
+      
+      console.log(`[SEC EDGAR] Fetching company details for CIK ${paddedCik}`);
+      
+      const response = await fetch(url, {
+        headers: { "User-Agent": this.userAgent }
+      });
+      
+      if (!response.ok) {
+        console.error(`[SEC EDGAR] Failed to fetch company details: ${response.status}`);
+        return null;
+      }
+      
+      const data = await response.json();
+      
+      // Extract officers from recent filings (DEF 14A proxy statements have officer info)
+      const officers: Array<{ name: string; title: string }> = [];
+      
+      // Check for officer info in company description or recent filings
+      // SEC doesn't directly provide officers, but we can extract from filings
+      
+      // Build recent filings list
+      const filings: Array<{ form: string; filingDate: string; description?: string }> = [];
+      const recentForms = data.filings?.recent || {};
+      const formTypes = recentForms.form || [];
+      const filingDates = recentForms.filingDate || [];
+      const descriptions = recentForms.primaryDocument || [];
+      
+      for (let i = 0; i < Math.min(10, formTypes.length); i++) {
+        filings.push({
+          form: formTypes[i],
+          filingDate: filingDates[i],
+          description: descriptions[i],
+        });
+      }
+      
+      const company: SECEdgarCompany = {
+        cik: paddedCik,
+        name: data.name || "",
+        ticker: data.tickers?.[0],
+        sic: data.sic,
+        sicDescription: data.sicDescription,
+        stateOfIncorporation: data.stateOfIncorporation,
+        businessAddress: data.addresses?.business ? {
+          street1: data.addresses.business.street1,
+          street2: data.addresses.business.street2,
+          city: data.addresses.business.city,
+          state: data.addresses.business.stateOrCountry,
+          zip: data.addresses.business.zipCode,
+        } : undefined,
+        mailingAddress: data.addresses?.mailing ? {
+          street1: data.addresses.mailing.street1,
+          street2: data.addresses.mailing.street2,
+          city: data.addresses.mailing.city,
+          state: data.addresses.mailing.stateOrCountry,
+          zip: data.addresses.mailing.zipCode,
+        } : undefined,
+        officers,
+        filings,
+      };
+      
+      console.log(`[SEC EDGAR] Found company: ${company.name} (${company.ticker || 'no ticker'}) in ${company.stateOfIncorporation || 'unknown state'}`);
+      
+      return company;
+      
+    } catch (error) {
+      console.error("[SEC EDGAR] Company details error:", error);
+      return null;
+    }
+  }
+  
+  // Check if a company exists in SEC database (fast lookup, no API call if cached)
+  async companyExists(companyName: string): Promise<boolean> {
+    const tickers = await this.loadCompanyTickers();
+    const normalized = this.normalizeCompanyName(companyName);
+    
+    // Check exact match
+    if (tickers.has(normalized)) return true;
+    
+    // Check if any key contains the normalized name
+    const keys = Array.from(tickers.keys());
+    for (const key of keys) {
+      if (key.includes(normalized) || normalized.includes(key)) {
+        return true;
+      }
+    }
+    
+    return false;
+  }
+  
+  // Get all companies matching a search term (for bulk operations)
+  async searchCompanies(searchTerm: string, limit: number = 100): Promise<Array<{ cik: string; name: string; ticker?: string }>> {
+    const tickers = await this.loadCompanyTickers();
+    const normalized = this.normalizeCompanyName(searchTerm);
+    const results: Array<{ cik: string; name: string; ticker?: string }> = [];
+    
+    const entries = Array.from(tickers.entries());
+    for (const [key, value] of entries) {
+      if (key.includes(normalized) || (value.ticker && value.ticker.toLowerCase().includes(normalized))) {
+        results.push(value);
+        if (results.length >= limit) break;
+      }
+    }
+    
+    console.log(`[SEC EDGAR] Found ${results.length} companies matching "${searchTerm}"`);
+    return results;
+  }
 
   // Search for ACTUAL family offices - not Fortune 500 companies
   // Family offices typically have explicit naming patterns and are private investment vehicles
@@ -2254,6 +2518,26 @@ export class DataProviderManager {
 
   async getSECCompanyFilings(cik: string): Promise<any> {
     return this.secEdgar.getCompanyFilings(cik);
+  }
+
+  // SEC EDGAR: Company lookup by name (FREE - reduces paid API calls!)
+  async lookupCompanyBySEC(companyName: string): Promise<SECEdgarCompany | null> {
+    return this.secEdgar.lookupCompanyByName(companyName);
+  }
+
+  // SEC EDGAR: Get detailed company info by CIK
+  async getSECCompanyDetails(cik: string): Promise<SECEdgarCompany | null> {
+    return this.secEdgar.getCompanyDetails(cik);
+  }
+
+  // SEC EDGAR: Check if company exists (fast, no API call if cached)
+  async companyExistsInSEC(companyName: string): Promise<boolean> {
+    return this.secEdgar.companyExists(companyName);
+  }
+
+  // SEC EDGAR: Search companies by term
+  async searchSECCompanies(searchTerm: string, limit?: number): Promise<Array<{ cik: string; name: string; ticker?: string }>> {
+    return this.secEdgar.searchCompanies(searchTerm, limit);
   }
 
   // A-LEADS: Direct family office discovery (THE SIMPLE APPROACH)
