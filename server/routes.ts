@@ -1029,8 +1029,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   setLlcLookupFunction(getCachedLlcData);
 
   // Initialize person verification function for extracted name validation
-  setPersonVerifyFunction(async (personName: string, address: string) => {
-    console.log(`[PERSON VERIFY] Searching for "${personName}" at address "${address}"`);
+  setPersonVerifyFunction(async (personName: string, address: string, options?: { jurisdiction?: string; employerName?: string }) => {
+    console.log(`[PERSON VERIFY] Searching for "${personName}" at address "${address}"${options?.jurisdiction ? ` (jurisdiction: ${options.jurisdiction})` : ""}${options?.employerName ? ` (employer: ${options.employerName})` : ""}`);
     
     // Parse the address more carefully: "123 Main St, City, CA 90210" or "123 Main St, City, CA"
     const addressParts = address.split(",").map(p => p.trim());
@@ -1055,7 +1055,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const streetNum = streetNumMatch?.[1];
     const streetName = streetNumMatch?.[2]?.toLowerCase().replace(/\s+(st|street|ave|avenue|blvd|boulevard|rd|road|dr|drive|ln|lane|ct|court|pl|place|way|cir|circle)\.?$/i, "").trim();
     
-    console.log(`[PERSON VERIFY] Parsed address - Street: "${streetNum} ${streetName}", City: "${city}", State: "${state}", Zip: "${zip}"`);
+    // Parse jurisdiction to get state code for fallback search (e.g., "VA", "us_va", "Virginia")
+    let jurisdictionState: string | undefined;
+    if (options?.jurisdiction) {
+      const jur = options.jurisdiction.toUpperCase();
+      // Handle formats: "VA", "us_va", "US_VA", "Virginia"
+      if (jur.length === 2) {
+        jurisdictionState = jur;
+      } else if (jur.startsWith("US_")) {
+        jurisdictionState = jur.substring(3, 5);
+      } else {
+        // Try to map full state names
+        const stateMap: Record<string, string> = {
+          "VIRGINIA": "VA", "CALIFORNIA": "CA", "TEXAS": "TX", "FLORIDA": "FL",
+          "NEW YORK": "NY", "ILLINOIS": "IL", "DELAWARE": "DE", "NEVADA": "NV",
+        };
+        jurisdictionState = stateMap[jur];
+      }
+    }
+    
+    console.log(`[PERSON VERIFY] Parsed address - Street: "${streetNum} ${streetName}", City: "${city}", State: "${state}", Zip: "${zip}"${jurisdictionState ? `, JurisdictionState: "${jurisdictionState}"` : ""}`);
     
     // Helper to check if addresses match (requires street number + partial street name match)
     const addressMatches = (providerAddr: string, searchStreetNum: string | undefined, searchStreetName: string | undefined): boolean => {
@@ -1123,10 +1142,78 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
         
         console.log(`[PERSON VERIFY] A-Leads found person "${personName}" but address mismatch`);
-        return { verified: false, confidence: 25, source: "aleads" };
+        // Don't return yet - try jurisdiction fallback
       }
     } catch (err) {
       console.log(`[PERSON VERIFY] A-Leads search failed:`, err);
+    }
+    
+    // FALLBACK 1: Search by person name + LLC jurisdiction state (if different from property state)
+    if (jurisdictionState && jurisdictionState !== state) {
+      console.log(`[PERSON VERIFY] Trying jurisdiction fallback: "${personName}" in state "${jurisdictionState}"`);
+      
+      try {
+        const jurisdictionPeople = await dataProviders.searchPeopleV2(personName, {
+          state: jurisdictionState,
+        });
+        
+        if (jurisdictionPeople && jurisdictionPeople.length > 0) {
+          // Found person in jurisdiction state - this is a good signal
+          const bestMatch = jurisdictionPeople[0];
+          console.log(`[PERSON VERIFY] Found "${personName}" in LLC jurisdiction state ${jurisdictionState}: "${bestMatch.firstName} ${bestMatch.lastName}" at "${bestMatch.address}"`);
+          return { verified: true, confidence: 60, source: "data_axle_jurisdiction" };
+        }
+      } catch (err) {
+        console.log(`[PERSON VERIFY] Jurisdiction search failed:`, err);
+      }
+    }
+    
+    // FALLBACK 2: Search by employer/company name
+    if (options?.employerName) {
+      console.log(`[PERSON VERIFY] Trying employer fallback: searching employees of "${options.employerName}"`);
+      
+      try {
+        const employeePeople = await dataProviders.searchPeopleByEmployer(options.employerName, {
+          state: jurisdictionState || state,
+        });
+        
+        if (employeePeople && employeePeople.length > 0) {
+          // Check if any employee matches the person name we're looking for
+          const nameParts = personName.toLowerCase().split(/\s+/);
+          const lastName = nameParts[nameParts.length - 1];
+          const firstName = nameParts[0];
+          
+          for (const emp of employeePeople) {
+            const empFirst = emp.firstName?.toLowerCase() || "";
+            const empLast = emp.lastName?.toLowerCase() || "";
+            
+            if (empLast === lastName && (empFirst === firstName || empFirst.startsWith(firstName.charAt(0)))) {
+              console.log(`[PERSON VERIFY] CONFIRMED via employer search: "${emp.firstName} ${emp.lastName}" works at "${options.employerName}"`);
+              return { verified: true, confidence: 55, source: "data_axle_employer" };
+            }
+          }
+          
+          console.log(`[PERSON VERIFY] Found ${employeePeople.length} employees but none matched "${personName}"`);
+        }
+      } catch (err) {
+        console.log(`[PERSON VERIFY] Employer search failed:`, err);
+      }
+    }
+    
+    // FALLBACK 3: Try broader name search without address filter
+    console.log(`[PERSON VERIFY] Trying broad name search for "${personName}" without strict address match`);
+    try {
+      const broadPeople = await dataProviders.searchPeopleV2(personName, {});
+      
+      if (broadPeople && broadPeople.length > 0) {
+        // Person exists - just not confirmed at the specific address
+        console.log(`[PERSON VERIFY] Found ${broadPeople.length} people matching "${personName}" (no address match required)`);
+        const bestMatch = broadPeople[0];
+        console.log(`[PERSON VERIFY] Best match: "${bestMatch.firstName} ${bestMatch.lastName}" at "${bestMatch.address}"`);
+        return { verified: true, confidence: 45, source: "data_axle_name_only" };
+      }
+    } catch (err) {
+      console.log(`[PERSON VERIFY] Broad name search failed:`, err);
     }
     
     // No provider could verify

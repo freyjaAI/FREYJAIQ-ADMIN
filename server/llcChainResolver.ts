@@ -4,10 +4,15 @@ import * as PerplexityProvider from "./providers/PerplexityProvider";
 /**
  * Function to verify a person exists at a given address
  * Returns true if the person is found at or near the address
+ * Options allow for fallback searches by jurisdiction or employer name
  */
 export type PersonVerifyFn = (
   personName: string,
-  address: string
+  address: string,
+  options?: {
+    jurisdiction?: string;
+    employerName?: string;
+  }
 ) => Promise<{ verified: boolean; confidence: number; source?: string }>;
 
 let _personVerifyFn: PersonVerifyFn | null = null;
@@ -266,7 +271,10 @@ export async function resolveOwnershipChain(
             
             if (_personVerifyFn) {
               try {
-                const verifyResult = await _personVerifyFn(extractedName, propertyAddress);
+                const verifyResult = await _personVerifyFn(extractedName, propertyAddress, {
+                  jurisdiction: jurisdiction,
+                  employerName: name,
+                });
                 verified = verifyResult.verified;
                 verifyConfidence = verifyResult.confidence;
                 verifySource = verifyResult.source || "address_lookup";
@@ -351,13 +359,16 @@ export async function resolveOwnershipChain(
               
               if (_personVerifyFn && propertyAddress) {
                 try {
-                  const verifyResult = await _personVerifyFn(discoveredOwner.name, propertyAddress);
+                  const verifyResult = await _personVerifyFn(discoveredOwner.name, propertyAddress, {
+                    jurisdiction: node.jurisdiction,
+                    employerName: name,
+                  });
                   if (verifyResult.verified && verifyResult.confidence >= 40) {
                     verified = true;
                     verifyConfidence = verifyResult.confidence;
-                    console.log(`[LLC Chain] Perplexity individual "${discoveredOwner.name}" VERIFIED at property address (confidence: ${verifyConfidence})`);
+                    console.log(`[LLC Chain] Perplexity individual "${discoveredOwner.name}" VERIFIED (source: ${verifyResult.source}, confidence: ${verifyConfidence})`);
                   } else {
-                    console.log(`[LLC Chain] Perplexity individual "${discoveredOwner.name}" not verified at property address - skipping`);
+                    console.log(`[LLC Chain] Perplexity individual "${discoveredOwner.name}" not verified - skipping`);
                     verified = false;
                     verifyConfidence = 0;
                   }
@@ -410,11 +421,14 @@ export async function resolveOwnershipChain(
               
               if (_personVerifyFn) {
                 try {
-                  const verifyResult = await _personVerifyFn(extractedName, propertyAddress);
+                  const verifyResult = await _personVerifyFn(extractedName, propertyAddress, {
+                    jurisdiction: node.jurisdiction,
+                    employerName: name,
+                  });
                   verified = verifyResult.verified;
                   verifyConfidence = verifyResult.confidence;
                   verifySource = verifyResult.source || "address_lookup";
-                  console.log(`[LLC Chain] Person verification for "${extractedName}" at "${propertyAddress}": ${verified ? "CONFIRMED" : "NOT FOUND"} (confidence: ${verifyConfidence})`);
+                  console.log(`[LLC Chain] Person verification for "${extractedName}": ${verified ? "CONFIRMED" : "NOT FOUND"} (source: ${verifySource}, confidence: ${verifyConfidence})`);
                 } catch (err) {
                   console.log(`[LLC Chain] Person verification failed for "${extractedName}":`, err);
                   // Verification failed - do not add unverified person
