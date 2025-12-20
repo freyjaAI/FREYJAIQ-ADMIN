@@ -828,7 +828,7 @@ export async function getCachedLlcData(
     
     if (secCompany) {
       console.log(`[SEC EDGAR SUCCESS] Found ${secCompany.name} (CIK: ${secCompany.cik}, Ticker: ${secCompany.ticker || 'N/A'})`);
-      trackProviderCall('sec_edgar', true); // Track as cache since it uses cached tickers
+      trackProviderCall('sec_edgar', false); // Track as API call (cost is $0 anyway)
       
       // Convert SEC data to standard LLC format
       const officers = secCompany.officers?.map(o => ({
