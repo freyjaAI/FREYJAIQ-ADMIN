@@ -67,7 +67,7 @@ async function makePerplexityRequest(messages: PerplexityMessage[]): Promise<Per
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            model: "llama-3.1-sonar-large-128k-online",
+            model: "sonar-pro",
             messages,
             max_tokens: 2000,
             temperature: 0.1,

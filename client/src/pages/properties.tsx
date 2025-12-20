@@ -42,7 +42,7 @@ export default function PropertiesPage() {
         case "address":
           return a.address.localeCompare(b.address);
         case "value":
-          return (b.assessedValue ?? 0) - (a.assessedValue ?? 0);
+          return (b.marketValue ?? b.assessedValue ?? 0) - (a.marketValue ?? a.assessedValue ?? 0);
         case "date":
           return (
             new Date(b.lastSaleDate ?? 0).getTime() -

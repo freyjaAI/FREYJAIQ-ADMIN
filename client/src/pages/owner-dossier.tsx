@@ -592,7 +592,7 @@ export default function OwnerDossierPage() {
     dossier as typeof dossier & { sources?: ProviderSource[] };
 
   const totalPropertyValue = properties.reduce(
-    (sum, p) => sum + (p.assessedValue ?? 0),
+    (sum, p) => sum + (p.marketValue ?? p.assessedValue ?? 0),
     0
   );
 
