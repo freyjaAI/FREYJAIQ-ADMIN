@@ -6,6 +6,8 @@ import { OpenMartProvider, OpenMartBusiness, OpenMartSearchParams } from "./prov
 import { ApifyStartupInvestorsProvider, InvestorProfile, ApifyInvestorSearchParams } from "./providers/ApifyStartupInvestorsProvider";
 import { parseFromDescription, toAttomQuery, toAttomSplitQuery, isValidForSearch, AddressComponents } from "./addressNormalizer";
 import { apiUsageTracker, withUsageTracking } from "./apiUsageTracker";
+import { withCache, generateCacheKey, CachePrefix, CacheTTL, getCachedResult, setCachedResult } from "./cacheService";
+import { getProviderPricing } from "./providerConfig";
 
 const limit = pLimit(3);
 
@@ -2592,7 +2594,20 @@ export class DataProviderManager {
     }
     const normalizedAddress = this.normalizeAddressForAttom(address);
     console.log(`ATTOM search: "${address}" -> "${normalizedAddress}"`);
-    return this.attom.searchByAddress(normalizedAddress);
+    
+    // Check cache first
+    const cacheKey = generateCacheKey(CachePrefix.PROPERTY, 'attom', normalizedAddress);
+    const pricing = getProviderPricing('attom');
+    
+    return withCache<AttomPropertyData>(
+      'attom',
+      cacheKey,
+      CacheTTL.PROPERTY_DEFAULT,
+      pricing?.costPerCall || 0.08,
+      async () => {
+        return this.attom!.searchByAddress(normalizedAddress);
+      }
+    );
   }
 
   async searchPropertyByApn(apn: string, fips: string): Promise<AttomPropertyData | null> {
@@ -2617,32 +2632,44 @@ export class DataProviderManager {
       return null;
     }
 
-    const results = await this.openCorporates.searchCompanies(companyName, state ? `us_${state.toLowerCase()}` : undefined);
+    // Check cache first
+    const cacheKey = generateCacheKey(CachePrefix.LLC, 'opencorporates', companyName, state);
+    const pricing = getProviderPricing('opencorporates');
     
-    if (results.length === 0) return null;
+    return withCache<OpenCorporatesCompany>(
+      'opencorporates',
+      cacheKey,
+      CacheTTL.LLC_DEFAULT,
+      pricing?.costPerCall || 0.15,
+      async () => {
+        const results = await this.openCorporates!.searchCompanies(companyName, state ? `us_${state.toLowerCase()}` : undefined);
+        
+        if (results.length === 0) return null;
 
-    const bestMatch = results[0];
-    const company = await this.openCorporates.getCompany(bestMatch.jurisdictionCode, bestMatch.companyNumber);
-    if (company) {
-      company.status = company.currentStatus;
-      company.entityType = company.companyType;
-      company.opencorporatesUrl = `https://opencorporates.com/companies/${company.jurisdictionCode}/${company.companyNumber}`;
-      
-      // If company has no officers and is a branch (foreign registration), get parent company officers
-      if (company.officers.length === 0 && company.branch) {
-        console.log(`lookupLlc: No officers for "${company.name}", checking parent company via branch...`);
-        const parentCompany = await this.openCorporates.getParentCompanyWithOfficers(company);
-        if (parentCompany && parentCompany.officers.length > 0) {
-          company.officers = parentCompany.officers;
-          if (parentCompany.agentName && !company.agentName) {
-            company.agentName = parentCompany.agentName;
-            company.agentAddress = parentCompany.agentAddress;
+        const bestMatch = results[0];
+        const company = await this.openCorporates!.getCompany(bestMatch.jurisdictionCode, bestMatch.companyNumber);
+        if (company) {
+          company.status = company.currentStatus;
+          company.entityType = company.companyType;
+          company.opencorporatesUrl = `https://opencorporates.com/companies/${company.jurisdictionCode}/${company.companyNumber}`;
+          
+          // If company has no officers and is a branch (foreign registration), get parent company officers
+          if (company.officers.length === 0 && company.branch) {
+            console.log(`lookupLlc: No officers for "${company.name}", checking parent company via branch...`);
+            const parentCompany = await this.openCorporates!.getParentCompanyWithOfficers(company);
+            if (parentCompany && parentCompany.officers.length > 0) {
+              company.officers = parentCompany.officers;
+              if (parentCompany.agentName && !company.agentName) {
+                company.agentName = parentCompany.agentName;
+                company.agentAddress = parentCompany.agentAddress;
+              }
+              console.log(`lookupLlc: Got ${company.officers.length} officers from parent company "${parentCompany.name}"`);
+            }
           }
-          console.log(`lookupLlc: Got ${company.officers.length} officers from parent company "${parentCompany.name}"`);
         }
+        return company;
       }
-    }
-    return company;
+    );
   }
 
   async searchOpenCorporates(query: string, jurisdiction?: string): Promise<Array<{
@@ -3154,15 +3181,28 @@ export class DataProviderManager {
       console.warn("Melissa provider not configured");
       return null;
     }
-    return this.melissa.lookupPersonator({
-      fullName: input.name,
-      address: input.address,
-      city: input.city,
-      state: input.state,
-      zip: input.zip,
-      email: input.email,
-      phone: input.phone,
-    });
+    
+    // Check cache first
+    const cacheKey = generateCacheKey(CachePrefix.PERSON, 'melissa', input.name, input.address, input.city, input.state);
+    const pricing = getProviderPricing('melissa');
+    
+    return withCache(
+      'melissa',
+      cacheKey,
+      CacheTTL.PERSON_DEFAULT,
+      pricing?.costPerCall || 0.02,
+      async () => {
+        return this.melissa!.lookupPersonator({
+          fullName: input.name,
+          address: input.address,
+          city: input.city,
+          state: input.state,
+          zip: input.zip,
+          email: input.email,
+          phone: input.phone,
+        });
+      }
+    );
   }
 
   async validateAddressWithGoogle(address: string): Promise<GoogleAddressValidationResult | null> {
@@ -3170,7 +3210,20 @@ export class DataProviderManager {
       console.warn("Google Address Validation provider not configured");
       return null;
     }
-    return this.google.validateAddress(address);
+    
+    // Check cache first (addresses are very stable, 30 day TTL)
+    const cacheKey = generateCacheKey(CachePrefix.ADDRESS, 'google', address);
+    const pricing = getProviderPricing('google_address');
+    
+    return withCache<GoogleAddressValidationResult>(
+      'google_address',
+      cacheKey,
+      CacheTTL.ADDRESS_DEFAULT,
+      pricing?.costPerCall || 0.005,
+      async () => {
+        return this.google!.validateAddress(address);
+      }
+    );
   }
 
   async getAddressAutocomplete(input: string): Promise<Array<{ description: string; placeId: string }>> {
