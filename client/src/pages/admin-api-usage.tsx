@@ -120,7 +120,9 @@ function ProviderRow({
   metric: ProviderMetric;
   limit?: { totalQuota: number; dailyLimit: number };
 }) {
-  const usagePercent = limit ? (metric.calls / limit.dailyLimit) * 100 : 0;
+  const calls = metric?.calls ?? 0;
+  const cacheHits = metric?.cacheHits ?? 0;
+  const usagePercent = limit ? (calls / limit.dailyLimit) * 100 : 0;
   const isWarning = usagePercent > 80;
   const isCritical = usagePercent > 95;
 
@@ -135,14 +137,14 @@ function ProviderRow({
         <div>
           <p className="font-medium capitalize">{name.replace(/_/g, ' ')}</p>
           <p className="text-xs text-muted-foreground">
-            {metric.calls} calls | {metric.cacheHits} cache hits
+            {calls} calls | {cacheHits} cache hits
           </p>
         </div>
       </div>
       <div className="flex items-center gap-4">
         <div className="text-right">
-          <p className="font-mono text-sm">${metric.cost.toFixed(2)}</p>
-          <p className="text-xs text-green-500">-${metric.costSaved.toFixed(2)}</p>
+          <p className="font-mono text-sm">${(metric?.cost ?? 0).toFixed(2)}</p>
+          <p className="text-xs text-green-500">-${(metric?.costSaved ?? 0).toFixed(2)}</p>
         </div>
         {limit && (
           <div className="w-24">
@@ -164,6 +166,9 @@ function CacheMetricRow({
   provider: string; 
   data: { hits: number; misses: number; costSaved: number; hitRate: number };
 }) {
+  const hits = data?.hits ?? 0;
+  const misses = data?.misses ?? 0;
+  
   return (
     <div className="flex items-center justify-between py-3 border-b last:border-0">
       <div className="flex items-center gap-3">
@@ -171,16 +176,16 @@ function CacheMetricRow({
         <div>
           <p className="font-medium capitalize">{provider.replace(/_/g, ' ')}</p>
           <p className="text-xs text-muted-foreground">
-            {data.hits} hits | {data.misses} misses
+            {hits} hits | {misses} misses
           </p>
         </div>
       </div>
       <div className="flex items-center gap-4">
-        <Badge variant={data.hitRate > 50 ? "default" : "secondary"}>
-          {data.hitRate.toFixed(1)}% hit rate
+        <Badge variant={(data?.hitRate ?? 0) > 50 ? "default" : "secondary"}>
+          {(data?.hitRate ?? 0).toFixed(1)}% hit rate
         </Badge>
         <p className="font-mono text-sm text-green-500">
-          -${data.costSaved.toFixed(2)}
+          -${(data?.costSaved ?? 0).toFixed(2)}
         </p>
       </div>
     </div>
