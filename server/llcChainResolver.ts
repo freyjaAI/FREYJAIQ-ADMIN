@@ -1,6 +1,130 @@
 import { trackProviderCall } from "./providerConfig";
 import * as PerplexityProvider from "./providers/PerplexityProvider";
 
+/**
+ * Function to verify a person exists at a given address
+ * Returns true if the person is found at or near the address
+ */
+export type PersonVerifyFn = (
+  personName: string,
+  address: string
+) => Promise<{ verified: boolean; confidence: number; source?: string }>;
+
+let _personVerifyFn: PersonVerifyFn | null = null;
+
+export function setPersonVerifyFunction(fn: PersonVerifyFn): void {
+  _personVerifyFn = fn;
+}
+
+/**
+ * Extract potential person names from LLC/entity names.
+ * Examples:
+ * - "DAVID J CHIESA & ASSOCIATION INC" -> "David J Chiesa"
+ * - "SMITH FAMILY TRUST" -> "Smith"
+ * - "JOHN DOE PROPERTIES LLC" -> "John Doe"
+ * - "THE HELGREN ELIZABETH A TRUST" -> "Elizabeth A Helgren"
+ */
+export function extractPersonNameFromEntityName(entityName: string): string | null {
+  if (!entityName) return null;
+  
+  const name = entityName.toUpperCase().trim();
+  
+  // Entity suffixes to remove
+  const suffixes = [
+    "& ASSOCIATION INC", "& ASSOCIATES INC", "& ASSOC INC",
+    "ASSOCIATION INC", "ASSOCIATES INC", "ASSOC INC",
+    "& COMPANY", "& CO", "COMPANY", "CO",
+    "PROPERTIES LLC", "HOLDINGS LLC", "INVESTMENTS LLC", "CAPITAL LLC",
+    "PROPERTIES", "HOLDINGS", "INVESTMENTS", "CAPITAL",
+    "ENTERPRISES", "VENTURES", "PARTNERS", "GROUP",
+    "FAMILY TRUST", "LIVING TRUST", "REVOCABLE TRUST", "IRREVOCABLE TRUST",
+    "TRUST", "LLC", "INC", "CORP", "LP", "LLP", "LTD",
+    "REALTY", "DEVELOPMENT", "MANAGEMENT", "SERVICES",
+  ];
+  
+  // Prefixes to remove
+  const prefixes = ["THE", "A"];
+  
+  let cleanName = name;
+  
+  // Remove suffixes (longest first to handle "& ASSOCIATION INC" before "INC")
+  const sortedSuffixes = [...suffixes].sort((a, b) => b.length - a.length);
+  for (const suffix of sortedSuffixes) {
+    if (cleanName.endsWith(suffix)) {
+      cleanName = cleanName.slice(0, -suffix.length).trim();
+    }
+  }
+  
+  // Remove trailing punctuation
+  cleanName = cleanName.replace(/[&,.\-]+$/, "").trim();
+  
+  // Remove prefixes
+  for (const prefix of prefixes) {
+    if (cleanName.startsWith(prefix + " ")) {
+      cleanName = cleanName.slice(prefix.length + 1).trim();
+    }
+  }
+  
+  // Now check if what's left looks like a person name
+  // Valid patterns:
+  // - "DAVID J CHIESA" (first middle last)
+  // - "JOHN DOE" (first last)
+  // - "HELGREN ELIZABETH A" (last first middle - trust naming)
+  // - "SMITH" (single last name - often in family trusts)
+  
+  const words = cleanName.split(/\s+/).filter(w => w.length > 0);
+  
+  if (words.length === 0) return null;
+  
+  // Check if it looks like a person name (not corporate keywords)
+  const corporateWords = [
+    "AMERICAN", "NATIONAL", "INTERNATIONAL", "GLOBAL", "UNITED",
+    "FIRST", "SECOND", "THIRD", "CENTRAL", "NORTH", "SOUTH", "EAST", "WEST",
+    "PACIFIC", "ATLANTIC", "MIDWEST", "COASTAL", "MOUNTAIN",
+    "INDUSTRIAL", "COMMERCIAL", "RESIDENTIAL", "RETAIL", "MEDICAL",
+    "EQUITY", "ASSET", "FUND", "REAL", "ESTATE",
+  ];
+  
+  // If any word is a corporate keyword, likely not a person name
+  if (words.some(w => corporateWords.includes(w))) {
+    return null;
+  }
+  
+  // Single word names (like "HELGREN" from "HELGREN FAMILY TRUST")
+  if (words.length === 1) {
+    // Only accept if it looks like a last name (not too short)
+    if (words[0].length >= 4) {
+      return toTitleCase(words[0]);
+    }
+    return null;
+  }
+  
+  // Check for trust naming pattern "HELGREN ELIZABETH A" (last first middle)
+  // Indicator: last word is a single letter (middle initial)
+  if (words.length >= 2 && words[words.length - 1].length === 1) {
+    // Likely "LAST FIRST M" format - rearrange to "FIRST M LAST"
+    const lastName = words[0];
+    const firstAndMiddle = words.slice(1);
+    const rearranged = [...firstAndMiddle, lastName];
+    return rearranged.map(toTitleCase).join(" ");
+  }
+  
+  // Standard format "DAVID J CHIESA" or "JOHN DOE"
+  if (words.length >= 2 && words.length <= 4) {
+    // All words should be reasonable name lengths
+    const allReasonableLength = words.every(w => w.length >= 1 && w.length <= 15);
+    if (allReasonableLength) {
+      return words.map(toTitleCase).join(" ");
+    }
+  }
+  
+  return null;
+}
+
+function toTitleCase(str: string): string {
+  return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+}
+
 export interface ChainNode {
   name: string;
   type: "entity" | "individual";
@@ -126,6 +250,60 @@ export async function resolveOwnershipChain(
 
       if (!llcData) {
         console.log(`[LLC Chain] No data found for "${name}"`);
+        
+        // Try to extract a person name from the entity name as fallback
+        const extractedName = extractPersonNameFromEntityName(name);
+        if (extractedName && propertyAddress) {
+          console.log(`[LLC Chain] Extracted potential owner name "${extractedName}" from entity name "${name}" (no LLC data)`);
+          console.log(`[LLC Chain] Verifying with property address: ${propertyAddress}`);
+          
+          const normalizedExtractedName = normalizeEntityName(extractedName);
+          if (!visited.has(normalizedExtractedName)) {
+            // VERIFY the person exists at the property address before adding
+            let verified = false;
+            let verifyConfidence = 0;
+            let verifySource = "name_extraction";
+            
+            if (_personVerifyFn) {
+              try {
+                const verifyResult = await _personVerifyFn(extractedName, propertyAddress);
+                verified = verifyResult.verified;
+                verifyConfidence = verifyResult.confidence;
+                verifySource = verifyResult.source || "address_lookup";
+                console.log(`[LLC Chain] Person verification for "${extractedName}" at "${propertyAddress}": ${verified ? "CONFIRMED" : "NOT FOUND"} (confidence: ${verifyConfidence})`);
+              } catch (err) {
+                console.log(`[LLC Chain] Person verification failed for "${extractedName}":`, err);
+                // Verification failed - do not add unverified person
+                verified = false;
+                verifyConfidence = 0;
+              }
+            } else {
+              // No verification function available - do NOT add unverified persons
+              console.log(`[LLC Chain] No person verification function available, skipping extracted name`);
+              verified = false;
+              verifyConfidence = 0;
+            }
+            
+            if (verified && verifyConfidence >= 40) {
+              visited.add(normalizedExtractedName);
+              
+              const extractedNode: ChainNode = {
+                name: extractedName.toUpperCase(),
+                type: "individual",
+                role: "likely_principal",
+                confidence: verifyConfidence,
+                depth: depth + 1,
+              };
+              
+              chain.push(extractedNode);
+              ultimateBeneficialOwners.push(extractedNode);
+              
+              console.log(`[LLC Chain] Added verified owner "${extractedName}" as likely principal (source: ${verifySource}, confidence: ${verifyConfidence})`);
+            } else {
+              console.log(`[LLC Chain] Skipping unverified extracted name "${extractedName}" - no address match found`);
+            }
+          }
+        }
         return;
       }
 
@@ -166,14 +344,47 @@ export async function resolveOwnershipChain(
             }
             
             if (discoveredOwner.type === "individual") {
-              // Mark as visited and add individual owners directly to chain and UBOs
-              visited.add(normalizedDiscoveredName);
-              const ownerNode: ChainNode = {
-                ...discoveredOwner,
-                depth: depth + 1,
-              };
-              chain.push(ownerNode);
-              ultimateBeneficialOwners.push(ownerNode);
+              // Verify Perplexity-discovered individuals against property address
+              // STRICT: Only add if address verification confirms the person
+              let verified = false;
+              let verifyConfidence = 0;
+              
+              if (_personVerifyFn && propertyAddress) {
+                try {
+                  const verifyResult = await _personVerifyFn(discoveredOwner.name, propertyAddress);
+                  if (verifyResult.verified && verifyResult.confidence >= 40) {
+                    verified = true;
+                    verifyConfidence = verifyResult.confidence;
+                    console.log(`[LLC Chain] Perplexity individual "${discoveredOwner.name}" VERIFIED at property address (confidence: ${verifyConfidence})`);
+                  } else {
+                    console.log(`[LLC Chain] Perplexity individual "${discoveredOwner.name}" not verified at property address - skipping`);
+                    verified = false;
+                    verifyConfidence = 0;
+                  }
+                } catch (err) {
+                  console.log(`[LLC Chain] Address verification failed for Perplexity result "${discoveredOwner.name}":`, err);
+                  verified = false;
+                  verifyConfidence = 0;
+                }
+              } else {
+                // No verification function or no property address - cannot verify, skip
+                console.log(`[LLC Chain] Cannot verify Perplexity result "${discoveredOwner.name}" - no verification function or address`);
+                verified = false;
+                verifyConfidence = 0;
+              }
+              
+              if (verified && verifyConfidence >= 40) {
+                visited.add(normalizedDiscoveredName);
+                const ownerNode: ChainNode = {
+                  ...discoveredOwner,
+                  confidence: verifyConfidence,
+                  depth: depth + 1,
+                };
+                chain.push(ownerNode);
+                ultimateBeneficialOwners.push(ownerNode);
+              } else {
+                console.log(`[LLC Chain] Skipping unverified Perplexity result "${discoveredOwner.name}"`);
+              }
             } else {
               // For entities, let traverse handle chain insertion to avoid duplicates
               await traverse(discoveredOwner.name, depth + 1, discoveredOwner.role);
@@ -182,6 +393,61 @@ export async function resolveOwnershipChain(
           // Continue to process officers as well for additional data
         } else {
           console.log(`[LLC Chain] Perplexity found no owners, falling back to normal officer processing`);
+          
+          // Try to extract a person name from the entity name itself
+          // e.g., "DAVID J CHIESA & ASSOCIATION INC" -> "David J Chiesa"
+          const extractedName = extractPersonNameFromEntityName(name);
+          if (extractedName && propertyAddress) {
+            console.log(`[LLC Chain] Extracted potential owner name "${extractedName}" from entity name "${name}"`);
+            console.log(`[LLC Chain] Verifying with property address: ${propertyAddress}`);
+            
+            const normalizedExtractedName = normalizeEntityName(extractedName);
+            if (!visited.has(normalizedExtractedName)) {
+              // VERIFY the person exists at the property address before adding
+              let verified = false;
+              let verifyConfidence = 0;
+              let verifySource = "name_extraction";
+              
+              if (_personVerifyFn) {
+                try {
+                  const verifyResult = await _personVerifyFn(extractedName, propertyAddress);
+                  verified = verifyResult.verified;
+                  verifyConfidence = verifyResult.confidence;
+                  verifySource = verifyResult.source || "address_lookup";
+                  console.log(`[LLC Chain] Person verification for "${extractedName}" at "${propertyAddress}": ${verified ? "CONFIRMED" : "NOT FOUND"} (confidence: ${verifyConfidence})`);
+                } catch (err) {
+                  console.log(`[LLC Chain] Person verification failed for "${extractedName}":`, err);
+                  // Verification failed - do not add unverified person
+                  verified = false;
+                  verifyConfidence = 0;
+                }
+              } else {
+                // No verification function available - do NOT add unverified persons
+                console.log(`[LLC Chain] No person verification function available, skipping extracted name`);
+                verified = false;
+                verifyConfidence = 0;
+              }
+              
+              if (verified && verifyConfidence >= 40) {
+                visited.add(normalizedExtractedName);
+                
+                const extractedNode: ChainNode = {
+                  name: extractedName.toUpperCase(),
+                  type: "individual",
+                  role: "likely_principal",
+                  confidence: verifyConfidence,
+                  depth: depth + 1,
+                };
+                
+                chain.push(extractedNode);
+                ultimateBeneficialOwners.push(extractedNode);
+                
+                console.log(`[LLC Chain] Added verified owner "${extractedName}" as likely principal (source: ${verifySource}, confidence: ${verifyConfidence})`);
+              } else {
+                console.log(`[LLC Chain] Skipping unverified extracted name "${extractedName}" - no address match found`);
+              }
+            }
+          }
         }
       }
 

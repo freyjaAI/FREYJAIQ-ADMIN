@@ -29,7 +29,7 @@ import {
   logRoutingDecision,
   getProviderPricing
 } from "./providerConfig";
-import { setLlcLookupFunction } from "./llcChainResolver";
+import { setLlcLookupFunction, setPersonVerifyFunction } from "./llcChainResolver";
 import { apiUsageTracker } from "./apiUsageTracker";
 import { getFullCacheStats, resetCacheMetrics } from "./cacheService";
 
@@ -1027,6 +1027,112 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // Initialize LLC lookup function for chain resolver (breaks circular dependency)
   setLlcLookupFunction(getCachedLlcData);
+
+  // Initialize person verification function for extracted name validation
+  setPersonVerifyFunction(async (personName: string, address: string) => {
+    console.log(`[PERSON VERIFY] Searching for "${personName}" at address "${address}"`);
+    
+    // Parse the address more carefully: "123 Main St, City, CA 90210" or "123 Main St, City, CA"
+    const addressParts = address.split(",").map(p => p.trim());
+    const streetAddress = addressParts[0] || "";
+    const city = addressParts[1] || undefined;
+    
+    // Parse state and zip from last part (e.g., "CA 90210" or "CA")
+    let state: string | undefined;
+    let zip: string | undefined;
+    if (addressParts[2]) {
+      const stateZipMatch = addressParts[2].match(/^([A-Z]{2})(?:\s+(\d{5}(?:-\d{4})?))?$/i);
+      if (stateZipMatch) {
+        state = stateZipMatch[1]?.toUpperCase();
+        zip = stateZipMatch[2];
+      } else {
+        state = addressParts[2];
+      }
+    }
+    
+    // Extract street number and name for better matching
+    const streetNumMatch = streetAddress.match(/^(\d+)\s+(.+)/);
+    const streetNum = streetNumMatch?.[1];
+    const streetName = streetNumMatch?.[2]?.toLowerCase().replace(/\s+(st|street|ave|avenue|blvd|boulevard|rd|road|dr|drive|ln|lane|ct|court|pl|place|way|cir|circle)\.?$/i, "").trim();
+    
+    console.log(`[PERSON VERIFY] Parsed address - Street: "${streetNum} ${streetName}", City: "${city}", State: "${state}", Zip: "${zip}"`);
+    
+    // Helper to check if addresses match (requires street number + partial street name match)
+    const addressMatches = (providerAddr: string, searchStreetNum: string | undefined, searchStreetName: string | undefined): boolean => {
+      if (!searchStreetNum) return false;
+      const addr = providerAddr.toLowerCase();
+      
+      // Must contain the street number
+      if (!addr.includes(searchStreetNum)) return false;
+      
+      // If we have a street name, check for partial match
+      if (searchStreetName && searchStreetName.length >= 3) {
+        // Extract just the first word or two of the street name for matching
+        const streetWords = searchStreetName.split(/\s+/);
+        const firstWord = streetWords[0];
+        if (firstWord && firstWord.length >= 3 && !addr.includes(firstWord)) {
+          return false;
+        }
+      }
+      
+      return true;
+    };
+    
+    // Try Data Axle People API first (most reliable for person-at-address matching)
+    try {
+      const dataAxlePeople = await dataProviders.searchPeopleV2(personName, {
+        city: city,
+        state: state,
+        zip: zip,
+      });
+      
+      if (dataAxlePeople && dataAxlePeople.length > 0) {
+        // Check if any result matches the address reasonably well
+        for (const person of dataAxlePeople) {
+          const personAddr = person.address || "";
+          
+          if (addressMatches(personAddr, streetNum, streetName)) {
+            console.log(`[PERSON VERIFY] CONFIRMED via Data Axle: "${person.firstName} ${person.lastName}" at "${person.address}"`);
+            return { verified: true, confidence: 75, source: "data_axle" };
+          }
+        }
+        
+        // Found person but address doesn't match exactly
+        console.log(`[PERSON VERIFY] Found person "${personName}" via Data Axle but address mismatch`);
+        return { verified: false, confidence: 30, source: "data_axle" };
+      }
+    } catch (err) {
+      console.log(`[PERSON VERIFY] Data Axle search failed:`, err);
+    }
+    
+    // Try A-Leads as fallback
+    try {
+      const aLeadsContacts = await dataProviders.searchALeadsByName(personName, {
+        city: city,
+        state: state,
+      });
+      
+      if (aLeadsContacts && aLeadsContacts.length > 0) {
+        for (const contact of aLeadsContacts) {
+          const contactAddr = contact.address || "";
+          
+          if (addressMatches(contactAddr, streetNum, streetName)) {
+            console.log(`[PERSON VERIFY] CONFIRMED via A-Leads: "${contact.name}" at "${contact.address}"`);
+            return { verified: true, confidence: 70, source: "aleads" };
+          }
+        }
+        
+        console.log(`[PERSON VERIFY] A-Leads found person "${personName}" but address mismatch`);
+        return { verified: false, confidence: 25, source: "aleads" };
+      }
+    } catch (err) {
+      console.log(`[PERSON VERIFY] A-Leads search failed:`, err);
+    }
+    
+    // No provider could verify
+    console.log(`[PERSON VERIFY] Could not verify "${personName}" at "${address}"`);
+    return { verified: false, confidence: 0, source: "none" };
+  });
 
   // Google Maps API key (client-side maps require the key)
   app.get("/api/maps/key", isAuthenticated, async (req: any, res) => {
