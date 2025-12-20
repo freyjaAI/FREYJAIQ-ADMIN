@@ -1351,15 +1351,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const stats = await getFullCacheStats();
       
+      // Return raw numeric values for downstream analytics
       res.json({
         storage: stats.storage,
         metrics: stats.metrics,
-        savings: {
+        totals: {
           totalSaved: stats.savings.totalSaved,
-          formattedSavings: `$${stats.savings.totalSaved.toFixed(2)}`,
           totalHits: stats.savings.totalHits,
           totalMisses: stats.savings.totalMisses,
-          overallHitRate: `${stats.savings.overallHitRate.toFixed(1)}%`,
+          overallHitRate: stats.savings.overallHitRate,
         },
       });
     } catch (error) {

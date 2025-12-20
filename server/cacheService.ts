@@ -115,9 +115,10 @@ export async function getCachedResult<T>(
       return JSON.parse(cached) as T;
     }
     
-    // Cache miss
+    // Cache miss - track for metrics
     const m = initMetrics(provider);
     m.misses++;
+    console.log(`[CACHE MISS] ${provider}: ${cacheKey.substring(0, 50)}...`);
     
     return null;
   } catch (error) {
