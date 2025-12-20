@@ -1,309 +1,81 @@
 # Freyja IQ - CRE Prospecting Platform
 
 ## Overview
-
-Freyja IQ is a modern commercial real estate (CRE) prospecting platform designed to compete with legacy systems like LexisNexis. The platform enables brokers and financial professionals to quickly search for property ownership information, unmask LLCs, find contact details, and generate comprehensive owner dossiers with AI-powered insights.
-
-The application provides:
-- Multi-method property/owner search (address, name, APN)
-- LLC entity resolution and ownership unmasking
-- Contact information with confidence scoring
-- Seller intent scoring for lead prioritization
-- AI-generated outreach suggestions
-- One-click dossier exports
+Freyja IQ is a commercial real estate (CRE) prospecting platform designed to provide brokers and financial professionals with tools to quickly find property ownership information, unmask LLCs, retrieve contact details, and generate AI-powered owner dossiers. The platform aims to modernize CRE prospecting by offering multi-method search, LLC entity resolution, contact information with confidence scoring, seller intent scoring, AI-generated outreach suggestions, and one-click dossier exports.
 
 ## User Preferences
-
 Preferred communication style: Simple, everyday language.
 
 ## System Architecture
 
-### Frontend Architecture
+### Frontend
+- **Framework**: React with TypeScript, using Vite.
+- **UI**: shadcn/ui with Radix UI primitives, Tailwind CSS for styling. Modern B2B SaaS design, Inter font for UI, JetBrains Mono for technical data.
+- **Routing**: Wouter.
+- **State Management**: TanStack Query for server state, React Context for theme and authentication.
+- **Key Pages**: Landing, Dashboard, Search, Owner/Property lists, Owner Dossier, Dossier Export History, User Settings.
 
-**Framework**: React with TypeScript, using Vite as the build tool
-
-**UI Component System**: 
-- shadcn/ui component library with Radix UI primitives
-- Tailwind CSS for styling with custom design system
-- Theme support (light/dark mode) via context provider
-- Design philosophy: Modern B2B SaaS inspired by Linear, Attio, and Notion
-- Typography: Inter for UI, JetBrains Mono for technical data
-- Spacing primitives: Tailwind units (2, 4, 6, 8)
-
-**Routing**: Wouter for lightweight client-side routing
-
-**State Management**:
-- TanStack Query (React Query) for server state and caching
-- React Context for theme and authentication state
-- No global state management library (Redux/Zustand) - relies on server state
-
-**Key Pages**:
-- Landing page (unauthenticated)
-- Dashboard with stats and recent searches
-- Search interface with multi-type queries
-- Owner and property list views
-- Owner dossier detail page with AI insights
-- Dossier export history
-- User settings
-
-### Backend Architecture
-
-**Framework**: Express.js on Node.js with TypeScript
-
-**API Design**: RESTful HTTP endpoints
-- `/api/auth/*` - Authentication routes
-- `/api/search` - Property/owner search
-- `/api/owners/*` - Owner CRUD and relationships
-- `/api/properties/*` - Property data
-- `/api/contacts/*` - Contact information
-- `/api/dossiers/*` - Dossier generation and exports
-- `/api/dashboard/stats` - Analytics
-
-**Server Structure**:
-- `server/index.ts` - Express app setup and middleware
-- `server/routes.ts` - API route definitions
-- `server/storage.ts` - Data access layer abstraction
-- `server/db.ts` - Database connection setup
-- `server/openai.ts` - AI integration for scoring and suggestions
-- `server/static.ts` - Static file serving
-- `server/vite.ts` - Vite dev server integration
-- `server/addressNormalizer.ts` - Universal address normalization for provider compatibility
-- `server/dossierService.ts` - Unified dossier generation with entity resolution
-- `server/providers/HomeHarvestProvider.ts` - Property data fallback via Realtor.com
-- `server/providers/AddressParserProvider.ts` - Address parsing via usaddress Python library
-- `server/providers/RealEstateApiProvider.ts` - Skip Engine API for property skip tracing with bulk support
-- `server/providers/MultiPlatformPropertyProvider.ts` - Multi-platform property scraper with Walk Score integration
-- `server/python/homeharvest_lookup.py` - Python script for HomeHarvest library integration
-- `server/python/address_parser.py` - Python script for address parsing and entity name normalization
-- `server/python/opencorporates_lookup.py` - Python script for OpenCorporates lookups via opyncorporates wrapper
-- `server/providers/OpenCorporatesPythonProvider.ts` - Node.js provider for OpenCorporates Python integration
-- `server/python/usps_lookup.py` - Python script for USPS address validation via usps-api wrapper
-- `server/providers/USPSProvider.ts` - Node.js provider for USPS address validation and standardization
-
-**Build Process**: Custom esbuild-based bundling with allowlist for specific dependencies to optimize cold starts
+### Backend
+- **Framework**: Express.js on Node.js with TypeScript.
+- **API Design**: RESTful HTTP endpoints for authentication, search, owners, properties, contacts, dossiers, and dashboard analytics.
+- **Core Services**: Address normalization, unified dossier generation, multi-platform property scraping, and integrations with various data providers (e.g., HomeHarvest, RealEstateApiProvider, OpenCorporates, USPS).
+- **Python Integration**: Utilizes Python scripts for specific tasks like HomeHarvest lookups, address parsing (`usaddress`), OpenCorporates lookups (`opyncorporates`), and USPS validation (`usps-api`).
 
 ### Data Storage
-
-**Database**: PostgreSQL via Drizzle ORM
-
-**Schema Design** (defined in `shared/schema.ts`):
-- `users` - User accounts (required for Replit Auth)
-- `sessions` - Session storage (required for Replit Auth)
-- `owners` - Individual or entity owners with metadata
-  - Fields: name, type (individual/entity), addresses, tax IDs, risk flags, seller intent score
-- `properties` - Real estate properties
-  - Fields: address, APN, property type, assessed value, sale history
-- `contactInfos` - Phone numbers and emails with confidence scores
-- `legalEvents` - Liens, judgments, bankruptcies, lawsuits
-- `ownerLlcLinks` - Relationships between owners and LLCs
-- `searchHistory` - User search tracking
-- `dossierExports` - Generated dossier metadata
-
-**ORM Features**:
-- Type-safe queries with Drizzle ORM
-- Zod schema generation for validation
-- Migration support via drizzle-kit
-
-**Data Access Pattern**: Repository pattern via `storage.ts` interface for abstraction
+- **Database**: PostgreSQL via Drizzle ORM.
+- **Schema**: `users`, `sessions`, `owners`, `properties`, `contactInfos`, `legalEvents`, `ownerLlcLinks`, `searchHistory`, `dossierExports`.
+- **ORM**: Type-safe queries with Drizzle ORM, Zod schema generation, drizzle-kit for migrations.
+- **Data Access**: Repository pattern via `storage.ts`.
 
 ### Authentication & Authorization
-
-**Authentication Provider**: Replit Auth (OpenID Connect)
-- Configured in `server/replitAuth.ts`
-- Uses Passport.js with OpenID Client strategy
-- Session management via connect-pg-simple (PostgreSQL session store)
-- Session TTL: 7 days
-
-**Session Configuration**:
-- HttpOnly cookies for security
-- Secure flag enabled
-- Session secret from environment variable
-
-**Authorization**:
-- Role-based access control (broker, admin roles)
-- User role stored in `users.role` field
-- Protected routes use `isAuthenticated` middleware
-
-**User Flow**:
-- OAuth flow via Replit identity provider
-- User profile synced to local database on login
-- Session persisted in PostgreSQL
+- **Authentication**: Replit Auth (OpenID Connect) with Passport.js.
+- **Session Management**: `connect-pg-simple` for PostgreSQL session storage, HttpOnly cookies.
+- **Authorization**: Role-based access control with `isAuthenticated` middleware.
 
 ### AI Integration
+- **Provider**: OpenAI (via Replit AI Integrations) using GPT-4o-mini.
+- **Features**: LLC unmasking, seller intent scoring, outreach suggestions, and contact confidence scoring.
+- **Implementation**: Rate limiting and retry logic for AI requests.
 
-**Provider**: OpenAI (via Replit AI Integrations service)
-- Model: GPT-4o-mini
-- No API key required - uses Replit credits
+### LLC Ownership Chain Resolution
+- **Process**: Recursive traversal of LLC ownership chains, detection of privacy protection via registered agents, fallback to Perplexity AI for unmasking, and person name extraction from entity names.
+- **Verification**: Extracted persons are verified against property addresses using data from Data Axle/A-Leads.
 
-**AI Features**:
-1. **LLC Unmasking** (`unmaskLlc`) - Resolves LLC ownership to real people
-2. **Seller Intent Scoring** (`calculateSellerIntentScore`) - Analyzes property signals to predict seller motivation
-3. **Outreach Suggestions** (`generateOutreachSuggestion`) - Creates personalized outreach messaging
-4. **Contact Confidence** (`calculateContactConfidence`) - Scores reliability of contact information
+### Caching Layer
+- **Technology**: Redis (with in-memory fallback) for intelligent caching.
+- **Strategy**: Tiered TTLs for different data types (e.g., LLC data 24-72 hours, property data 12 hours, contact enrichment 7 days).
+- **Admin APIs**: Endpoints for cache statistics and resetting metrics.
 
-**Implementation Details**:
-- Rate limiting via p-limit (2 concurrent requests)
-- Retry logic via p-retry (3 attempts with exponential backoff)
-- Handles rate limit errors specifically
-- Async operations with proper error handling
+### API Usage Tracking & Quotas
+- **Purpose**: Centralized tracking and enforcement of hard limits for third-party API usage to prevent excessive costs.
+- **Configuration**: Quotas configurable via environment variables (e.g., daily/monthly limits for Data Axle, A-Leads).
+- **Admin APIs**: Endpoints for viewing and resetting provider usage statistics.
+
+### Provider Status & Freshness
+- **Mechanism**: Dossier API responses include a `sources` array detailing data providers, their status (success, cached, error, stale, fallback), last updated timestamp, and freshness label.
+- **UI**: `SourcesStrip` component displays provider chips with status icons, freshness labels, tooltips, and retry options for failed providers.
 
 ## External Dependencies
 
-### Core Framework Dependencies
-- **React 18** - UI framework
-- **Express** - Web server
-- **TypeScript** - Type safety across full stack
-- **Vite** - Build tool and dev server
-- **Wouter** - Client-side routing
-- **TanStack Query** - Server state management
+### Core Framework & Build
+- React 18, Express, TypeScript, Vite, Wouter, TanStack Query.
 
 ### Database & ORM
-- **PostgreSQL** - Primary database (via `DATABASE_URL` environment variable)
-- **Drizzle ORM** - Type-safe database queries
-- **node-postgres (pg)** - PostgreSQL client
-- **connect-pg-simple** - PostgreSQL session store
+- PostgreSQL (`DATABASE_URL`), Drizzle ORM, `node-postgres`, `connect-pg-simple`.
 
 ### Authentication
-- **Replit Auth** - Identity provider (OpenID Connect)
-- **Passport.js** - Authentication middleware
-- **openid-client** - OIDC client library
-- **express-session** - Session management
+- Replit Auth, Passport.js, `openid-client`, `express-session`.
 
 ### AI Services
-- **OpenAI** - AI completions (via Replit AI Integrations)
-- **Perplexity Sonar** - AI-powered web search for LLC ownership discovery (privacy-protected entity fallback)
-- **p-limit** - Concurrency control for AI requests
-- **p-retry** - Retry logic with exponential backoff
+- OpenAI (via Replit AI Integrations), Perplexity Sonar, `p-limit`, `p-retry`.
 
-### Contact Enrichment Data Providers
-- **ATTOM** - Property data and ownership information
-- **OpenCorporates** - LLC/entity lookup and officer information
-- **Data Axle** - People search (v2 API) and business contacts (Places v3)
-- **A-Leads** - Skip tracing and professional contact data
-- **Melissa** - Address verification and personator API
-- **Google Address Validation** - Geocoding and address standardization
-- **Pacific East/Idicia** - Enhanced contact enrichment suite:
-  - DataPrime: Name/address verification with identity confirmation
-  - Forward Phone Append (FPA): Phone number lookup with match scoring
-  - Email Append (EMA): Email address discovery with validation status
-  - Email Validation (EMV): Email deliverability verification
+### Contact & Property Data Providers
+- ATTOM, OpenCorporates, Data Axle, A-Leads, Melissa, Google Address Validation, Pacific East/Idicia (DataPrime, FPA, EMA, EMV).
 
-### UI Component Libraries
-- **shadcn/ui** - Component library
-- **Radix UI** - Headless UI primitives (20+ components)
-- **Tailwind CSS** - Utility-first styling
-- **Lucide React** - Icon library
-- **class-variance-authority** - Component variants
-- **cmdk** - Command palette
+### UI Components & Utilities
+- shadcn/ui, Radix UI, Tailwind CSS, Lucide React, `class-variance-authority`, `cmdk`, Zod, `drizzle-zod`, React Hook Form, `date-fns`, `nanoid`, `memoizee`, `clsx`, `tailwind-merge`.
 
-### Validation & Forms
-- **Zod** - Schema validation
-- **drizzle-zod** - Generate Zod schemas from Drizzle
-- **React Hook Form** - Form management
-- **@hookform/resolvers** - Form validation integration
-
-### Utilities
-- **date-fns** - Date manipulation
-- **nanoid** - ID generation
-- **memoizee** - Function memoization
-- **clsx** / **tailwind-merge** - Conditional class names
-
-### Development
-- **tsx** - TypeScript execution
-- **esbuild** - Production bundling
-- **@replit/vite-plugin-*** - Replit-specific dev tools
-
-### Environment Variables Required
-- `DATABASE_URL` - PostgreSQL connection string
-- `SESSION_SECRET` - Session encryption key
-- `AI_INTEGRATIONS_OPENAI_BASE_URL` - Replit AI API base URL
-- `AI_INTEGRATIONS_OPENAI_API_KEY` - Replit AI API key
-- `ISSUER_URL` - OIDC issuer URL
-- `REPL_ID` - Replit application ID
-- `GOOGLE_AI_API_KEY` - Google Gemini API key for LLC research
-- `USPS_USER_ID` - USPS Web Tools API user ID for address validation (free, register at usps.com/business/web-tools-apis)
-
-### Cost Configuration (optional overrides)
-Provider costs and priorities can be tuned via environment variables:
-- `PROVIDER_COST_<NAME>` - Override cost per call (e.g., `PROVIDER_COST_GEMINI=0.003`)
-- `PROVIDER_PRIORITY_<NAME>` - Override priority order (e.g., `PROVIDER_PRIORITY_OPENCORPORATES=3`)
-- `PROVIDER_QUOTA_<NAME>` - Set monthly call quota (e.g., `PROVIDER_QUOTA_ATTOM=1000`)
-
-Available provider names: `gemini`, `opencorporates`, `perplexity`, `attom`, `apify_skip_trace`, `dataaxle`, `melissa`, `pacificeast`, `aleads`, `google_address`, `usps`, `openai`
-
-### Cost Metrics API
-- `GET /api/admin/provider-metrics` - Returns provider usage, costs, and cache statistics
-  - Tracks calls per provider, estimated costs, cache hit rates
-  - Useful for monitoring API spending and optimizing usage
-
-### Redis Caching Layer
-Intelligent caching reduces API costs by 30-40% with tiered TTL strategies per data type:
-
-**Cache Configuration** (environment variables):
-- `REDIS_URL` - Redis connection string (optional - falls back to in-memory cache if not set)
-
-**TTL Strategies** (defined in `server/cacheService.ts`):
-- LLC/Entity data: 24-72 hours (very stable for public companies)
-- Property data: 12 hours (default), 4 hours (AVM valuations)
-- Contact enrichment: 7 days (relatively stable)
-- Address validation: 30 days (addresses rarely change)
-- Person search: 7 days (moderate stability)
-
-**Cache Key Prefixes**:
-- `llc:` - LLC and entity lookups
-- `prop:` - Property data
-- `contact:` - Contact enrichment
-- `addr:` - Address validation
-- `person:` - Person search
-- `sec:` - SEC EDGAR data
-- `dossier:` - Full dossier aggregates
-
-**Admin API Endpoints**:
-- `GET /api/admin/cache-stats` - View cache hit rates, cost savings, and storage stats
-- `POST /api/admin/cache-stats/reset` - Reset cache metrics
-
-**Key Files**:
-- `server/redisClient.ts` - Redis connection with memory fallback
-- `server/cacheService.ts` - Cache abstraction with TTL strategies and metrics
-
-### API Usage Tracking & Quotas
-Centralized usage tracking prevents runaway API costs with hard limits per provider:
-
-**Environment Variables for Quotas** (optional overrides):
-- `QUOTA_DATA_AXLE_PEOPLE_DAILY` - Daily limit for Data Axle People API (default: 100)
-- `QUOTA_DATA_AXLE_PEOPLE_MONTHLY` - Monthly limit for Data Axle People API (default: 1000)
-- `QUOTA_DATA_AXLE_PLACES_DAILY` - Daily limit for Data Axle Places API (default: 500)
-- `QUOTA_DATA_AXLE_PLACES_MONTHLY` - Monthly limit for Data Axle Places API (default: 5000)
-- `QUOTA_ALEADS_DAILY` - Daily limit for A-Leads API (default: 500)
-- `QUOTA_ALEADS_MONTHLY` - Monthly limit for A-Leads API (default: 10000)
-- Similar patterns for `ATTOM`, `MELISSA`, `OPENCORPORATES`, `GOOGLE_MAPS`, `PERPLEXITY`, `OPENAI`, `PACIFIC_EAST`, `APIFY`
-
-**Admin API Endpoints**:
-- `GET /api/admin/api-usage` - View all provider usage stats, limits, and warning levels
-- `POST /api/admin/api-usage/reset` - Reset usage counters (body: `{ provider?: "aleads" }` or empty for all)
-
-**Safeguards**:
-- Requests are blocked when daily or monthly limits are reached
-- Warning logs appear at 80% usage threshold
-- Critical warnings at 90% usage
-- All API calls log usage: `[API USAGE] provider: +count (daily: X, monthly: Y)`
-
-**Key Files**:
-- `server/apiUsageTracker.ts` - Core tracking logic and quota enforcement
-- Tracking integrated into: `DataAxleProvider`, `ALeadsProvider`, and other data providers
-
-### Provider Status & Freshness Tracking
-The dossier API responses include a `sources` array showing which data providers contributed data:
-- **ProviderSource type** (defined in `shared/schema.ts`):
-  - `name`: Provider identifier (e.g., "attom", "opencorporates")
-  - `displayName`: Human-readable name (e.g., "ATTOM", "OpenCorporates")
-  - `status`: One of "success", "cached", "error", "stale", "fallback"
-  - `lastUpdated`: Timestamp of when data was fetched
-  - `freshnessLabel`: Human-readable age (e.g., "fresh", "2d", "1w")
-  - `error`: Error message if provider failed
-  - `canRetry`: Whether targeted re-enrichment is available
-  - `retryTarget`: Which enrichment phase to retry ("contacts", "ownership", "property", "franchise")
-- **SourcesStrip component** (`client/src/components/sources-strip.tsx`):
-  - Displays provider chips with status icons and freshness labels
-  - Shows retry buttons for failed providers
-  - Tooltips with detailed status information
+### Development & Environment
+- `tsx`, `esbuild`, `@replit/vite-plugin-*`.
+- **Required Environment Variables**: `DATABASE_URL`, `SESSION_SECRET`, `AI_INTEGRATIONS_OPENAI_BASE_URL`, `AI_INTEGRATIONS_OPENAI_API_KEY`, `ISSUER_URL`, `REPL_ID`, `GOOGLE_AI_API_KEY`, `USPS_USER_ID`.
+- **Optional Environment Variables**: `REDIS_URL`, `PROVIDER_COST_<NAME>`, `PROVIDER_PRIORITY_<NAME>`, `PROVIDER_QUOTA_<NAME>`, and specific `QUOTA_<PROVIDER>_<PERIOD>` for API usage limits.
