@@ -263,11 +263,14 @@ function ClickableEntityName({
   name, 
   type,
   role,
+  addressHint,
   className = "" 
 }: { 
   name: string; 
   type?: "entity" | "individual";
   role?: string;
+  /** Address hint for contact enrichment filtering (e.g., property address) */
+  addressHint?: string;
   className?: string;
 }) {
   const [, setLocation] = useLocation();
@@ -285,6 +288,7 @@ function ClickableEntityName({
       const response = await apiRequest("POST", "/api/owners/resolve-by-name", {
         name,
         type: type || undefined,
+        addressHint: addressHint || undefined,
       });
       
       const data = await response.json();
@@ -1354,6 +1358,7 @@ export default function OwnerDossierPage() {
                                     <ClickableEntityName 
                                       name={entity.name} 
                                       type={entity.type}
+                                      addressHint={owner.primaryAddress || undefined}
                                     />
                                     {entity.role && (
                                       <Badge 
@@ -1398,6 +1403,7 @@ export default function OwnerDossierPage() {
                                   <ClickableEntityName 
                                     name={ubo.name} 
                                     type={ubo.type}
+                                    addressHint={owner.primaryAddress || undefined}
                                   />
                                 </div>
                                 {ubo.role && (

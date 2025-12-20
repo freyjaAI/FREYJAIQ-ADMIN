@@ -11,6 +11,8 @@ interface ClickableEntityProps {
   className?: string;
   showIcon?: boolean;
   size?: "sm" | "md" | "lg";
+  /** Address hint for contact enrichment filtering (e.g., from property context) */
+  addressHint?: string;
 }
 
 export function ClickableEntity({
@@ -20,6 +22,7 @@ export function ClickableEntity({
   className,
   showIcon = true,
   size = "md",
+  addressHint,
 }: ClickableEntityProps) {
   const [, navigate] = useLocation();
 
@@ -28,6 +31,7 @@ export function ClickableEntity({
       const res = await apiRequest("POST", "/api/owners/resolve-by-name", {
         name,
         type: type === "individual" ? "individual" : "entity",
+        addressHint: addressHint || undefined,
       });
       return res.json();
     },

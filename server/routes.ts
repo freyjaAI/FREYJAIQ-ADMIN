@@ -3068,7 +3068,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Resolve owner by name - finds existing or creates new owner
   app.post("/api/owners/resolve-by-name", isAuthenticated, async (req: any, res) => {
     try {
-      const { name, type } = req.body;
+      const { name, type, addressHint } = req.body;
       
       if (!name || typeof name !== "string") {
         return res.status(400).json({ message: "Name is required" });
@@ -3084,19 +3084,28 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       
       if (exactMatch) {
         console.log(`[RESOLVE] Found existing owner: ${exactMatch.name} (ID: ${exactMatch.id})`);
+        
+        // If owner exists but has no primaryAddress and we have an addressHint, update it
+        if (!exactMatch.primaryAddress && addressHint) {
+          console.log(`[RESOLVE] Updating owner with address hint: ${addressHint}`);
+          await storage.updateOwner(exactMatch.id, { primaryAddress: addressHint });
+          exactMatch.primaryAddress = addressHint;
+        }
+        
         return res.json({ owner: exactMatch, isNew: false });
       }
       
       // Determine type based on name if not provided
       const detectedType = type || (shouldTreatAsEntity("individual", normalizedName) ? "entity" : "individual");
       
-      // Create new owner
+      // Create new owner with address hint if provided
       const newOwner = await storage.createOwner({
         name: normalizedName,
         type: detectedType,
+        primaryAddress: addressHint || undefined,
       });
       
-      console.log(`[RESOLVE] Created new owner: ${newOwner.name} (ID: ${newOwner.id})`);
+      console.log(`[RESOLVE] Created new owner: ${newOwner.name} (ID: ${newOwner.id})${addressHint ? ` with address: ${addressHint}` : ''}`);
       
       res.json({ owner: newOwner, isNew: true });
     } catch (error) {
