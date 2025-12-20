@@ -236,6 +236,36 @@ Available provider names: `gemini`, `opencorporates`, `perplexity`, `attom`, `ap
   - Tracks calls per provider, estimated costs, cache hit rates
   - Useful for monitoring API spending and optimizing usage
 
+### Redis Caching Layer
+Intelligent caching reduces API costs by 30-40% with tiered TTL strategies per data type:
+
+**Cache Configuration** (environment variables):
+- `REDIS_URL` - Redis connection string (optional - falls back to in-memory cache if not set)
+
+**TTL Strategies** (defined in `server/cacheService.ts`):
+- LLC/Entity data: 24-72 hours (very stable for public companies)
+- Property data: 12 hours (default), 4 hours (AVM valuations)
+- Contact enrichment: 7 days (relatively stable)
+- Address validation: 30 days (addresses rarely change)
+- Person search: 7 days (moderate stability)
+
+**Cache Key Prefixes**:
+- `llc:` - LLC and entity lookups
+- `prop:` - Property data
+- `contact:` - Contact enrichment
+- `addr:` - Address validation
+- `person:` - Person search
+- `sec:` - SEC EDGAR data
+- `dossier:` - Full dossier aggregates
+
+**Admin API Endpoints**:
+- `GET /api/admin/cache-stats` - View cache hit rates, cost savings, and storage stats
+- `POST /api/admin/cache-stats/reset` - Reset cache metrics
+
+**Key Files**:
+- `server/redisClient.ts` - Redis connection with memory fallback
+- `server/cacheService.ts` - Cache abstraction with TTL strategies and metrics
+
 ### API Usage Tracking & Quotas
 Centralized usage tracking prevents runaway API costs with hard limits per provider:
 

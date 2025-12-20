@@ -31,6 +31,7 @@ import {
 } from "./providerConfig";
 import { setLlcLookupFunction } from "./llcChainResolver";
 import { apiUsageTracker } from "./apiUsageTracker";
+import { getFullCacheStats, resetCacheMetrics } from "./cacheService";
 
 // Common first names to help detect person names (subset of most common US names)
 const COMMON_FIRST_NAMES = new Set([
@@ -1342,6 +1343,40 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (error) {
       console.error("Error fetching provider metrics:", error);
       res.status(500).json({ message: "Failed to fetch provider metrics" });
+    }
+  });
+
+  // Redis cache statistics endpoint (admin dashboard)
+  app.get("/api/admin/cache-stats", isAuthenticated, adminRateLimit, async (req: any, res) => {
+    try {
+      const stats = await getFullCacheStats();
+      
+      res.json({
+        storage: stats.storage,
+        metrics: stats.metrics,
+        savings: {
+          totalSaved: stats.savings.totalSaved,
+          formattedSavings: `$${stats.savings.totalSaved.toFixed(2)}`,
+          totalHits: stats.savings.totalHits,
+          totalMisses: stats.savings.totalMisses,
+          overallHitRate: `${stats.savings.overallHitRate.toFixed(1)}%`,
+        },
+      });
+    } catch (error) {
+      console.error("Error fetching cache stats:", error);
+      res.status(500).json({ message: "Failed to fetch cache statistics" });
+    }
+  });
+
+  // Reset cache metrics (admin dashboard)
+  app.post("/api/admin/cache-stats/reset", isAuthenticated, adminRateLimit, async (req: any, res) => {
+    try {
+      resetCacheMetrics();
+      console.log(`[ADMIN] Reset cache metrics`);
+      res.json({ success: true, message: "Cache metrics reset successfully" });
+    } catch (error) {
+      console.error("Error resetting cache metrics:", error);
+      res.status(500).json({ message: "Failed to reset cache metrics" });
     }
   });
 
