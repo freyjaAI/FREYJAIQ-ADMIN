@@ -538,13 +538,14 @@ export default function OwnerDossierPage() {
   };
 
   // Mutation to clear ownership chain cache and refetch
+  const ownerAddress = dossier?.owner?.primaryAddress || "";
   const clearOwnershipCacheMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("GET", `/api/external/llc-ownership-chain?name=${encodeURIComponent(dossier?.owner?.name || "")}&forceRefresh=true`);
+      const res = await apiRequest("GET", `/api/external/llc-ownership-chain?name=${encodeURIComponent(dossier?.owner?.name || "")}&addressHint=${encodeURIComponent(ownerAddress)}&forceRefresh=true`);
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/external/llc-ownership-chain?name=${encodeURIComponent(dossier?.owner?.name || "")}`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/external/llc-ownership-chain?name=${encodeURIComponent(dossier?.owner?.name || "")}&addressHint=${encodeURIComponent(ownerAddress)}`] });
       toast({ title: "Cache cleared", description: "Ownership chain refreshed with latest data." });
     },
     onError: () => {
@@ -554,8 +555,9 @@ export default function OwnerDossierPage() {
 
   // Fetch ownership chain for entity owners
   // API returns flat `chain` array, we transform it to `levels` grouped by depth
+  const ownerAddressHint = dossier?.owner?.primaryAddress || "";
   const ownershipChainQuery = useQuery<OwnershipChainData>({
-    queryKey: [`/api/external/llc-ownership-chain?name=${encodeURIComponent(dossier?.owner?.name || "")}`],
+    queryKey: [`/api/external/llc-ownership-chain?name=${encodeURIComponent(dossier?.owner?.name || "")}&addressHint=${encodeURIComponent(ownerAddressHint)}`],
     enabled: !!dossier?.owner?.type && dossier.owner.type === "entity" && !!dossier.owner.name,
     staleTime: 1000 * 60 * 60, // Cache for 1 hour
     select: (data: any): OwnershipChainData => {

@@ -4127,7 +4127,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // LLC Ownership Chain Resolution - recursively resolves ownership through nested LLCs
   app.get("/api/external/llc-ownership-chain", isAuthenticated, async (req: any, res) => {
     try {
-      const { name, jurisdiction, forceRefresh } = req.query;
+      const { name, jurisdiction, forceRefresh, addressHint } = req.query;
 
       if (!name || typeof name !== "string") {
         return res.status(400).json({ message: "Entity name required" });
@@ -4135,6 +4135,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       const jCode = typeof jurisdiction === "string" ? jurisdiction : undefined;
       const shouldForceRefresh = forceRefresh === "true";
+      const propertyAddress = typeof addressHint === "string" ? addressHint : undefined;
 
       // Check for cached chain first
       if (!shouldForceRefresh) {
@@ -4159,8 +4160,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       // Import the chain resolver
       const { resolveOwnershipChain, formatChainForDisplay } = await import("./llcChainResolver");
 
-      console.log(`[API CALL] Resolving ownership chain for "${name}"...`);
-      const chain = await resolveOwnershipChain(name, jCode);
+      console.log(`[API CALL] Resolving ownership chain for "${name}"${propertyAddress ? ` with address hint: ${propertyAddress}` : ""}...`);
+      const chain = await resolveOwnershipChain(name, jCode, propertyAddress);
 
       // Save the chain to database
       await storage.saveLlcOwnershipChain({
