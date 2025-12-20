@@ -174,15 +174,14 @@ function EntityLink({ entity }: { entity: LinkedEntity }) {
   }
 
   return (
-    <Link href={entity.route}>
-      <span
-        className="flex items-center gap-1 text-foreground hover:text-primary cursor-pointer hover-elevate rounded px-1 -mx-1"
-        data-testid={`link-entity-${entity.id}`}
-      >
-        <EntityIcon type={entity.type} />
-        <span className="underline underline-offset-2">{entity.name}</span>
-        <ChevronRight className="h-3 w-3" />
-      </span>
+    <Link
+      href={entity.route}
+      className="flex items-center gap-1 text-foreground hover:text-primary cursor-pointer hover-elevate rounded px-1 -mx-1"
+      data-testid={`link-entity-${entity.id}`}
+    >
+      <EntityIcon type={entity.type} />
+      <span className="underline underline-offset-2">{entity.name}</span>
+      <ChevronRight className="h-3 w-3" />
     </Link>
   );
 }
