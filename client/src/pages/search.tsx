@@ -42,9 +42,21 @@ export default function SearchPage() {
   const params = new URLSearchParams(searchParams);
   const initialQuery = params.get("q") || "";
   const initialType = params.get("type") || "address";
+  
+  // Person search params
+  const initialPersonName = params.get("name") || "";
+  const initialPersonAddress = params.get("address") || "";
+  const initialPersonCity = params.get("city") || "";
+  const initialPersonState = params.get("state") || "";
 
   const [currentQuery, setCurrentQuery] = useState(initialQuery);
   const [currentType, setCurrentType] = useState(initialType);
+  const [personData, setPersonData] = useState({
+    name: initialPersonName,
+    address: initialPersonAddress,
+    city: initialPersonCity,
+    state: initialPersonState,
+  });
   const [sortBy, setSortBy] = useState("relevance");
   const [externalResults, setExternalResults] = useState<ExternalSearchResult | null>(null);
 
@@ -143,17 +155,36 @@ export default function SearchPage() {
     },
   });
 
-  const handleSearch = (query: string, type: string) => {
+  const handleSearch = (query: string, type: string, newPersonData?: { name: string; address: string; city: string; state: string }) => {
     setCurrentQuery(query);
     setCurrentType(type);
     setExternalResults(null);
-    window.history.replaceState(
-      null,
-      "",
-      `/search?q=${encodeURIComponent(query)}&type=${type}`
-    );
-    // Also trigger external search
-    externalSearchMutation.mutate({ query, type });
+    
+    if (type === "person" && newPersonData) {
+      setPersonData(newPersonData);
+      const urlParams = new URLSearchParams({
+        q: query,
+        type,
+        name: newPersonData.name,
+        address: newPersonData.address,
+        city: newPersonData.city,
+        state: newPersonData.state,
+      });
+      window.history.replaceState(null, "", `/search?${urlParams.toString()}`);
+      // Trigger external search with enhanced person data
+      externalSearchMutation.mutate({ 
+        query: `${newPersonData.name}${newPersonData.address ? ` ${newPersonData.address}` : ''}${newPersonData.city ? ` ${newPersonData.city}` : ''}${newPersonData.state ? ` ${newPersonData.state}` : ''}`.trim(), 
+        type 
+      });
+    } else {
+      window.history.replaceState(
+        null,
+        "",
+        `/search?q=${encodeURIComponent(query)}&type=${type}`
+      );
+      // Also trigger external search
+      externalSearchMutation.mutate({ query, type });
+    }
   };
 
   useEffect(() => {

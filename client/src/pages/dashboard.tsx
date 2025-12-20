@@ -38,8 +38,20 @@ export default function Dashboard() {
     queryKey: ["/api/owners"],
   });
 
-  const handleSearch = (query: string, type: string) => {
-    navigate(`/search?q=${encodeURIComponent(query)}&type=${type}`);
+  const handleSearch = (query: string, type: string, personData?: { name: string; address: string; city: string; state: string }) => {
+    if (type === "person" && personData) {
+      const params = new URLSearchParams({
+        q: query,
+        type,
+        name: personData.name,
+        address: personData.address,
+        city: personData.city,
+        state: personData.state,
+      });
+      navigate(`/search?${params.toString()}`);
+    } else {
+      navigate(`/search?q=${encodeURIComponent(query)}&type=${type}`);
+    }
   };
 
   const greeting = () => {
@@ -134,7 +146,7 @@ export default function Dashboard() {
               <div className="text-left">
                 <div className="font-medium">Property Search</div>
                 <div className="text-xs text-muted-foreground">
-                  Search by address, owner, or APN
+                  Search by address, owner, or business
                 </div>
               </div>
               <ArrowRight className="ml-auto h-4 w-4 text-muted-foreground" />
