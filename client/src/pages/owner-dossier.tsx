@@ -534,10 +534,38 @@ export default function OwnerDossierPage() {
   };
 
   // Fetch ownership chain for entity owners
+  // API returns flat `chain` array, we transform it to `levels` grouped by depth
   const ownershipChainQuery = useQuery<OwnershipChainData>({
     queryKey: [`/api/external/llc-ownership-chain?name=${encodeURIComponent(dossier?.owner?.name || "")}`],
     enabled: !!dossier?.owner?.type && dossier.owner.type === "entity" && !!dossier.owner.name,
     staleTime: 1000 * 60 * 60, // Cache for 1 hour
+    select: (data: any): OwnershipChainData => {
+      // Transform flat chain to grouped levels
+      const chain = data.chain || [];
+      const depthMap = new Map<number, OwnershipChainNode[]>();
+      
+      for (const node of chain) {
+        const depth = node.depth ?? 0;
+        if (!depthMap.has(depth)) {
+          depthMap.set(depth, []);
+        }
+        depthMap.get(depth)!.push(node);
+      }
+      
+      const levels = Array.from(depthMap.entries())
+        .sort(([a], [b]) => a - b)
+        .map(([depth, entities]) => ({ depth, entities }));
+      
+      return {
+        rootEntity: data.rootEntityName || "",
+        levels,
+        ultimateBeneficialOwners: data.ultimateBeneficialOwners || [],
+        maxDepthReached: data.maxDepthReached || false,
+        totalApiCalls: data.totalApiCalls || 0,
+        fromCache: data.fromCache || false,
+        cacheAge: data.cacheAge,
+      };
+    },
   });
 
   // Fetch related holdings for individual owners (cross-property links)
