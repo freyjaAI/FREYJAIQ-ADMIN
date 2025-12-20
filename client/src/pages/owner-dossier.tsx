@@ -537,6 +537,21 @@ export default function OwnerDossierPage() {
     setTimeout(() => setCopiedText(null), 2000);
   };
 
+  // Mutation to clear ownership chain cache and refetch
+  const clearOwnershipCacheMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("GET", `/api/external/llc-ownership-chain?name=${encodeURIComponent(dossier?.owner?.name || "")}&forceRefresh=true`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/external/llc-ownership-chain?name=${encodeURIComponent(dossier?.owner?.name || "")}`] });
+      toast({ title: "Cache cleared", description: "Ownership chain refreshed with latest data." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to refresh ownership chain.", variant: "destructive" });
+    },
+  });
+
   // Fetch ownership chain for entity owners
   // API returns flat `chain` array, we transform it to `levels` grouped by depth
   const ownershipChainQuery = useQuery<OwnershipChainData>({
@@ -1320,10 +1335,25 @@ export default function OwnerDossierPage() {
                   <InlineListSkeleton count={2} />
                 ) : ownershipChainQuery.data ? (
                   <>
-                    <div className="text-xs text-muted-foreground mb-3">
-                      Traced through {ownershipChainQuery.data.levels?.length || 0} layers
-                      {ownershipChainQuery.data.maxDepthReached && " (max depth reached)"}
-                      {ownershipChainQuery.data.fromCache && ` • Cached ${ownershipChainQuery.data.cacheAge}h ago`}
+                    <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground mb-3">
+                      <span>
+                        Traced through {ownershipChainQuery.data.levels?.length || 0} layers
+                        {ownershipChainQuery.data.maxDepthReached && " (max depth reached)"}
+                        {ownershipChainQuery.data.fromCache && ` • Cached ${ownershipChainQuery.data.cacheAge}h ago`}
+                      </span>
+                      {ownershipChainQuery.data.fromCache && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => clearOwnershipCacheMutation.mutate()}
+                          disabled={clearOwnershipCacheMutation.isPending}
+                          className="h-6 text-xs gap-1"
+                          data-testid="button-clear-ownership-cache"
+                        >
+                          <RefreshCw className={`h-3 w-3 ${clearOwnershipCacheMutation.isPending ? "animate-spin" : ""}`} />
+                          {clearOwnershipCacheMutation.isPending ? "Refreshing..." : "Clear Cache"}
+                        </Button>
+                      )}
                     </div>
                     
                     {/* Chain Visualization */}
