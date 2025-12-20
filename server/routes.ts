@@ -1314,8 +1314,30 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const costSummary = getCostSummary();
       const cacheStats = getCacheStats();
       
+      // Transform providers array to Record<string, ProviderMetric> format
+      const providersRecord: Record<string, {
+        calls: number;
+        cacheHits: number;
+        cost: number;
+        costSaved: number;
+      }> = {};
+      
+      for (const p of costSummary.providers) {
+        // Estimate cost saved from cache hits
+        const pricing = getProviderPricing(p.name);
+        const cacheHits = Math.round((p.cacheHitRate / 100) * (p.calls || 1));
+        const costSaved = cacheHits * (pricing?.costPerCall || 0);
+        
+        providersRecord[p.name] = {
+          calls: p.calls,
+          cacheHits: cacheHits,
+          cost: p.cost,
+          costSaved: costSaved,
+        };
+      }
+      
       res.json({
-        providers: costSummary.providers,
+        providers: providersRecord,
         totals: {
           cost: costSummary.totalCost,
           costSaved: costSummary.totalCostSaved,

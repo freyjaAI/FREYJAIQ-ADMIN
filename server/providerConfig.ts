@@ -4,11 +4,20 @@
  * This module manages:
  * - Provider pricing (cost per call/token)
  * - Provider priority ordering for cost-aware routing
- * - Usage metrics and cost tracking
+ * - Usage metrics and cost tracking (persisted to database)
  * - Cache hit/miss statistics
  * 
  * All pricing can be overridden via environment variables for easy tuning.
  */
+
+import { db } from "./db";
+import { providerUsageMetrics } from "@shared/schema";
+import { eq, and, sql } from "drizzle-orm";
+
+// Get today's date in YYYY-MM-DD format
+function getTodayDate(): string {
+  return new Date().toISOString().split('T')[0];
+}
 
 export interface ProviderPricing {
   name: string;
@@ -224,13 +233,14 @@ export function getProvidersByCategory(category: ProviderPricing['category']): P
 }
 
 /**
- * Track a provider API call
+ * Track a provider API call - updates both in-memory and persists to database
  */
 export function trackProviderCall(
   providerName: string, 
   wasCacheHit: boolean = false,
   tokensUsed?: number
 ): void {
+  // Update in-memory metrics
   let metrics = usageMetrics.get(providerName);
   
   if (!metrics) {
@@ -245,6 +255,7 @@ export function trackProviderCall(
     usageMetrics.set(providerName, metrics);
   }
 
+  let costIncrement = 0;
   if (wasCacheHit) {
     metrics.cacheHits++;
   } else {
@@ -255,11 +266,71 @@ export function trackProviderCall(
     const pricing = getProviderPricing(providerName);
     if (pricing) {
       if (tokensUsed && pricing.costPerToken) {
-        metrics.totalCost += tokensUsed * pricing.costPerToken;
+        costIncrement = tokensUsed * pricing.costPerToken;
       } else {
-        metrics.totalCost += pricing.costPerCall;
+        costIncrement = pricing.costPerCall;
       }
+      metrics.totalCost += costIncrement;
     }
+  }
+  
+  // Persist to database asynchronously (fire and forget)
+  persistMetricToDb(providerName, wasCacheHit, costIncrement).catch(err => {
+    console.error('[PROVIDER METRICS] Failed to persist metric:', err);
+  });
+}
+
+/**
+ * Persist a single metric update to the database
+ */
+async function persistMetricToDb(
+  providerName: string,
+  wasCacheHit: boolean,
+  costIncrement: number
+): Promise<void> {
+  const today = getTodayDate();
+  
+  try {
+    // Try to update existing record for today
+    const existing = await db.select()
+      .from(providerUsageMetrics)
+      .where(and(
+        eq(providerUsageMetrics.providerName, providerName),
+        eq(providerUsageMetrics.date, today)
+      ))
+      .limit(1);
+    
+    if (existing.length > 0) {
+      // Update existing record
+      const updates: any = {
+        updatedAt: new Date(),
+      };
+      
+      if (wasCacheHit) {
+        updates.cacheHits = sql`${providerUsageMetrics.cacheHits} + 1`;
+      } else {
+        updates.calls = sql`${providerUsageMetrics.calls} + 1`;
+        updates.cacheMisses = sql`${providerUsageMetrics.cacheMisses} + 1`;
+        updates.totalCost = sql`${providerUsageMetrics.totalCost} + ${costIncrement}`;
+      }
+      
+      await db.update(providerUsageMetrics)
+        .set(updates)
+        .where(eq(providerUsageMetrics.id, existing[0].id));
+    } else {
+      // Insert new record for today
+      await db.insert(providerUsageMetrics).values({
+        providerName,
+        calls: wasCacheHit ? 0 : 1,
+        cacheHits: wasCacheHit ? 1 : 0,
+        cacheMisses: wasCacheHit ? 0 : 1,
+        totalCost: costIncrement,
+        date: today,
+      });
+    }
+  } catch (error) {
+    // Log but don't throw - we don't want to break the main flow
+    console.error('[PROVIDER METRICS] Database error:', error);
   }
 }
 
@@ -280,10 +351,67 @@ export function trackCacheEvent(
 }
 
 /**
- * Get usage metrics for all providers
+ * Get usage metrics for all providers (combines in-memory and database data)
  */
 export function getAllUsageMetrics(): UsageMetrics[] {
   return Array.from(usageMetrics.values());
+}
+
+/**
+ * Load today's metrics from database into in-memory cache
+ * Call this on server startup to restore persisted metrics
+ */
+export async function loadMetricsFromDb(): Promise<void> {
+  const today = getTodayDate();
+  
+  try {
+    const dbMetrics = await db.select()
+      .from(providerUsageMetrics)
+      .where(eq(providerUsageMetrics.date, today));
+    
+    for (const dbm of dbMetrics) {
+      usageMetrics.set(dbm.providerName, {
+        provider: dbm.providerName,
+        calls: dbm.calls,
+        cacheHits: dbm.cacheHits,
+        cacheMisses: dbm.cacheMisses,
+        totalCost: dbm.totalCost,
+        lastReset: new Date(dbm.updatedAt),
+      });
+    }
+    
+    console.log(`[PROVIDER METRICS] Loaded ${dbMetrics.length} provider metrics from database`);
+  } catch (error) {
+    console.error('[PROVIDER METRICS] Failed to load metrics from database:', error);
+  }
+}
+
+/**
+ * Get historical usage metrics for a date range
+ */
+export async function getHistoricalMetrics(startDate: string, endDate: string): Promise<{
+  provider: string;
+  date: string;
+  calls: number;
+  cacheHits: number;
+  totalCost: number;
+}[]> {
+  try {
+    const metrics = await db.select()
+      .from(providerUsageMetrics)
+      .where(sql`${providerUsageMetrics.date} >= ${startDate} AND ${providerUsageMetrics.date} <= ${endDate}`);
+    
+    return metrics.map(m => ({
+      provider: m.providerName,
+      date: m.date,
+      calls: m.calls,
+      cacheHits: m.cacheHits,
+      totalCost: m.totalCost,
+    }));
+  } catch (error) {
+    console.error('[PROVIDER METRICS] Failed to get historical metrics:', error);
+    return [];
+  }
 }
 
 /**

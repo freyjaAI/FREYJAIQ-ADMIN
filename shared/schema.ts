@@ -9,6 +9,7 @@ import {
   integer,
   real,
   boolean,
+  serial,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
@@ -614,6 +615,25 @@ export const insertBulkEnrichmentResultSchema = createInsertSchema(bulkEnrichmen
 });
 export type InsertBulkEnrichmentResult = z.infer<typeof insertBulkEnrichmentResultSchema>;
 export type BulkEnrichmentResult = typeof bulkEnrichmentResults.$inferSelect;
+
+// Provider usage metrics - persisted to survive server restarts
+export const providerUsageMetrics = pgTable("provider_usage_metrics", {
+  id: serial("id").primaryKey(),
+  providerName: varchar("provider_name").notNull(),
+  calls: integer("calls").default(0).notNull(),
+  cacheHits: integer("cache_hits").default(0).notNull(),
+  cacheMisses: integer("cache_misses").default(0).notNull(),
+  totalCost: real("total_cost").default(0).notNull(),
+  date: varchar("date").notNull(), // YYYY-MM-DD format for daily aggregation
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertProviderUsageMetricSchema = createInsertSchema(providerUsageMetrics).omit({
+  id: true,
+  updatedAt: true,
+});
+export type InsertProviderUsageMetric = z.infer<typeof insertProviderUsageMetricSchema>;
+export type ProviderUsageMetric = typeof providerUsageMetrics.$inferSelect;
 
 // Family office detection heuristics
 export const FAMILY_OFFICE_INDICATORS = {

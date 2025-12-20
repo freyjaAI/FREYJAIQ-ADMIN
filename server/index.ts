@@ -3,6 +3,7 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { dataRetentionScheduler } from "./dataRetentionScheduler";
+import { loadMetricsFromDb } from "./providerConfig";
 
 const app = express();
 const httpServer = createServer(app);
@@ -92,8 +93,11 @@ app.use((req, res, next) => {
       host: "0.0.0.0",
       reusePort: true,
     },
-    () => {
+    async () => {
       log(`serving on port ${port}`);
+      
+      // Load persisted provider metrics from database
+      await loadMetricsFromDb();
       
       // Start automated data retention scheduler
       dataRetentionScheduler.start();
