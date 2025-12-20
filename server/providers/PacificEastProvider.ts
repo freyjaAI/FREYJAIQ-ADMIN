@@ -6,6 +6,7 @@ const PACIFIC_EAST_ACCOUNT_KEY = process.env.PACIFIC_EAST_ACCOUNT_KEY || "dhn-6D
 const ENDPOINTS = {
   dataPrime: "https://dev-api.idicia.com/Services/NameAddress/DataPrime/1_1/dataprime.svc",
   phoneAppend: "https://dev-api.idicia.com/Services/Forward/Append/1_1/Append.svc",
+  reversePhoneAppend: "https://dev-api.idicia.com/Services/Reverse/Phone/1_1/ReversePhone.svc",
   emailAppend: "https://dev-api.idicia.com/Services/Email/Append/1_3/Append.svc",
   emailValidation: "https://dev-api.idicia.com/Services/Email/Validation/1_1/emailvalidation.svc",
 };
@@ -103,6 +104,33 @@ export interface EmailValidationResult {
   referenceID: string | null;
 }
 
+export interface ReversePhoneContact {
+  firstName: string;
+  lastName: string;
+  businessName: string;
+  address: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  phoneType: string;
+  carrier: string;
+  lineType: string;
+  matchScore: number;
+  confidence: number;
+}
+
+export interface ReversePhoneResult {
+  status: number;
+  lookupResult: number;
+  phoneNumber: string;
+  phoneType: string;
+  carrier: string;
+  lineType: string;
+  contactsFound: number;
+  contacts: ReversePhoneContact[];
+  referenceID: string | null;
+}
+
 class AbortError extends Error {
   constructor(message: string) {
     super(message);
@@ -172,6 +200,75 @@ export async function searchDataPrime(params: {
 
   const url = `${ENDPOINTS.dataPrime}/${encodeURIComponent(lastName)}?${queryParams.toString()}`;
   return makeRequest<DataPrimeResult>(url);
+}
+
+/**
+ * Reverse Phone Append (RPA) - Look up owner information from a phone number
+ * This is the opposite of forward phone append - given a phone number, find the person
+ */
+export async function reversePhoneLookup(phoneNumber: string): Promise<ReversePhoneResult | null> {
+  // Clean the phone number - remove all non-digits
+  const cleanPhone = phoneNumber.replace(/\D/g, '');
+  
+  if (cleanPhone.length < 10) {
+    console.error(`Invalid phone number for RPA: ${phoneNumber}`);
+    return null;
+  }
+  
+  // Take last 10 digits (remove country code if present)
+  const phone10 = cleanPhone.slice(-10);
+  
+  const queryParams = new URLSearchParams();
+  queryParams.set("accountKey", PACIFIC_EAST_ACCOUNT_KEY);
+  
+  const url = `${ENDPOINTS.reversePhoneAppend}/${phone10}?${queryParams.toString()}`;
+  
+  console.log(`Pacific East RPA lookup for: ${phone10}`);
+  
+  const response = await makeRequest<any>(url);
+  
+  if (!response) {
+    return null;
+  }
+  
+  console.log(`RPA raw response:`, JSON.stringify(response, null, 2));
+  
+  // Parse the response into our interface
+  const contacts: ReversePhoneContact[] = [];
+  
+  if (response.contacts && Array.isArray(response.contacts)) {
+    for (const contact of response.contacts) {
+      const nameInfo = contact.nameInformation || contact;
+      const addressInfo = contact.addressInformation || contact;
+      
+      contacts.push({
+        firstName: nameInfo.firstName || '',
+        lastName: nameInfo.lastName || '',
+        businessName: nameInfo.businessName || contact.businessName || '',
+        address: addressInfo.address || addressInfo.address1 || '',
+        city: addressInfo.city || '',
+        state: addressInfo.state || '',
+        postalCode: addressInfo.postalCode || addressInfo.zip || '',
+        phoneType: contact.phoneType || response.phoneType || '',
+        carrier: contact.carrier || response.carrier || '',
+        lineType: contact.lineType || response.lineType || '',
+        matchScore: contact.matchScore || 0,
+        confidence: contact.confidence || 0,
+      });
+    }
+  }
+  
+  return {
+    status: response.status ?? -1,
+    lookupResult: response.lookupResult ?? 0,
+    phoneNumber: phone10,
+    phoneType: response.phoneType || '',
+    carrier: response.carrier || '',
+    lineType: response.lineType || '',
+    contactsFound: contacts.length,
+    contacts,
+    referenceID: response.referenceID || null,
+  };
 }
 
 export async function appendPhone(params: {

@@ -1675,6 +1675,42 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // Reverse phone lookup endpoint (admin) - look up owner from phone number
+  app.get("/api/admin/reverse-phone/:phoneNumber", isAuthenticated, adminRateLimit, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) {
+        return res.status(401).json({ message: "User not found" });
+      }
+      
+      const user = await storage.getUser(userId);
+      if (user?.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const { phoneNumber } = req.params;
+      if (!phoneNumber) {
+        return res.status(400).json({ message: "Phone number required" });
+      }
+
+      console.log(`[REVERSE PHONE] Looking up: ${phoneNumber}`);
+      
+      const { reversePhoneLookup } = await import("./providers/PacificEastProvider");
+      const result = await reversePhoneLookup(phoneNumber);
+      
+      if (!result) {
+        return res.status(404).json({ message: "Phone lookup failed or no results" });
+      }
+
+      await auditLogger.logDataEnrichment(userId, phoneNumber, ["pacific_east_rpa"]);
+      
+      res.json(result);
+    } catch (error) {
+      console.error("Reverse phone lookup failed:", error);
+      res.status(500).json({ message: "Failed to perform reverse phone lookup", error: String(error) });
+    }
+  });
+
   // =============================================================================
   // Bulk Enrichment API - Family Office / Decision Maker Lookup
   // =============================================================================
