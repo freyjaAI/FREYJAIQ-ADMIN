@@ -11,6 +11,7 @@ import {
   Bug,
   MapPin,
   Target,
+  Activity,
 } from "lucide-react";
 import {
   Sidebar,
@@ -81,6 +82,11 @@ const settingsItems = [
 ];
 
 const adminItems = [
+  {
+    title: "API Usage",
+    url: "/admin/api-usage",
+    icon: Activity,
+  },
   {
     title: "Bug Reports",
     url: "/admin/bug-reports",

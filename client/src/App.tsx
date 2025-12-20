@@ -30,6 +30,7 @@ import LlcDossierPage from "@/pages/llc-dossier";
 import UnifiedDossierPage from "@/pages/unified-dossier";
 import SettingsPage from "@/pages/settings";
 import AdminBugReportsPage from "@/pages/admin-bug-reports";
+import AdminApiUsagePage from "@/pages/admin-api-usage";
 import MapView from "@/pages/map-view";
 import BulkEnrichmentPage from "@/pages/bulk-enrichment";
 import { BugReportWidget } from "@/components/bug-report-widget";
@@ -118,6 +119,7 @@ function Router() {
             <Route path="/dossier/:id" component={UnifiedDossierPage} />
             <Route path="/settings" component={SettingsPage} />
             <Route path="/admin/bug-reports" component={AdminBugReportsPage} />
+            <Route path="/admin/api-usage" component={AdminApiUsagePage} />
             <Route path="/map" component={MapView} />
             <Route path="/bulk-enrichment" component={BulkEnrichmentPage} />
             <Route path="/privacy" component={PrivacyPolicyPage} />
