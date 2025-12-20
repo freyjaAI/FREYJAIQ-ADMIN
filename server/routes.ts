@@ -814,15 +814,61 @@ export async function getCachedLlcData(
   }
   
   // Not in cache or cache expired or force refresh
-  // PRIORITY: Try Gemini first (cheaper), then OpenCorporates as fallback
+  // PRIORITY: SEC EDGAR (FREE) -> Gemini (cheap) -> OpenCorporates (expensive)
   
   let llcResult: any = null;
   let source = "unknown";
   
-  // 1. Try Gemini Deep Research first (cost-effective: $2/million tokens)
   trackCacheEvent('llc', false); // Cache miss - will make API call
   
-  if (GeminiDeepResearch.isConfigured()) {
+  // 0. Try SEC EDGAR first - 100% FREE! (public companies, 13F filers, registered entities)
+  console.log(`[API CALL] SEC EDGAR: Looking up "${normalizedName}" (FREE - no cost)`);
+  try {
+    const secCompany = await dataProviders.lookupCompanyBySEC(normalizedName);
+    
+    if (secCompany) {
+      console.log(`[SEC EDGAR SUCCESS] Found ${secCompany.name} (CIK: ${secCompany.cik}, Ticker: ${secCompany.ticker || 'N/A'})`);
+      trackProviderCall('sec_edgar', true); // Track as cache since it uses cached tickers
+      
+      // Convert SEC data to standard LLC format
+      const officers = secCompany.officers?.map(o => ({
+        name: o.name,
+        position: o.title,
+        role: "officer",
+        confidence: 0.95,
+      })) || [];
+      
+      // Build address from SEC business address
+      let principalAddress: string | undefined;
+      if (secCompany.businessAddress) {
+        const addr = secCompany.businessAddress;
+        principalAddress = [addr.street1, addr.street2, addr.city, addr.state, addr.zip]
+          .filter(Boolean)
+          .join(", ");
+      }
+      
+      llcResult = {
+        name: secCompany.name,
+        jurisdictionCode: secCompany.stateOfIncorporation,
+        companyNumber: secCompany.cik,
+        officers,
+        status: "Active",
+        entityType: secCompany.sicDescription || "Public Company",
+        principalAddress,
+        secTicker: secCompany.ticker,
+        secCik: secCompany.cik,
+        secFilings: secCompany.filings?.slice(0, 5),
+      };
+      source = "sec_edgar";
+    } else {
+      console.log(`[SEC EDGAR] No match for "${normalizedName}", trying other sources...`);
+    }
+  } catch (secError) {
+    console.error(`[SEC EDGAR ERROR] Failed for "${normalizedName}":`, secError);
+  }
+  
+  // 1. Try Gemini Deep Research (cost-effective: $2/million tokens) if SEC EDGAR found nothing
+  if (!llcResult && GeminiDeepResearch.isConfigured()) {
     logRoutingDecision('LLC Lookup', 'gemini', 'Primary provider - lowest cost');
     console.log(`[API CALL] Gemini Deep Research: Looking up "${normalizedName}" (jurisdiction: ${jurisdiction || "any"})`);
     let geminiCalled = false;

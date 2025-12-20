@@ -32,7 +32,13 @@ export interface UsageMetrics {
 // Default provider pricing (can be overridden via env vars)
 // Prices are estimates based on publicly available pricing info
 const DEFAULT_PRICING: Record<string, Omit<ProviderPricing, 'name'>> = {
-  // LLC Lookup Providers (cost hierarchy: Gemini first, OpenCorporates fallback)
+  // LLC Lookup Providers (cost hierarchy: SEC EDGAR FREE -> Gemini -> OpenCorporates)
+  sec_edgar: {
+    costPerCall: 0,             // 100% FREE - SEC public data
+    priority: 0,                // Highest priority (completely free)
+    category: 'llc',
+    description: 'SEC EDGAR - Free public company data (13F filers, public companies)',
+  },
   gemini: {
     costPerCall: 0.002,         // ~$2/million tokens, avg 1000 tokens/call
     costPerToken: 0.000002,
