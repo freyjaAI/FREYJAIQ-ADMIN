@@ -1021,6 +1021,171 @@ export async function getCachedLlcData(
   };
 }
 
+// Reusable person verification function
+async function verifyPersonAtAddress(
+  personName: string, 
+  address: string, 
+  options?: { jurisdiction?: string; employerName?: string }
+): Promise<{ verified: boolean; confidence: number; source: string }> {
+  console.log(`[PERSON VERIFY] Searching for "${personName}" at address "${address}"${options?.jurisdiction ? ` (jurisdiction: ${options.jurisdiction})` : ""}${options?.employerName ? ` (employer: ${options.employerName})` : ""}`);
+  
+  // Parse the address more carefully: "123 Main St, City, CA 90210" or "123 Main St, City, CA"
+  const addressParts = address.split(",").map(p => p.trim());
+  const streetAddress = addressParts[0] || "";
+  const city = addressParts[1] || undefined;
+  
+  // Parse state and zip from last part (e.g., "CA 90210" or "CA")
+  let state: string | undefined;
+  let zip: string | undefined;
+  if (addressParts[2]) {
+    const stateZipMatch = addressParts[2].match(/^([A-Z]{2})(?:\s+(\d{5}(?:-\d{4})?))?$/i);
+    if (stateZipMatch) {
+      state = stateZipMatch[1]?.toUpperCase();
+      zip = stateZipMatch[2];
+    } else {
+      state = addressParts[2];
+    }
+  }
+  
+  // Extract street number and name for better matching
+  const streetNumMatch = streetAddress.match(/^(\d+)\s+(.+)/);
+  const streetNum = streetNumMatch?.[1];
+  const streetName = streetNumMatch?.[2]?.toLowerCase().replace(/\s+(st|street|ave|avenue|blvd|boulevard|rd|road|dr|drive|ln|lane|ct|court|pl|place|way|cir|circle)\.?$/i, "").trim();
+  
+  // Parse jurisdiction to get state code for fallback search (e.g., "VA", "us_va", "Virginia")
+  let jurisdictionState: string | undefined;
+  if (options?.jurisdiction) {
+    const jur = options.jurisdiction.toUpperCase();
+    if (jur.length === 2) {
+      jurisdictionState = jur;
+    } else if (jur.startsWith("US_")) {
+      jurisdictionState = jur.substring(3, 5);
+    } else {
+      const stateMap: Record<string, string> = {
+        "VIRGINIA": "VA", "CALIFORNIA": "CA", "TEXAS": "TX", "FLORIDA": "FL",
+        "NEW YORK": "NY", "ILLINOIS": "IL", "DELAWARE": "DE", "NEVADA": "NV",
+      };
+      jurisdictionState = stateMap[jur];
+    }
+  }
+  
+  console.log(`[PERSON VERIFY] Parsed address - Street: "${streetNum} ${streetName}", City: "${city}", State: "${state}", Zip: "${zip}"${jurisdictionState ? `, JurisdictionState: "${jurisdictionState}"` : ""}`);
+  
+  // Helper to check if addresses match
+  const addressMatches = (providerAddr: string, searchStreetNum: string | undefined, searchStreetName: string | undefined): boolean => {
+    if (!searchStreetNum) return false;
+    const addr = providerAddr.toLowerCase();
+    if (!addr.includes(searchStreetNum)) return false;
+    if (searchStreetName && searchStreetName.length >= 3) {
+      const streetWords = searchStreetName.split(/\s+/);
+      const firstWord = streetWords[0];
+      if (firstWord && firstWord.length >= 3 && !addr.includes(firstWord)) {
+        return false;
+      }
+    }
+    return true;
+  };
+  
+  // Try Data Axle People API first
+  try {
+    const dataAxlePeople = await dataProviders.searchPeopleV2(personName, {
+      city: city,
+      state: state,
+      zip: zip,
+    });
+    
+    if (dataAxlePeople && dataAxlePeople.length > 0) {
+      for (const person of dataAxlePeople) {
+        const personAddr = person.address || "";
+        if (addressMatches(personAddr, streetNum, streetName)) {
+          console.log(`[PERSON VERIFY] CONFIRMED via Data Axle: "${person.firstName} ${person.lastName}" at "${person.address}"`);
+          return { verified: true, confidence: 75, source: "data_axle" };
+        }
+      }
+      console.log(`[PERSON VERIFY] Found person "${personName}" via Data Axle but address mismatch`);
+    }
+  } catch (err) {
+    console.log(`[PERSON VERIFY] Data Axle search failed:`, err);
+  }
+  
+  // Try A-Leads as fallback
+  try {
+    const aLeadsContacts = await dataProviders.searchALeadsByName(personName, {
+      city: city,
+      state: state,
+    });
+    
+    if (aLeadsContacts && aLeadsContacts.length > 0) {
+      for (const contact of aLeadsContacts) {
+        const contactAddr = contact.address || "";
+        if (addressMatches(contactAddr, streetNum, streetName)) {
+          console.log(`[PERSON VERIFY] CONFIRMED via A-Leads: "${contact.name}" at "${contact.address}"`);
+          return { verified: true, confidence: 70, source: "aleads" };
+        }
+      }
+    }
+  } catch (err) {
+    console.log(`[PERSON VERIFY] A-Leads search failed:`, err);
+  }
+  
+  // FALLBACK 1: Search by person name + LLC jurisdiction state
+  if (jurisdictionState && jurisdictionState !== state) {
+    console.log(`[PERSON VERIFY] Trying jurisdiction fallback: "${personName}" in state "${jurisdictionState}"`);
+    try {
+      const jurisdictionPeople = await dataProviders.searchPeopleV2(personName, { state: jurisdictionState });
+      if (jurisdictionPeople && jurisdictionPeople.length > 0) {
+        const bestMatch = jurisdictionPeople[0];
+        console.log(`[PERSON VERIFY] Found "${personName}" in LLC jurisdiction state ${jurisdictionState}: "${bestMatch.firstName} ${bestMatch.lastName}" at "${bestMatch.address}"`);
+        return { verified: true, confidence: 60, source: "data_axle_jurisdiction" };
+      }
+    } catch (err) {
+      console.log(`[PERSON VERIFY] Jurisdiction search failed:`, err);
+    }
+  }
+  
+  // FALLBACK 2: Search by employer
+  if (options?.employerName) {
+    console.log(`[PERSON VERIFY] Trying employer fallback: searching employees of "${options.employerName}"`);
+    try {
+      const employeePeople = await dataProviders.searchPeopleByEmployer(options.employerName, {
+        state: jurisdictionState || state,
+      });
+      if (employeePeople && employeePeople.length > 0) {
+        const nameParts = personName.toLowerCase().split(/\s+/);
+        const lastName = nameParts[nameParts.length - 1];
+        const firstName = nameParts[0];
+        for (const emp of employeePeople) {
+          const empFirst = emp.firstName?.toLowerCase() || "";
+          const empLast = emp.lastName?.toLowerCase() || "";
+          if (empLast === lastName && (empFirst === firstName || empFirst.startsWith(firstName.charAt(0)))) {
+            console.log(`[PERSON VERIFY] CONFIRMED via employer search: "${emp.firstName} ${emp.lastName}" works at "${options.employerName}"`);
+            return { verified: true, confidence: 55, source: "data_axle_employer" };
+          }
+        }
+      }
+    } catch (err) {
+      console.log(`[PERSON VERIFY] Employer search failed:`, err);
+    }
+  }
+  
+  // FALLBACK 3: Broad name search
+  console.log(`[PERSON VERIFY] Trying broad name search for "${personName}" without strict address match`);
+  try {
+    const broadPeople = await dataProviders.searchPeopleV2(personName, {});
+    if (broadPeople && broadPeople.length > 0) {
+      const bestMatch = broadPeople[0];
+      console.log(`[PERSON VERIFY] Found ${broadPeople.length} people matching "${personName}" (no address match required)`);
+      console.log(`[PERSON VERIFY] Best match: "${bestMatch.firstName} ${bestMatch.lastName}" at "${bestMatch.address}"`);
+      return { verified: true, confidence: 45, source: "data_axle_name_only" };
+    }
+  } catch (err) {
+    console.log(`[PERSON VERIFY] Broad name search failed:`, err);
+  }
+  
+  console.log(`[PERSON VERIFY] Could not verify "${personName}" at "${address}"`);
+  return { verified: false, confidence: 0, source: "none" };
+}
+
 export async function registerRoutes(httpServer: Server, app: Express): Promise<void> {
   // Auth middleware
   await setupAuth(app);
@@ -1028,198 +1193,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Initialize LLC lookup function for chain resolver (breaks circular dependency)
   setLlcLookupFunction(getCachedLlcData);
 
-  // Initialize person verification function for extracted name validation
-  setPersonVerifyFunction(async (personName: string, address: string, options?: { jurisdiction?: string; employerName?: string }) => {
-    console.log(`[PERSON VERIFY] Searching for "${personName}" at address "${address}"${options?.jurisdiction ? ` (jurisdiction: ${options.jurisdiction})` : ""}${options?.employerName ? ` (employer: ${options.employerName})` : ""}`);
-    
-    // Parse the address more carefully: "123 Main St, City, CA 90210" or "123 Main St, City, CA"
-    const addressParts = address.split(",").map(p => p.trim());
-    const streetAddress = addressParts[0] || "";
-    const city = addressParts[1] || undefined;
-    
-    // Parse state and zip from last part (e.g., "CA 90210" or "CA")
-    let state: string | undefined;
-    let zip: string | undefined;
-    if (addressParts[2]) {
-      const stateZipMatch = addressParts[2].match(/^([A-Z]{2})(?:\s+(\d{5}(?:-\d{4})?))?$/i);
-      if (stateZipMatch) {
-        state = stateZipMatch[1]?.toUpperCase();
-        zip = stateZipMatch[2];
-      } else {
-        state = addressParts[2];
-      }
-    }
-    
-    // Extract street number and name for better matching
-    const streetNumMatch = streetAddress.match(/^(\d+)\s+(.+)/);
-    const streetNum = streetNumMatch?.[1];
-    const streetName = streetNumMatch?.[2]?.toLowerCase().replace(/\s+(st|street|ave|avenue|blvd|boulevard|rd|road|dr|drive|ln|lane|ct|court|pl|place|way|cir|circle)\.?$/i, "").trim();
-    
-    // Parse jurisdiction to get state code for fallback search (e.g., "VA", "us_va", "Virginia")
-    let jurisdictionState: string | undefined;
-    if (options?.jurisdiction) {
-      const jur = options.jurisdiction.toUpperCase();
-      // Handle formats: "VA", "us_va", "US_VA", "Virginia"
-      if (jur.length === 2) {
-        jurisdictionState = jur;
-      } else if (jur.startsWith("US_")) {
-        jurisdictionState = jur.substring(3, 5);
-      } else {
-        // Try to map full state names
-        const stateMap: Record<string, string> = {
-          "VIRGINIA": "VA", "CALIFORNIA": "CA", "TEXAS": "TX", "FLORIDA": "FL",
-          "NEW YORK": "NY", "ILLINOIS": "IL", "DELAWARE": "DE", "NEVADA": "NV",
-        };
-        jurisdictionState = stateMap[jur];
-      }
-    }
-    
-    console.log(`[PERSON VERIFY] Parsed address - Street: "${streetNum} ${streetName}", City: "${city}", State: "${state}", Zip: "${zip}"${jurisdictionState ? `, JurisdictionState: "${jurisdictionState}"` : ""}`);
-    
-    // Helper to check if addresses match (requires street number + partial street name match)
-    const addressMatches = (providerAddr: string, searchStreetNum: string | undefined, searchStreetName: string | undefined): boolean => {
-      if (!searchStreetNum) return false;
-      const addr = providerAddr.toLowerCase();
-      
-      // Must contain the street number
-      if (!addr.includes(searchStreetNum)) return false;
-      
-      // If we have a street name, check for partial match
-      if (searchStreetName && searchStreetName.length >= 3) {
-        // Extract just the first word or two of the street name for matching
-        const streetWords = searchStreetName.split(/\s+/);
-        const firstWord = streetWords[0];
-        if (firstWord && firstWord.length >= 3 && !addr.includes(firstWord)) {
-          return false;
-        }
-      }
-      
-      return true;
-    };
-    
-    // Try Data Axle People API first (most reliable for person-at-address matching)
-    try {
-      const dataAxlePeople = await dataProviders.searchPeopleV2(personName, {
-        city: city,
-        state: state,
-        zip: zip,
-      });
-      
-      if (dataAxlePeople && dataAxlePeople.length > 0) {
-        // Check if any result matches the address reasonably well
-        for (const person of dataAxlePeople) {
-          const personAddr = person.address || "";
-          
-          if (addressMatches(personAddr, streetNum, streetName)) {
-            console.log(`[PERSON VERIFY] CONFIRMED via Data Axle: "${person.firstName} ${person.lastName}" at "${person.address}"`);
-            return { verified: true, confidence: 75, source: "data_axle" };
-          }
-        }
-        
-        // Found person but address doesn't match exactly
-        console.log(`[PERSON VERIFY] Found person "${personName}" via Data Axle but address mismatch`);
-        return { verified: false, confidence: 30, source: "data_axle" };
-      }
-    } catch (err) {
-      console.log(`[PERSON VERIFY] Data Axle search failed:`, err);
-    }
-    
-    // Try A-Leads as fallback
-    try {
-      const aLeadsContacts = await dataProviders.searchALeadsByName(personName, {
-        city: city,
-        state: state,
-      });
-      
-      if (aLeadsContacts && aLeadsContacts.length > 0) {
-        for (const contact of aLeadsContacts) {
-          const contactAddr = contact.address || "";
-          
-          if (addressMatches(contactAddr, streetNum, streetName)) {
-            console.log(`[PERSON VERIFY] CONFIRMED via A-Leads: "${contact.name}" at "${contact.address}"`);
-            return { verified: true, confidence: 70, source: "aleads" };
-          }
-        }
-        
-        console.log(`[PERSON VERIFY] A-Leads found person "${personName}" but address mismatch`);
-        // Don't return yet - try jurisdiction fallback
-      }
-    } catch (err) {
-      console.log(`[PERSON VERIFY] A-Leads search failed:`, err);
-    }
-    
-    // FALLBACK 1: Search by person name + LLC jurisdiction state (if different from property state)
-    if (jurisdictionState && jurisdictionState !== state) {
-      console.log(`[PERSON VERIFY] Trying jurisdiction fallback: "${personName}" in state "${jurisdictionState}"`);
-      
-      try {
-        const jurisdictionPeople = await dataProviders.searchPeopleV2(personName, {
-          state: jurisdictionState,
-        });
-        
-        if (jurisdictionPeople && jurisdictionPeople.length > 0) {
-          // Found person in jurisdiction state - this is a good signal
-          const bestMatch = jurisdictionPeople[0];
-          console.log(`[PERSON VERIFY] Found "${personName}" in LLC jurisdiction state ${jurisdictionState}: "${bestMatch.firstName} ${bestMatch.lastName}" at "${bestMatch.address}"`);
-          return { verified: true, confidence: 60, source: "data_axle_jurisdiction" };
-        }
-      } catch (err) {
-        console.log(`[PERSON VERIFY] Jurisdiction search failed:`, err);
-      }
-    }
-    
-    // FALLBACK 2: Search by employer/company name
-    if (options?.employerName) {
-      console.log(`[PERSON VERIFY] Trying employer fallback: searching employees of "${options.employerName}"`);
-      
-      try {
-        const employeePeople = await dataProviders.searchPeopleByEmployer(options.employerName, {
-          state: jurisdictionState || state,
-        });
-        
-        if (employeePeople && employeePeople.length > 0) {
-          // Check if any employee matches the person name we're looking for
-          const nameParts = personName.toLowerCase().split(/\s+/);
-          const lastName = nameParts[nameParts.length - 1];
-          const firstName = nameParts[0];
-          
-          for (const emp of employeePeople) {
-            const empFirst = emp.firstName?.toLowerCase() || "";
-            const empLast = emp.lastName?.toLowerCase() || "";
-            
-            if (empLast === lastName && (empFirst === firstName || empFirst.startsWith(firstName.charAt(0)))) {
-              console.log(`[PERSON VERIFY] CONFIRMED via employer search: "${emp.firstName} ${emp.lastName}" works at "${options.employerName}"`);
-              return { verified: true, confidence: 55, source: "data_axle_employer" };
-            }
-          }
-          
-          console.log(`[PERSON VERIFY] Found ${employeePeople.length} employees but none matched "${personName}"`);
-        }
-      } catch (err) {
-        console.log(`[PERSON VERIFY] Employer search failed:`, err);
-      }
-    }
-    
-    // FALLBACK 3: Try broader name search without address filter
-    console.log(`[PERSON VERIFY] Trying broad name search for "${personName}" without strict address match`);
-    try {
-      const broadPeople = await dataProviders.searchPeopleV2(personName, {});
-      
-      if (broadPeople && broadPeople.length > 0) {
-        // Person exists - just not confirmed at the specific address
-        console.log(`[PERSON VERIFY] Found ${broadPeople.length} people matching "${personName}" (no address match required)`);
-        const bestMatch = broadPeople[0];
-        console.log(`[PERSON VERIFY] Best match: "${bestMatch.firstName} ${bestMatch.lastName}" at "${bestMatch.address}"`);
-        return { verified: true, confidence: 45, source: "data_axle_name_only" };
-      }
-    } catch (err) {
-      console.log(`[PERSON VERIFY] Broad name search failed:`, err);
-    }
-    
-    // No provider could verify
-    console.log(`[PERSON VERIFY] Could not verify "${personName}" at "${address}"`);
-    return { verified: false, confidence: 0, source: "none" };
-  });
+  // Initialize person verification function for extracted name validation (uses standalone function)
+  setPersonVerifyFunction(verifyPersonAtAddress);
 
   // Google Maps API key (client-side maps require the key)
   app.get("/api/maps/key", isAuthenticated, async (req: any, res) => {
@@ -2327,28 +2302,100 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const isEntity = shouldTreatAsEntity(owner.type, owner.name);
       console.log(`Owner "${owner.name}" type="${owner.type}" -> isEntity=${isEntity}`);
       let llcUnmasking = null;
-      if (isEntity) {
+      
+      // Import person name extraction function
+      const { extractPersonNameFromEntityName } = await import("./llcChainResolver");
+      
+      // PRIORITY: First check if entity name contains a person's name
+      // e.g., "DAVID J CHIESA & ASSOCIATION INC" -> "David J Chiesa"
+      const extractedPersonName = isEntity ? extractPersonNameFromEntityName(owner.name) : null;
+      let verifiedPerson: { name: string; confidence: number; source: string } | null = null;
+      
+      if (extractedPersonName && properties.length > 0) {
+        console.log(`[PERSON PRIORITY] Extracted person name "${extractedPersonName}" from entity "${owner.name}"`);
+        
+        // Build property address for verification
+        const primaryProp = properties[0];
+        const propAddress = [primaryProp.address, primaryProp.city, primaryProp.state, primaryProp.zipCode]
+          .filter(Boolean).join(", ");
+        
+        if (propAddress) {
+          try {
+            // Verify this person exists at the property address
+            const verifyResult = await verifyPersonAtAddress(extractedPersonName, propAddress, {});
+            console.log(`[PERSON PRIORITY] Verification for "${extractedPersonName}" at "${propAddress}": ${verifyResult.verified ? "CONFIRMED" : "NOT FOUND"} (confidence: ${verifyResult.confidence}, source: ${verifyResult.source})`);
+            
+            if (verifyResult.verified && verifyResult.confidence >= 40) {
+              verifiedPerson = {
+                name: extractedPersonName,
+                confidence: verifyResult.confidence,
+                source: verifyResult.source,
+              };
+              
+              // Create llcUnmasking that shows the verified person as owner
+              llcUnmasking = {
+                entityName: owner.name,
+                entityType: "Personal Holding Entity",
+                status: "Active",
+                jurisdiction: primaryProp.state,
+                registrationNumber: null,
+                registeredAgent: null,
+                agentAddress: null,
+                principalAddress: propAddress,
+                officers: [{
+                  name: extractedPersonName,
+                  position: "Verified Principal Owner",
+                }],
+                verifiedOwner: verifiedPerson,
+                fromCache: false,
+              };
+              console.log(`[PERSON PRIORITY] Using verified person "${extractedPersonName}" as principal owner (skipping OpenCorporates)`);
+            }
+          } catch (err) {
+            console.error(`[PERSON PRIORITY] Verification failed for "${extractedPersonName}":`, err);
+          }
+        }
+      }
+      
+      // Only fall back to OpenCorporates if no verified person was found
+      if (isEntity && !verifiedPerson) {
         try {
           // Use cached LLC data to avoid wasting OpenCorporates API calls
           const cachedLlcResult = await getCachedLlcData(owner.name);
           if (cachedLlcResult) {
             const llc = cachedLlcResult.llc;
-            llcUnmasking = {
-              entityName: llc.name,
-              entityType: llc.entityType,
-              status: llc.status,
-              jurisdiction: llc.jurisdictionCode,
-              registrationNumber: llc.companyNumber,
-              registeredAgent: llc.agentName,
-              agentAddress: llc.agentAddress,
-              principalAddress: llc.principalAddress,
-              officers: (llc.officers || []).map((o: any) => ({
-                name: o.name,
-                position: o.position || o.role,
-              })),
-              fromCache: cachedLlcResult.fromCache,
-            };
-            console.log(`LLC unmasking for "${owner.name}": ${cachedLlcResult.fromCache ? "[CACHE]" : "[API]"} - ${(llc.officers || []).length} officers`);
+            
+            // VALIDATE: Make sure the returned company name actually matches our entity
+            const normalizedOwnerName = owner.name.toUpperCase().replace(/[^A-Z0-9\s]/g, "").trim();
+            const normalizedLlcName = (llc.name || "").toUpperCase().replace(/[^A-Z0-9\s]/g, "").trim();
+            
+            // Check if names are similar enough (at least first word matches)
+            const ownerFirstWord = normalizedOwnerName.split(/\s+/)[0];
+            const llcFirstWord = normalizedLlcName.split(/\s+/)[0];
+            const namesMatch = normalizedLlcName.includes(ownerFirstWord) || 
+                               normalizedOwnerName.includes(llcFirstWord) ||
+                               ownerFirstWord === llcFirstWord;
+            
+            if (!namesMatch) {
+              console.log(`[LLC MISMATCH] OpenCorporates returned "${llc.name}" for query "${owner.name}" - SKIPPING wrong match`);
+            } else {
+              llcUnmasking = {
+                entityName: llc.name,
+                entityType: llc.entityType,
+                status: llc.status,
+                jurisdiction: llc.jurisdictionCode,
+                registrationNumber: llc.companyNumber,
+                registeredAgent: llc.agentName,
+                agentAddress: llc.agentAddress,
+                principalAddress: llc.principalAddress,
+                officers: (llc.officers || []).map((o: any) => ({
+                  name: o.name,
+                  position: o.position || o.role,
+                })),
+                fromCache: cachedLlcResult.fromCache,
+              };
+              console.log(`LLC unmasking for "${owner.name}": ${cachedLlcResult.fromCache ? "[CACHE]" : "[API]"} - ${(llc.officers || []).length} officers`);
+            }
           }
         } catch (err) {
           console.error("Error fetching LLC unmasking:", err);
@@ -4223,6 +4270,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const jCode = typeof jurisdiction === "string" ? jurisdiction : undefined;
       const shouldForceRefresh = forceRefresh === "true";
       const propertyAddress = typeof addressHint === "string" ? addressHint : undefined;
+
+      console.log(`[LLC CHAIN] Request for "${name}" - forceRefresh=${forceRefresh}, shouldForceRefresh=${shouldForceRefresh}, addressHint=${addressHint}`);
 
       // Check for cached chain first
       if (!shouldForceRefresh) {
