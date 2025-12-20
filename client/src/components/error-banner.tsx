@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { forwardRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AlertTriangle, X, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -11,15 +11,11 @@ interface ErrorBannerProps {
   isRetrying?: boolean;
 }
 
-export function ErrorBanner({
-  title,
-  message,
-  onRetry,
-  onDismiss,
-  isRetrying = false,
-}: ErrorBannerProps) {
+export const ErrorBanner = forwardRef<HTMLDivElement, ErrorBannerProps>(
+  function ErrorBanner({ title, message, onRetry, onDismiss, isRetrying = false }, ref) {
   return (
     <motion.div
+      ref={ref}
       initial={{ opacity: 0, y: -20 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -20 }}
@@ -65,7 +61,7 @@ export function ErrorBanner({
       </div>
     </motion.div>
   );
-}
+});
 
 interface ErrorBannerContainerProps {
   errors: Array<{

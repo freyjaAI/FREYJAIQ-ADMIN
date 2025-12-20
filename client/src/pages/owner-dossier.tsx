@@ -1356,7 +1356,11 @@ export default function OwnerDossierPage() {
                                       type={entity.type}
                                     />
                                     {entity.role && (
-                                      <Badge variant="outline" className="text-xs capitalize shrink-0">
+                                      <Badge 
+                                        variant="outline" 
+                                        className="text-xs capitalize max-w-[180px] truncate"
+                                        title={entity.role}
+                                      >
                                         {entity.role}
                                       </Badge>
                                     )}
