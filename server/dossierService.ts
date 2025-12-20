@@ -960,11 +960,11 @@ export async function runPhasedEnrichment(id: string): Promise<PhasedEnrichmentR
   updateStep(steps, "address", { status: "running", startedAt: new Date().toISOString() });
   try {
     if (owner?.primaryAddress) {
-      const addressResult = await dataProviders.validateAddress(owner.primaryAddress);
+      const addressResult = await dataProviders.validateAddressWithGoogle(owner.primaryAddress);
       if (addressResult) {
-        providersUsed.push("usps");
-        trackProviderCall("usps");
-        estimatedCost += getProviderPricing("usps")?.costPerCall || 0;
+        providersUsed.push("google_address");
+        trackProviderCall("google_address");
+        estimatedCost += getProviderPricing("google_address")?.costPerCall || 0;
         summary.addressValidated = true;
       }
     }
@@ -1196,7 +1196,7 @@ export async function runPhasedEnrichment(id: string): Promise<PhasedEnrichmentR
   return {
     steps,
     summary,
-    providersUsed: [...new Set(providersUsed)],
+    providersUsed: Array.from(new Set(providersUsed)),
     overallStatus,
     durationMs: Date.now() - startTime,
   };

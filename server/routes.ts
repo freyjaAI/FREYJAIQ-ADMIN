@@ -5934,13 +5934,24 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         estimatedCost += getProviderPricing("perplexity")?.costPerCall || 0.05;
       }
 
+      // Update ownership chain - use onConflictDoUpdate to save new Perplexity discoveries
       await db.insert(llcOwnershipChains).values({
         rootEntityName: owner.name,
         chain: chain.chain,
         ultimateBeneficialOwners: chain.ultimateBeneficialOwners,
         maxDepthReached: chain.maxDepthReached,
         totalApiCalls: chain.totalApiCalls,
-      }).onConflictDoNothing();
+        resolvedAt: new Date(),
+      }).onConflictDoUpdate({
+        target: llcOwnershipChains.rootEntityName,
+        set: {
+          chain: chain.chain,
+          ultimateBeneficialOwners: chain.ultimateBeneficialOwners,
+          maxDepthReached: chain.maxDepthReached,
+          totalApiCalls: chain.totalApiCalls,
+          resolvedAt: new Date(),
+        },
+      });
 
       res.json({
         message: `Resolved ${chain.ultimateBeneficialOwners.length} principals`,
