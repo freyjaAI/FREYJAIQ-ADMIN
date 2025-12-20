@@ -1168,7 +1168,51 @@ async function verifyPersonAtAddress(
     }
   }
   
-  // FALLBACK 3: Broad name search
+  // FALLBACK 3: BeenVerified via Apify Skip Trace (city/state + name search)
+  console.log(`[PERSON VERIFY] Trying BeenVerified via Apify for "${personName}" in ${city || "unknown"}, ${state || jurisdictionState || "unknown"}`);
+  try {
+    const apifyProvider = await import("./providers/ApifySkipTraceProvider");
+    const searchState = state || jurisdictionState;
+    const skipTraceResults = await apifyProvider.searchByName(personName, city, searchState);
+    
+    if (skipTraceResults && skipTraceResults.length > 0) {
+      const result = skipTraceResults[0];
+      console.log(`[PERSON VERIFY] BeenVerified found: "${result.firstName} ${result.lastName}" age=${result.age || "unknown"}`);
+      
+      // Check if the name matches reasonably well
+      const nameParts = personName.toLowerCase().split(/\s+/);
+      const searchLastName = nameParts[nameParts.length - 1];
+      const searchFirstName = nameParts[0];
+      const resultFirstName = (result.firstName || "").toLowerCase();
+      const resultLastName = (result.lastName || "").toLowerCase();
+      
+      const lastNameMatches = resultLastName === searchLastName || 
+                              resultLastName.includes(searchLastName) || 
+                              searchLastName.includes(resultLastName);
+      const firstNameMatches = resultFirstName === searchFirstName || 
+                               resultFirstName.startsWith(searchFirstName.charAt(0));
+      
+      if (lastNameMatches && firstNameMatches) {
+        console.log(`[PERSON VERIFY] CONFIRMED via BeenVerified/Apify: "${result.firstName} ${result.lastName}"`);
+        
+        // Check if address matches for higher confidence
+        if (result.currentAddress && streetNum) {
+          const addrMatch = result.currentAddress.streetAddress?.toLowerCase().includes(streetNum);
+          if (addrMatch) {
+            return { verified: true, confidence: 70, source: "beenverified_address_match" };
+          }
+        }
+        
+        return { verified: true, confidence: 55, source: "beenverified" };
+      } else {
+        console.log(`[PERSON VERIFY] BeenVerified found person but name mismatch: searched "${personName}", got "${result.firstName} ${result.lastName}"`);
+      }
+    }
+  } catch (err) {
+    console.log(`[PERSON VERIFY] BeenVerified/Apify search failed:`, err);
+  }
+  
+  // FALLBACK 4: Broad name search (Data Axle without location)
   console.log(`[PERSON VERIFY] Trying broad name search for "${personName}" without strict address match`);
   try {
     const broadPeople = await dataProviders.searchPeopleV2(personName, {});
