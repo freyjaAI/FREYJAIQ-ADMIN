@@ -1391,15 +1391,21 @@ export default function OwnerDossierPage() {
                             {ownershipChainQuery.data.ultimateBeneficialOwners.map((ubo, idx) => (
                               <div 
                                 key={idx}
-                                className="p-2 rounded-md bg-green-500/10 border border-green-500/20 flex items-center justify-between"
+                                className="p-2 rounded-md bg-green-500/10 border border-green-500/20 flex items-center justify-between gap-2 min-w-0"
                                 data-testid={`ubo-${idx}`}
                               >
-                                <ClickableEntityName 
-                                  name={ubo.name} 
-                                  type={ubo.type}
-                                />
+                                <div className="min-w-0 flex-1">
+                                  <ClickableEntityName 
+                                    name={ubo.name} 
+                                    type={ubo.type}
+                                  />
+                                </div>
                                 {ubo.role && (
-                                  <Badge variant="outline" className="text-xs capitalize">
+                                  <Badge 
+                                    variant="outline" 
+                                    className="text-xs capitalize max-w-[180px] truncate shrink-0"
+                                    title={ubo.role}
+                                  >
                                     {ubo.role}
                                   </Badge>
                                 )}
