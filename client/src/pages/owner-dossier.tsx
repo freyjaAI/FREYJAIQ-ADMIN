@@ -1341,19 +1341,17 @@ export default function OwnerDossierPage() {
                         {ownershipChainQuery.data.maxDepthReached && " (max depth reached)"}
                         {ownershipChainQuery.data.fromCache && ` • Cached ${ownershipChainQuery.data.cacheAge}h ago`}
                       </span>
-                      {ownershipChainQuery.data.fromCache && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => clearOwnershipCacheMutation.mutate()}
-                          disabled={clearOwnershipCacheMutation.isPending}
-                          className="h-6 text-xs gap-1"
-                          data-testid="button-clear-ownership-cache"
-                        >
-                          <RefreshCw className={`h-3 w-3 ${clearOwnershipCacheMutation.isPending ? "animate-spin" : ""}`} />
-                          {clearOwnershipCacheMutation.isPending ? "Refreshing..." : "Clear Cache"}
-                        </Button>
-                      )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => clearOwnershipCacheMutation.mutate()}
+                        disabled={clearOwnershipCacheMutation.isPending}
+                        className="h-6 text-xs gap-1"
+                        data-testid="button-refresh-ownership"
+                      >
+                        <RefreshCw className={`h-3 w-3 ${clearOwnershipCacheMutation.isPending ? "animate-spin" : ""}`} />
+                        {clearOwnershipCacheMutation.isPending ? "Refreshing..." : "Refresh"}
+                      </Button>
                     </div>
                     
                     {/* Chain Visualization */}
