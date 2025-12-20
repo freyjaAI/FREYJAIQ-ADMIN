@@ -86,6 +86,12 @@ const DEFAULT_PRICING: Record<string, Omit<ProviderPricing, 'name'>> = {
     category: 'contact',
     description: 'Data Axle - Business and people directory data',
   },
+  data_axle: {
+    costPerCall: 0.05,          // Alias for dataaxle
+    priority: 2,
+    category: 'contact',
+    description: 'Data Axle - Business and people directory data',
+  },
   melissa: {
     costPerCall: 0.02,          // Melissa Personator
     priority: 3,
@@ -98,8 +104,20 @@ const DEFAULT_PRICING: Record<string, Omit<ProviderPricing, 'name'>> = {
     category: 'contact',
     description: 'Pacific East - Contact enrichment suite',
   },
+  pacific_east: {
+    costPerCall: 0.04,          // Alias for pacificeast
+    priority: 4,
+    category: 'contact',
+    description: 'Pacific East - Contact enrichment suite',
+  },
   aleads: {
     costPerCall: 0.06,          // A-Leads skip tracing
+    priority: 5,
+    category: 'contact',
+    description: 'A-Leads - Professional skip tracing',
+  },
+  a_leads: {
+    costPerCall: 0.06,          // Alias for aleads
     priority: 5,
     category: 'contact',
     description: 'A-Leads - Professional skip tracing',

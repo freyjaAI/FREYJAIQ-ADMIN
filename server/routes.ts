@@ -2575,6 +2575,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               
               console.log(`Apify Skip Trace: Found ${skipTraceResult.phones.length} phones, ${skipTraceResult.emails.length} emails, ${skipTraceResult.relatives.length} relatives, ${skipTraceResult.associates?.length || 0} associates`);
               sources.push("apify_skip_trace");
+              trackProviderCall("apify_skip_trace");
             }
           } else {
             console.log("[1/4] Apify Skip Trace: Not configured (no APIFY_API_TOKEN)");
@@ -2649,6 +2650,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             }
             if (filteredPeople.length > 0 && !sources.includes("data_axle")) {
               sources.push("data_axle");
+              trackProviderCall("data_axle");
             }
           }
           
@@ -2720,6 +2722,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             console.log(`Pacific East enrichment found: ${pacificEastResult.phones.length} phones, ${pacificEastResult.emails.length} emails`);
             if ((pacificEastResult.phones.length > 0 || pacificEastResult.emails.length > 0) && !sources.includes("pacific_east")) {
               sources.push("pacific_east");
+              trackProviderCall("pacific_east");
             }
           }
           
@@ -2759,6 +2762,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           }
           if ((aLeadsResults || []).length > 0 && !sources.includes("a_leads")) {
             sources.push("a_leads");
+            trackProviderCall("a_leads");
           }
           
           console.log(`Individual enrichment complete: ${contactEnrichment.directDials.length} phones, ${contactEnrichment.companyEmails.length} emails, sources: ${sources.join(", ")}`);
@@ -2788,6 +2792,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               state: parsed.state,
               zip: parsed.zip,
             });
+            if (melissaEnrichment) {
+              trackProviderCall("melissa");
+            }
           }
         } catch (err) {
           console.error("Error fetching Melissa enrichment:", err);
