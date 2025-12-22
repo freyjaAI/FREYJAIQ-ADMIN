@@ -521,3 +521,89 @@ export const PROVIDER_NAMES = Object.keys(DEFAULT_PRICING);
 export const LLC_PROVIDERS = getProvidersByCategory('llc').map(p => p.name);
 export const CONTACT_PROVIDERS = getProvidersByCategory('contact').map(p => p.name);
 export const PROPERTY_PROVIDERS = getProvidersByCategory('property').map(p => p.name);
+
+/**
+ * Per-search cost tracker - tracks API calls made during a single search operation
+ */
+export interface SearchProviderCall {
+  provider: string;
+  calls: number;
+  cost: number;
+  wasCached: boolean;
+}
+
+export class SearchCostTracker {
+  private calls: Map<string, { count: number; cost: number; cached: number }> = new Map();
+  
+  /**
+   * Record an API call during this search
+   */
+  trackCall(providerName: string, wasCacheHit: boolean = false, tokensUsed?: number): void {
+    let data = this.calls.get(providerName);
+    if (!data) {
+      data = { count: 0, cost: 0, cached: 0 };
+      this.calls.set(providerName, data);
+    }
+    
+    if (wasCacheHit) {
+      data.cached++;
+    } else {
+      data.count++;
+      const pricing = getProviderPricing(providerName);
+      if (pricing) {
+        if (tokensUsed && pricing.costPerToken) {
+          data.cost += tokensUsed * pricing.costPerToken;
+        } else {
+          data.cost += pricing.costPerCall;
+        }
+      }
+    }
+    
+    // Also track globally
+    trackProviderCall(providerName, wasCacheHit, tokensUsed);
+  }
+  
+  /**
+   * Get total cost for this search
+   */
+  getTotalCost(): number {
+    let total = 0;
+    for (const data of this.calls.values()) {
+      total += data.cost;
+    }
+    return total;
+  }
+  
+  /**
+   * Get breakdown of calls by provider
+   */
+  getProviderCalls(): SearchProviderCall[] {
+    const result: SearchProviderCall[] = [];
+    for (const [provider, data] of this.calls.entries()) {
+      result.push({
+        provider,
+        calls: data.count,
+        cost: data.cost,
+        wasCached: data.cached > 0,
+      });
+    }
+    return result;
+  }
+  
+  /**
+   * Get summary for storage
+   */
+  getSummary(): { estimatedCost: number; providerCalls: SearchProviderCall[] } {
+    return {
+      estimatedCost: Math.round(this.getTotalCost() * 1000) / 1000, // Round to 3 decimal places
+      providerCalls: this.getProviderCalls(),
+    };
+  }
+}
+
+/**
+ * Create a new search cost tracker
+ */
+export function createSearchCostTracker(): SearchCostTracker {
+  return new SearchCostTracker();
+}

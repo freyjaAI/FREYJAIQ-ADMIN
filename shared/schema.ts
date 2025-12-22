@@ -222,6 +222,8 @@ export const searchHistory = pgTable("search_history", {
   searchType: varchar("search_type").notNull(), // property | owner
   query: jsonb("query").notNull(),
   resultCount: integer("result_count"),
+  estimatedCost: real("estimated_cost"), // Approximate cost in dollars
+  providerCalls: jsonb("provider_calls"), // Breakdown of API calls per provider
   createdAt: timestamp("created_at").defaultNow(),
 });
 
