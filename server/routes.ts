@@ -5445,7 +5445,28 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
 
       // Build officers list
-      const officers = detailedInfo?.officers || (llc.officers as any[]) || [];
+      let officers = detailedInfo?.officers || (llc.officers as any[]) || [];
+      
+      // If no officers found but we have a registered agent who is a person (not a corporate agent),
+      // add them as a presumed member/manager
+      if (officers.length === 0) {
+        const agentName = detailedInfo?.agentName || llc.registeredAgent;
+        // Check if agent is a privacy protection service
+        const privacyAgentKeywords = ["REGISTERED AGENT", "CORPORATE CREATIONS", "UNITED AGENT", "CT CORPORATION", 
+          "CSC GLOBAL", "NATIONAL REGISTERED", "LEGALINC", "NORTHWEST REGISTERED", "INCORP SERVICES"];
+        const isPrivacyAgentName = agentName && privacyAgentKeywords.some(kw => 
+          agentName.toUpperCase().includes(kw));
+        
+        if (agentName && looksLikePersonName(agentName) && !isPrivacyAgentName) {
+          console.log(`No officers found for ${llc.name}, using registered agent "${agentName}" as presumed member`);
+          officers = [{
+            name: agentName,
+            position: "Registered Agent / Presumed Member",
+            role: "agent",
+            address: detailedInfo?.agentAddress || llc.registeredAddress,
+          }];
+        }
+      }
       
       // Enrich each officer with contact info using the full enrichment stack
       const enrichedOfficers: any[] = [];
