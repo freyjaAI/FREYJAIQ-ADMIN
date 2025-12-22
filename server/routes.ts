@@ -27,7 +27,9 @@ import {
   getCostSummary, 
   getCacheStats,
   logRoutingDecision,
-  getProviderPricing
+  getProviderPricing,
+  createSearchCostTracker,
+  SearchCostTracker
 } from "./providerConfig";
 import { setLlcLookupFunction, setPersonVerifyFunction } from "./llcChainResolver";
 import { apiUsageTracker } from "./apiUsageTracker";
@@ -2194,12 +2196,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         foundProperties = await storage.searchProperties(q);
       }
 
-      // Log search
+      // Log search (local database searches have no external API cost)
       await storage.createSearchHistory({
         userId,
         searchType: type as string,
         query: { q },
         resultCount: owners.length + foundProperties.length,
+        estimatedCost: 0,
+        providerCalls: [{ provider: "local", calls: 1, cost: 0 }],
       });
 
       // Audit log for compliance
@@ -4837,7 +4841,24 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         results.sources.push("local");
       }
 
-      // Log search
+      // Calculate estimated cost based on sources used
+      const uniqueSources = Array.from(new Set(results.sources as string[]));
+      let estimatedCost = 0;
+      const providerCalls: Array<{ provider: string; calls: number; cost: number }> = [];
+      
+      for (const source of uniqueSources) {
+        // Skip cache hits and local sources
+        if (source.endsWith('-cache') || source === 'local') continue;
+        
+        const pricing = getProviderPricing(source);
+        if (pricing) {
+          const callCost = pricing.costPerCall;
+          estimatedCost += callCost;
+          providerCalls.push({ provider: source, calls: 1, cost: callCost });
+        }
+      }
+
+      // Log search with cost tracking
       await storage.createSearchHistory({
         userId,
         searchType: `external_${type}`,
@@ -4846,6 +4867,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           results.properties.length +
           results.llcs.length +
           results.contacts.length,
+        estimatedCost: Math.round(estimatedCost * 1000) / 1000,
+        providerCalls,
       });
 
       res.json({

@@ -568,9 +568,9 @@ export class SearchCostTracker {
    */
   getTotalCost(): number {
     let total = 0;
-    for (const data of this.calls.values()) {
+    Array.from(this.calls.values()).forEach(data => {
       total += data.cost;
-    }
+    });
     return total;
   }
   
@@ -579,14 +579,14 @@ export class SearchCostTracker {
    */
   getProviderCalls(): SearchProviderCall[] {
     const result: SearchProviderCall[] = [];
-    for (const [provider, data] of this.calls.entries()) {
+    Array.from(this.calls.entries()).forEach(([provider, data]) => {
       result.push({
         provider,
         calls: data.count,
         cost: data.cost,
         wasCached: data.cached > 0,
       });
-    }
+    });
     return result;
   }
   
