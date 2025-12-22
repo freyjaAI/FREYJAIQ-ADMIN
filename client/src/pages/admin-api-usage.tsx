@@ -11,7 +11,9 @@ import {
   AlertTriangle,
   CheckCircle2,
   BarChart3,
+  Search,
 } from "lucide-react";
+import type { SearchHistory } from "@shared/schema";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -210,6 +212,11 @@ export default function AdminApiUsagePage() {
     refetchInterval: 30000,
   });
 
+  const { data: dashboardStats } = useQuery<{ recentSearches: SearchHistory[] }>({
+    queryKey: ['/api/dashboard/stats'],
+    refetchInterval: 30000,
+  });
+
   const resetCacheMutation = useMutation({
     mutationFn: async () => {
       const res = await fetch('/api/admin/cache-stats/reset', { method: 'POST' });
@@ -337,6 +344,10 @@ export default function AdminApiUsagePage() {
           <TabsTrigger value="quotas" data-testid="tab-quotas">
             <BarChart3 className="h-4 w-4 mr-2" />
             Quotas
+          </TabsTrigger>
+          <TabsTrigger value="searches" data-testid="tab-searches">
+            <Search className="h-4 w-4 mr-2" />
+            Recent Searches
           </TabsTrigger>
         </TabsList>
 
@@ -494,6 +505,75 @@ export default function AdminApiUsagePage() {
                   <BarChart3 className="h-12 w-12 mx-auto mb-4 opacity-50" />
                   <p>No API usage recorded yet</p>
                   <p className="text-sm">Usage will be tracked as you make searches</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="searches" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Recent Search Costs</CardTitle>
+              <CardDescription>
+                Per-search cost breakdown showing estimated API costs
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {dashboardStats?.recentSearches && dashboardStats.recentSearches.length > 0 ? (
+                <div className="divide-y">
+                  {dashboardStats.recentSearches.map((search) => {
+                    const queryText = typeof search.query === 'object' 
+                      ? (search.query as any).q || JSON.stringify(search.query)
+                      : String(search.query || '');
+                    const providerCalls = search.providerCalls as Array<{ provider: string; calls: number; cacheHits: number; cost: number }> | null;
+                    
+                    return (
+                      <div key={search.id} className="py-4" data-testid={`search-cost-row-${search.id}`}>
+                        <div className="flex items-start justify-between gap-4 mb-2">
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium truncate">{queryText}</p>
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                              <Badge variant="secondary" className="text-xs">
+                                {search.searchType}
+                              </Badge>
+                              <span>{search.resultCount ?? 0} results</span>
+                              <span className="flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                {new Date(search.createdAt!).toLocaleString()}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-mono text-lg font-semibold text-amber-600 dark:text-amber-400" data-testid={`text-search-cost-${search.id}`}>
+                              ${(search.estimatedCost ?? 0).toFixed(3)}
+                            </p>
+                          </div>
+                        </div>
+                        {providerCalls && providerCalls.length > 0 && (
+                          <div className="flex flex-wrap gap-2 mt-2">
+                            {providerCalls.map((pc, idx) => (
+                              <Badge 
+                                key={idx} 
+                                variant="outline" 
+                                className="text-xs font-mono"
+                              >
+                                {pc.provider}: {pc.calls} call{pc.calls !== 1 ? 's' : ''} 
+                                {pc.cacheHits > 0 && ` (${pc.cacheHits} cached)`}
+                                {pc.cost > 0 && ` = $${pc.cost.toFixed(3)}`}
+                              </Badge>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Search className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>No recent searches found</p>
+                  <p className="text-sm">Search costs will appear here after you perform searches</p>
                 </div>
               )}
             </CardContent>
