@@ -1417,13 +1417,23 @@ export class SECEdgarProvider {
     
     // If no exact match, try fuzzy matching
     if (!match) {
-      // Try prefix matching
+      // Try prefix matching - but require substantial overlap to avoid false positives
+      // e.g., "nee capital group" should NOT match "nee" (NextEra Energy ticker)
       const entries = Array.from(tickers.entries());
       for (const [key, value] of entries) {
-        if (key.startsWith(normalizedSearch) || normalizedSearch.startsWith(key)) {
-          match = value;
-          console.log(`[SEC EDGAR] Prefix match: "${key}" for "${normalizedSearch}"`);
-          break;
+        // For prefix matching, require:
+        // 1. The shorter string must be at least 50% of the longer string length
+        // 2. The shorter string must be at least 6 characters (to avoid ticker-only matches)
+        const minLen = Math.min(key.length, normalizedSearch.length);
+        const maxLen = Math.max(key.length, normalizedSearch.length);
+        const overlapRatio = minLen / maxLen;
+        
+        if (minLen >= 6 && overlapRatio >= 0.5) {
+          if (key.startsWith(normalizedSearch) || normalizedSearch.startsWith(key)) {
+            match = value;
+            console.log(`[SEC EDGAR] Prefix match: "${key}" for "${normalizedSearch}" (overlap: ${Math.round(overlapRatio * 100)}%)`);
+            break;
+          }
         }
       }
     }
