@@ -4852,11 +4852,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       // Get cost summary from the tracker
       const costSummary = costTracker.getSummary();
-      const providerCalls = costSummary.breakdown.map(b => ({
-        provider: b.provider,
-        calls: b.count,
-        cacheHits: b.cached,
-        cost: b.cost
+      const providerCalls = costSummary.providerCalls.map(pc => ({
+        provider: pc.provider,
+        calls: pc.calls,
+        cacheHits: pc.wasCached ? 1 : 0,
+        cost: pc.cost
       }));
 
       // Log search with cost tracking
@@ -4868,7 +4868,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           results.properties.length +
           results.llcs.length +
           results.contacts.length,
-        estimatedCost: Math.round(costSummary.totalCost * 1000) / 1000,
+        estimatedCost: costSummary.estimatedCost,
         providerCalls,
       });
 
