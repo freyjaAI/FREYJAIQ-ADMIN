@@ -208,15 +208,25 @@ export default function Dashboard() {
                     <div className="flex-1 min-w-0">
                       <div className="font-medium truncate">
                         {typeof search.query === "object"
-                          ? JSON.stringify(search.query)
+                          ? (search.query as any).q || JSON.stringify(search.query)
                           : String(search.query || "")}
                       </div>
                       <div className="text-xs text-muted-foreground">
                         {search.searchType} search
                       </div>
                     </div>
-                    <div className="text-xs text-muted-foreground">
-                      {search.resultCount ?? 0} results
+                    <div className="text-right text-xs">
+                      <div className="text-muted-foreground">
+                        {search.resultCount ?? 0} results
+                      </div>
+                      {search.estimatedCost !== null && search.estimatedCost !== undefined && search.estimatedCost > 0 && (
+                        <div 
+                          className="text-amber-600 dark:text-amber-400 font-mono"
+                          data-testid={`text-search-cost-${search.id}`}
+                        >
+                          ${search.estimatedCost.toFixed(3)}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}

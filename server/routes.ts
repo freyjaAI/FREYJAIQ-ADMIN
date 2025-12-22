@@ -28,8 +28,7 @@ import {
   getCacheStats,
   logRoutingDecision,
   getProviderPricing,
-  createSearchCostTracker,
-  SearchCostTracker
+  createSearchCostTracker
 } from "./providerConfig";
 import { setLlcLookupFunction, setPersonVerifyFunction } from "./llcChainResolver";
 import { apiUsageTracker } from "./apiUsageTracker";
@@ -2203,7 +2202,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         query: { q },
         resultCount: owners.length + foundProperties.length,
         estimatedCost: 0,
-        providerCalls: [{ provider: "local", calls: 1, cost: 0 }],
+        providerCalls: [],
       });
 
       // Audit log for compliance
@@ -4760,9 +4759,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
       }
 
+      // Track provider calls for cost estimation using SearchCostTracker
+      const costTracker = createSearchCostTracker();
+
       // Search owner by name via ATTOM
       if (type === "owner" || type === "all") {
         const ownerProperties = await dataProviders.searchPropertiesByOwner(query);
+        costTracker.trackCall("attom", false); // Track call regardless of results
         results.properties.push(...ownerProperties);
         if (ownerProperties.length > 0) {
           results.sources.push("attom");
@@ -4773,6 +4776,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (type === "business" || type === "all") {
         // Search LLCs via OpenCorporates (cached)
         const llcResult = await getCachedLlcData(query);
+        costTracker.trackCall("opencorporates", llcResult?.fromCache ?? false); // Track even if no result
         if (llcResult) {
           results.llcs.push(llcResult.llc);
           results.sources.push(llcResult.fromCache ? "opencorporates-cache" : "opencorporates");
@@ -4780,6 +4784,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         
         // Also search properties by owner name (business name)
         const ownerProperties = await dataProviders.searchPropertiesByOwner(query);
+        costTracker.trackCall("attom", false); // Track call regardless of results
         results.properties.push(...ownerProperties);
         if (ownerProperties.length > 0 && !results.sources.includes("attom")) {
           results.sources.push("attom");
@@ -4789,6 +4794,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       // Search by person name via Data Axle / skip trace
       if (type === "person" || type === "all") {
         const contacts = await dataProviders.findContactsByName(query);
+        costTracker.trackCall("dataaxle", false); // Track call regardless of results
         results.contacts.push(...contacts.map((c) => ({ ...c, source: "dataaxle" })));
         if (contacts.length > 0) {
           results.sources.push("dataaxle");
@@ -4796,6 +4802,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         
         // Also search properties owned by person
         const ownerProperties = await dataProviders.searchPropertiesByOwner(query);
+        costTracker.trackCall("attom", false); // Track call regardless of results
         results.properties.push(...ownerProperties);
         if (ownerProperties.length > 0 && !results.sources.includes("attom")) {
           results.sources.push("attom");
@@ -4806,6 +4813,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       // Note: "all" type already triggers business search which includes LLC lookup
       if (type === "llc" || type === "owner") {
         const llcResult = await getCachedLlcData(query);
+        costTracker.trackCall("opencorporates", llcResult?.fromCache ?? false); // Track even if no result
         if (llcResult) {
           results.llcs.push(llcResult.llc);
           if (!results.sources.includes("opencorporates") && !results.sources.includes("opencorporates-cache")) {
@@ -4828,6 +4836,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       // Search contacts via Data Axle / A-Leads
       if (type === "contact" || type === "owner" || type === "all") {
         const contacts = await dataProviders.findContactsByName(query);
+        costTracker.trackCall("dataaxle", false); // Track call regardless of results
         results.contacts.push(...contacts.map((c) => ({ ...c, source: "dataaxle" })));
         if (contacts.length > 0 && !results.sources.includes("dataaxle")) {
           results.sources.push("dataaxle");
@@ -4841,22 +4850,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         results.sources.push("local");
       }
 
-      // Calculate estimated cost based on sources used
-      const uniqueSources = Array.from(new Set(results.sources as string[]));
-      let estimatedCost = 0;
-      const providerCalls: Array<{ provider: string; calls: number; cost: number }> = [];
-      
-      for (const source of uniqueSources) {
-        // Skip cache hits and local sources
-        if (source.endsWith('-cache') || source === 'local') continue;
-        
-        const pricing = getProviderPricing(source);
-        if (pricing) {
-          const callCost = pricing.costPerCall;
-          estimatedCost += callCost;
-          providerCalls.push({ provider: source, calls: 1, cost: callCost });
-        }
-      }
+      // Get cost summary from the tracker
+      const costSummary = costTracker.getSummary();
+      const providerCalls = costSummary.breakdown.map(b => ({
+        provider: b.provider,
+        calls: b.count,
+        cacheHits: b.cached,
+        cost: b.cost
+      }));
 
       // Log search with cost tracking
       await storage.createSearchHistory({
@@ -4867,7 +4868,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           results.properties.length +
           results.llcs.length +
           results.contacts.length,
-        estimatedCost: Math.round(estimatedCost * 1000) / 1000,
+        estimatedCost: Math.round(costSummary.totalCost * 1000) / 1000,
         providerCalls,
       });
 
