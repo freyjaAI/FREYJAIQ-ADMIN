@@ -4664,9 +4664,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         sources: [],
       };
 
+      // Create cost tracker at the beginning to track ALL provider calls
+      const costTracker = createSearchCostTracker();
+
       // Search properties via ATTOM, with Gemini as fallback
       if (type === "address" || type === "all") {
         let property = await dataProviders.searchPropertyByAddress(query);
+        costTracker.trackCall("attom", false); // Track ATTOM call for address search
         let propertySource = "attom";
         
         // If ATTOM doesn't have the property, try Gemini as fallback
@@ -4674,6 +4678,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           console.log(`[FALLBACK] ATTOM didn't find "${query}", trying Gemini property research...`);
           logRoutingDecision('Property Search', 'gemini', 'ATTOM fallback - property not in ATTOM database');
           trackProviderCall('gemini', false);
+          costTracker.trackCall("gemini", false); // Track Gemini fallback call
           
           const geminiResult = await GeminiDeepResearch.researchPropertyOwnership(query);
           if (geminiResult) {
@@ -4758,9 +4763,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           }
         }
       }
-
-      // Track provider calls for cost estimation using SearchCostTracker
-      const costTracker = createSearchCostTracker();
 
       // Search owner by name via ATTOM
       if (type === "owner" || type === "all") {
