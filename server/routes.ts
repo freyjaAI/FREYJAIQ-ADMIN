@@ -6264,7 +6264,87 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const existingPhones = existingContacts.filter(c => c.kind === "phone").length;
       const existingEmails = existingContacts.filter(c => c.kind === "email").length;
 
-      const waterfallResult = await runContactWaterfall(owner.name, owner.primaryAddress || undefined);
+      let waterfallResult: { contacts: any[]; providersUsed: string[]; primaryProvider?: string };
+      
+      // For entities (LLCs), first try to find beneficial owners, then enrich those people
+      if (resolved.entityType === "entity") {
+        console.log(`[ContactEnrichment] Entity detected: "${owner.name}" - will find beneficial owners first`);
+        
+        // Check if we already have beneficial owners from previous LLC chain resolution
+        const chainResults = await db
+          .select()
+          .from(llcOwnershipChains)
+          .where(eq(llcOwnershipChains.rootEntityName, owner.name))
+          .limit(1);
+        
+        let beneficialOwners: Array<{ name: string; type: string }> = [];
+        
+        if (chainResults[0]) {
+          const ubos = chainResults[0].ultimateBeneficialOwners as Array<{ name: string; type: string }> | null;
+          beneficialOwners = (ubos || []).filter(ubo => ubo.type === "individual");
+          console.log(`[ContactEnrichment] Found ${beneficialOwners.length} cached beneficial owners`);
+        }
+        
+        // If no cached beneficial owners, run ownership chain resolution first
+        if (beneficialOwners.length === 0) {
+          console.log(`[ContactEnrichment] No cached UBOs, running ownership chain resolution...`);
+          const ownedProperties = await db.select().from(properties).where(eq(properties.ownerId, id)).limit(1);
+          const propertyAddress = ownedProperties[0]
+            ? `${ownedProperties[0].address}${ownedProperties[0].city ? `, ${ownedProperties[0].city}` : ""}${ownedProperties[0].state ? `, ${ownedProperties[0].state}` : ""}`
+            : undefined;
+          
+          const chain = await resolveOwnershipChain(owner.name, undefined, propertyAddress);
+          beneficialOwners = chain.ultimateBeneficialOwners
+            .filter(ubo => ubo.type === "individual")
+            .map(ubo => ({ name: ubo.name, type: ubo.type }));
+          
+          console.log(`[ContactEnrichment] Resolved ${beneficialOwners.length} beneficial owners from chain`);
+          
+          // Cache the chain for future use
+          if (chain.chain.length > 0) {
+            await db.insert(llcOwnershipChains).values({
+              rootEntityName: owner.name,
+              chain: chain.chain,
+              ultimateBeneficialOwners: chain.ultimateBeneficialOwners,
+              maxDepthReached: chain.maxDepthReached,
+              totalApiCalls: chain.totalApiCalls,
+              resolvedAt: new Date(),
+            }).onConflictDoUpdate({
+              target: llcOwnershipChains.rootEntityName,
+              set: {
+                chain: chain.chain,
+                ultimateBeneficialOwners: chain.ultimateBeneficialOwners,
+                maxDepthReached: chain.maxDepthReached,
+                totalApiCalls: chain.totalApiCalls,
+                resolvedAt: new Date(),
+              },
+            });
+          }
+        }
+        
+        // Now enrich contacts for each beneficial owner (actual people)
+        if (beneficialOwners.length > 0) {
+          waterfallResult = { contacts: [], providersUsed: [] };
+          for (const ubo of beneficialOwners) {
+            console.log(`[ContactEnrichment] Enriching beneficial owner: "${ubo.name}"`);
+            const uboResult = await runContactWaterfall(ubo.name, owner.primaryAddress || undefined);
+            waterfallResult.contacts.push(...uboResult.contacts);
+            for (const p of uboResult.providersUsed) {
+              if (!waterfallResult.providersUsed.includes(p)) {
+                waterfallResult.providersUsed.push(p);
+              }
+            }
+          }
+          console.log(`[ContactEnrichment] Got ${waterfallResult.contacts.length} contacts from ${beneficialOwners.length} beneficial owners`);
+        } else {
+          // No beneficial owners found - skip contact enrichment for entities
+          console.log(`[ContactEnrichment] No beneficial owners found for "${owner.name}" - skipping person search`);
+          waterfallResult = { contacts: [], providersUsed: [] };
+        }
+      } else {
+        // For individuals, search directly
+        waterfallResult = await runContactWaterfall(owner.name, owner.primaryAddress || undefined);
+      }
       
       let estimatedCost = 0;
       for (const provider of waterfallResult.providersUsed) {
