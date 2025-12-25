@@ -81,7 +81,7 @@ export function extractPersonNameFromEntityName(entityName: string): string | nu
   
   if (words.length === 0) return null;
   
-  // Check if it looks like a person name (not corporate keywords)
+  // Check if it looks like a person name (not corporate keywords or address components)
   const corporateWords = [
     "AMERICAN", "NATIONAL", "INTERNATIONAL", "GLOBAL", "UNITED",
     "FIRST", "SECOND", "THIRD", "CENTRAL", "NORTH", "SOUTH", "EAST", "WEST",
@@ -90,8 +90,16 @@ export function extractPersonNameFromEntityName(entityName: string): string | nu
     "EQUITY", "ASSET", "FUND", "REAL", "ESTATE",
   ];
   
-  // If any word is a corporate keyword, likely not a person name
-  if (words.some(w => corporateWords.includes(w))) {
+  // Address-related words that indicate this is a property/address-based entity, NOT a person
+  const addressWords = [
+    "STREET", "ST", "AVENUE", "AVE", "ROAD", "RD", "DRIVE", "DR",
+    "BOULEVARD", "BLVD", "LANE", "LN", "WAY", "PLACE", "PL", "COURT", "CT",
+    "CIRCLE", "CIR", "TERRACE", "TER", "HIGHWAY", "HWY", "PARKWAY", "PKY",
+    "BROADWAY", "PARK", "PLAZA", "SQUARE", "FLOOR", "SUITE", "UNIT",
+  ];
+  
+  // If any word is a corporate keyword or address word, likely not a person name
+  if (words.some(w => corporateWords.includes(w) || addressWords.includes(w))) {
     return null;
   }
   
