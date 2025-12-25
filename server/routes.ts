@@ -4667,22 +4667,57 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       // Create cost tracker at the beginning to track ALL provider calls
       const costTracker = createSearchCostTracker();
 
-      // Search properties via ATTOM, with Gemini as fallback
+      // Search properties via HomeHarvest (FREE) first, then ATTOM, then Gemini as fallbacks
       if (type === "address" || type === "all") {
-        let property = await dataProviders.searchPropertyByAddress(query);
-        costTracker.trackCall("attom", false); // Track ATTOM call for address search
-        let propertySource = "attom";
+        let property = null;
+        let propertySource = "";
         
-        // If ATTOM doesn't have the property, try Gemini as fallback
+        // Step 1: Try HomeHarvest first (FREE - scrapes Realtor.com)
+        console.log(`[PROPERTY SEARCH] Trying HomeHarvest first (free) for: "${query}"`);
+        property = await dataProviders.searchPropertyViaHomeHarvest(query);
+        costTracker.trackCall("homeharvest", false);
+        
+        if (property) {
+          propertySource = "homeharvest";
+          console.log(`[HomeHarvest SUCCESS] Found property data for: "${query}"`);
+          
+          // HomeHarvest doesn't provide owner info - try ATTOM to get owner data
+          if (!property.ownership.ownerName) {
+            console.log(`[FALLBACK] HomeHarvest has no owner info, trying ATTOM for owner data...`);
+            const attomProperty = await dataProviders.searchPropertyByAddress(query);
+            costTracker.trackCall("attom", false);
+            
+            if (attomProperty && attomProperty.ownership.ownerName) {
+              // Merge owner info from ATTOM into HomeHarvest property data
+              property.ownership = attomProperty.ownership;
+              property.parcel = attomProperty.parcel || property.parcel;
+              propertySource = "homeharvest+attom";
+              console.log(`[ATTOM SUCCESS] Got owner info: "${attomProperty.ownership.ownerName}"`);
+            }
+          }
+        }
+        
+        // Step 2: If HomeHarvest failed completely, try ATTOM
+        if (!property) {
+          console.log(`[FALLBACK] HomeHarvest didn't find property, trying ATTOM...`);
+          property = await dataProviders.searchPropertyByAddress(query);
+          costTracker.trackCall("attom", false);
+          
+          if (property) {
+            propertySource = "attom";
+            console.log(`[ATTOM SUCCESS] Found property: "${property.address.line1}"`);
+          }
+        }
+        
+        // Step 3: If both failed, try Gemini as last resort
         if (!property && GeminiDeepResearch.isConfigured()) {
           console.log(`[FALLBACK] ATTOM didn't find "${query}", trying Gemini property research...`);
-          logRoutingDecision('Property Search', 'gemini', 'ATTOM fallback - property not in ATTOM database');
+          logRoutingDecision('Property Search', 'gemini', 'HomeHarvest+ATTOM fallback - property not found');
           trackProviderCall('gemini', false);
-          costTracker.trackCall("gemini", false); // Track Gemini fallback call
+          costTracker.trackCall("gemini", false);
           
           const geminiResult = await GeminiDeepResearch.researchPropertyOwnership(query);
           if (geminiResult) {
-            // Convert Gemini result to ATTOM-compatible format
             property = {
               attomId: "",
               address: {
