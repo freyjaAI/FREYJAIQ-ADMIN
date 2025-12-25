@@ -4667,52 +4667,64 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       // Create cost tracker at the beginning to track ALL provider calls
       const costTracker = createSearchCostTracker();
 
-      // Search properties via HomeHarvest (FREE) first, then ATTOM, then Gemini as fallbacks
+      // Property search strategy: ATTOM is primary for owner info, HomeHarvest for property details
+      // Cost optimization: Try ATTOM first (has owner info), enrich with HomeHarvest details if needed
       if (type === "address" || type === "all") {
         let property = null;
         let propertySource = "";
+        let homeHarvestData = null;
         
-        // Step 1: Try HomeHarvest first (FREE - scrapes Realtor.com)
-        console.log(`[PROPERTY SEARCH] Trying HomeHarvest first (free) for: "${query}"`);
-        property = await dataProviders.searchPropertyViaHomeHarvest(query);
-        costTracker.trackCall("homeharvest", false);
+        // Step 1: Try ATTOM first for owner info (primary use case for CRE prospecting)
+        console.log(`[PROPERTY SEARCH] Trying ATTOM for owner info: "${query}"`);
+        property = await dataProviders.searchPropertyByAddress(query);
+        costTracker.trackCall("attom", false);
         
-        if (property) {
-          propertySource = "homeharvest";
-          console.log(`[HomeHarvest SUCCESS] Found property data for: "${query}"`);
+        if (property && property.ownership.ownerName) {
+          propertySource = "attom";
+          console.log(`[ATTOM SUCCESS] Found property with owner: "${property.ownership.ownerName}"`);
           
-          // HomeHarvest doesn't provide owner info - try ATTOM to get owner data
-          if (!property.ownership.ownerName) {
-            console.log(`[FALLBACK] HomeHarvest has no owner info, trying ATTOM for owner data...`);
-            const attomProperty = await dataProviders.searchPropertyByAddress(query);
-            costTracker.trackCall("attom", false);
+          // Optionally enrich with HomeHarvest for additional property details (free)
+          // Only if ATTOM property data is minimal
+          if (!property.building.sqft || property.building.sqft === 0) {
+            console.log(`[ENRICHMENT] ATTOM has minimal property data, trying HomeHarvest for details...`);
+            homeHarvestData = await dataProviders.searchPropertyViaHomeHarvest(query);
+            costTracker.trackCall("homeharvest", false);
             
-            if (attomProperty && attomProperty.ownership.ownerName) {
-              // Merge owner info from ATTOM into HomeHarvest property data
-              property.ownership = attomProperty.ownership;
-              property.parcel = attomProperty.parcel || property.parcel;
-              propertySource = "homeharvest+attom";
-              console.log(`[ATTOM SUCCESS] Got owner info: "${attomProperty.ownership.ownerName}"`);
+            if (homeHarvestData && homeHarvestData.building) {
+              // Merge HomeHarvest building details into ATTOM property
+              property.building = {
+                ...property.building,
+                sqft: homeHarvestData.building.sqft || property.building.sqft,
+                yearBuilt: homeHarvestData.building.yearBuilt || property.building.yearBuilt,
+                bedrooms: homeHarvestData.building.bedrooms || property.building.bedrooms,
+                bathrooms: homeHarvestData.building.bathrooms || property.building.bathrooms,
+                propertyType: homeHarvestData.building.propertyType || property.building.propertyType,
+              };
+              if (homeHarvestData.avm && (!property.avm || property.avm.value === 0)) {
+                property.avm = homeHarvestData.avm;
+              }
+              propertySource = "attom+homeharvest";
+              console.log(`[HomeHarvest ENRICHMENT] Added property details (sqft: ${homeHarvestData.building.sqft})`);
             }
           }
         }
         
-        // Step 2: If HomeHarvest failed completely, try ATTOM
+        // Step 2: If ATTOM failed, try HomeHarvest (free) for property data
         if (!property) {
-          console.log(`[FALLBACK] HomeHarvest didn't find property, trying ATTOM...`);
-          property = await dataProviders.searchPropertyByAddress(query);
-          costTracker.trackCall("attom", false);
+          console.log(`[FALLBACK] ATTOM didn't find property, trying HomeHarvest (free)...`);
+          property = await dataProviders.searchPropertyViaHomeHarvest(query);
+          costTracker.trackCall("homeharvest", false);
           
           if (property) {
-            propertySource = "attom";
-            console.log(`[ATTOM SUCCESS] Found property: "${property.address.line1}"`);
+            propertySource = "homeharvest";
+            console.log(`[HomeHarvest SUCCESS] Found property data (no owner info available)`);
           }
         }
         
-        // Step 3: If both failed, try Gemini as last resort
+        // Step 3: If both failed, try Gemini as last resort for owner research
         if (!property && GeminiDeepResearch.isConfigured()) {
-          console.log(`[FALLBACK] ATTOM didn't find "${query}", trying Gemini property research...`);
-          logRoutingDecision('Property Search', 'gemini', 'HomeHarvest+ATTOM fallback - property not found');
+          console.log(`[FALLBACK] ATTOM+HomeHarvest didn't find "${query}", trying Gemini...`);
+          logRoutingDecision('Property Search', 'gemini', 'ATTOM+HomeHarvest fallback - property not found');
           trackProviderCall('gemini', false);
           costTracker.trackCall("gemini", false);
           
@@ -4760,41 +4772,46 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           results.properties.push(property);
           results.sources.push(propertySource);
 
-          // Auto-import to local database
-          const existingOwner = (await storage.searchOwners(property.ownership.ownerName))[0];
-          let ownerId = existingOwner?.id;
+          // Auto-import to local database (only if we have owner info)
+          // Skip owner creation for HomeHarvest-only results (no owner data)
+          if (property.ownership.ownerName && property.ownership.ownerName.trim()) {
+            const existingOwner = (await storage.searchOwners(property.ownership.ownerName))[0];
+            let ownerId = existingOwner?.id;
 
-          if (!existingOwner) {
-            // Detect entity type - use shouldTreatAsEntity which checks if name looks like a person
-            const attomType = property.ownership.ownerType || "individual";
-            const detectedType = shouldTreatAsEntity(attomType, property.ownership.ownerName) 
-              ? "entity" 
-              : "individual";
-            const newOwner = await storage.createOwner({
-              name: property.ownership.ownerName,
-              type: detectedType,
-              primaryAddress: property.ownership.mailingAddress || `${property.address.line1}, ${property.address.city}, ${property.address.state} ${property.address.zip}`,
-            });
-            ownerId = newOwner.id;
-          }
-
-          if (ownerId) {
-            const existingProperty = (await storage.searchProperties(property.address.line1))[0];
-            if (!existingProperty) {
-              await storage.createProperty({
-                address: property.address.line1,
-                city: property.address.city,
-                state: property.address.state,
-                zipCode: property.address.zip,
-                apn: property.parcel?.apn || "",
-                propertyType: (property.building?.propertyType || "").toLowerCase().includes("commercial") ? "commercial" : 
-                              (property.building?.propertyType || "").toLowerCase().includes("industrial") ? "industrial" : "other",
-                sqFt: property.building?.sqft || 0,
-                yearBuilt: property.building?.yearBuilt || 0,
-                assessedValue: property.assessment?.assessedValue || 0,
-                ownerId,
+            if (!existingOwner) {
+              // Detect entity type - use shouldTreatAsEntity which checks if name looks like a person
+              const attomType = property.ownership.ownerType || "individual";
+              const detectedType = shouldTreatAsEntity(attomType, property.ownership.ownerName) 
+                ? "entity" 
+                : "individual";
+              const newOwner = await storage.createOwner({
+                name: property.ownership.ownerName,
+                type: detectedType,
+                primaryAddress: property.ownership.mailingAddress || `${property.address.line1}, ${property.address.city}, ${property.address.state} ${property.address.zip}`,
               });
+              ownerId = newOwner.id;
             }
+
+            if (ownerId) {
+              const existingProperty = (await storage.searchProperties(property.address.line1))[0];
+              if (!existingProperty) {
+                await storage.createProperty({
+                  address: property.address.line1,
+                  city: property.address.city,
+                  state: property.address.state,
+                  zipCode: property.address.zip,
+                  apn: property.parcel?.apn || "",
+                  propertyType: (property.building?.propertyType || "").toLowerCase().includes("commercial") ? "commercial" : 
+                                (property.building?.propertyType || "").toLowerCase().includes("industrial") ? "industrial" : "other",
+                  sqFt: property.building?.sqft || 0,
+                  yearBuilt: property.building?.yearBuilt || 0,
+                  assessedValue: property.assessment?.assessedValue || 0,
+                  ownerId,
+                });
+              }
+            }
+          } else {
+            console.log(`[AUTO-IMPORT] Skipping owner creation - no owner info available from ${propertySource}`);
           }
         }
       }
