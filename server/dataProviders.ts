@@ -2,6 +2,7 @@ import pLimit from "p-limit";
 import pRetry from "p-retry";
 import * as PacificEast from "./providers/PacificEastProvider";
 import * as Perplexity from "./providers/PerplexityProvider";
+import * as HomeHarvest from "./providers/HomeHarvestProvider";
 import { OpenMartProvider, OpenMartBusiness, OpenMartSearchParams } from "./providers/OpenMartProvider";
 import { ApifyStartupInvestorsProvider, InvestorProfile, ApifyInvestorSearchParams } from "./providers/ApifyStartupInvestorsProvider";
 import { parseFromDescription, toAttomQuery, toAttomSplitQuery, isValidForSearch, AddressComponents } from "./addressNormalizer";
@@ -2616,6 +2617,77 @@ export class DataProviderManager {
       pricing?.costPerCall || 0.08,
       async () => {
         return this.attom!.searchByAddress(normalizedAddress);
+      }
+    );
+  }
+
+  async searchPropertyViaHomeHarvest(address: string): Promise<AttomPropertyData | null> {
+    console.log(`[HomeHarvest] Searching property: "${address}"`);
+    
+    // Check cache first
+    const cacheKey = generateCacheKey(CachePrefix.PROPERTY, 'homeharvest', address);
+    const pricing = getProviderPricing('homeharvest');
+    
+    return withCache<AttomPropertyData>(
+      'homeharvest',
+      cacheKey,
+      CacheTTL.PROPERTY_DEFAULT,
+      pricing?.costPerCall || 0, // HomeHarvest is FREE
+      async () => {
+        const result = await HomeHarvest.lookupProperty(address);
+        
+        if (!result.success || !result.data) {
+          console.log(`[HomeHarvest] No property found for: "${address}"`);
+          return null;
+        }
+        
+        const data = result.data;
+        
+        // Convert HomeHarvest data to ATTOM-compatible format
+        const attomData: AttomPropertyData = {
+          attomId: "",
+          address: {
+            line1: data.address.street || data.address.fullAddress,
+            city: data.address.city,
+            state: data.address.state,
+            zip: data.address.zipCode,
+            county: "",
+          },
+          parcel: {
+            apn: "",
+            fips: "",
+          },
+          ownership: {
+            ownerName: "", // HomeHarvest doesn't provide owner info
+            ownerType: "",
+            mailingAddress: undefined,
+          },
+          assessment: {
+            assessedValue: data.pricing.taxAssessedValue || 0,
+            marketValue: data.pricing.estimatedValue || data.pricing.listPrice || 0,
+            taxAmount: 0,
+            taxYear: new Date().getFullYear(),
+          },
+          building: {
+            yearBuilt: data.property.yearBuilt || 0,
+            sqft: data.property.sqft || 0,
+            bedrooms: data.property.beds || 0,
+            bathrooms: data.property.baths || 0,
+            propertyType: data.property.propertyType || data.property.style || "",
+          },
+          sales: data.pricing.soldPrice ? [{
+            saleDate: data.listing.soldDate || data.listing.lastSoldDate || "",
+            saleAmount: data.pricing.soldPrice,
+            saleType: "arm's length",
+          }] : [],
+          avm: data.pricing.estimatedValue ? {
+            value: data.pricing.estimatedValue,
+            confidence: 70, // Default confidence for HomeHarvest data
+          } : undefined,
+        };
+        
+        console.log(`[HomeHarvest] Found property: ${data.address.fullAddress} (sqft: ${data.property.sqft}, yearBuilt: ${data.property.yearBuilt})`);
+        return attomData;
       }
     );
   }
