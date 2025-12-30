@@ -90,7 +90,7 @@ export interface HomeHarvestSearchResult {
 }
 
 const SCRIPT_PATH = path.join(__dirname, "../python/homeharvest_lookup.py");
-const TIMEOUT_MS = 30000;
+const TIMEOUT_MS = 90000; // 90 seconds to allow for retry logic with exponential backoff
 
 function runPythonScript(args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {

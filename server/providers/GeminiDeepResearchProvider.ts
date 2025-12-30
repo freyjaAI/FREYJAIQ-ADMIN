@@ -441,6 +441,7 @@ If you cannot find certain information, use null for that field. Always provide 
     const jsonMatch = textContent.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       console.log("Gemini Property Research: Could not extract JSON from response");
+      console.log("Gemini raw response (first 500 chars):", textContent.substring(0, 500));
       return null;
     }
 

@@ -7,7 +7,75 @@ Returns JSON to stdout for parsing by the Node.js process
 
 import sys
 import json
+import time
+import signal
+import threading
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from homeharvest import scrape_property
+
+
+# Timeout for each scrape attempt (in seconds)
+SCRAPE_TIMEOUT_SECONDS = 20
+
+
+def scrape_with_timeout(location: str, listing_type=None, extra_property_data: bool = True, timeout_seconds: int = SCRAPE_TIMEOUT_SECONDS):
+    """
+    Scrape property with a timeout to prevent hanging.
+    """
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(
+            scrape_property,
+            location=location,
+            listing_type=listing_type,
+            extra_property_data=extra_property_data,
+        )
+        try:
+            return future.result(timeout=timeout_seconds)
+        except FuturesTimeoutError:
+            raise TimeoutError(f"Scrape timed out after {timeout_seconds}s")
+
+
+def scrape_with_retry(location: str, listing_type=None, extra_property_data: bool = True, max_retries: int = 3):
+    """
+    Scrape property with retry logic for rate limiting (429 errors).
+    Uses exponential backoff between retries.
+    """
+    retries = 0
+    last_error = None
+    
+    while retries < max_retries:
+        try:
+            return scrape_with_timeout(
+                location=location,
+                listing_type=listing_type,
+                extra_property_data=extra_property_data,
+                timeout_seconds=SCRAPE_TIMEOUT_SECONDS,
+            )
+        except TimeoutError as e:
+            # Timeout - likely rate limited or blocked
+            wait_time = (2 ** retries) * 3  # 3s, 6s, 12s
+            print(f"Timeout. Waiting {wait_time}s before retry {retries + 1}/{max_retries}", file=sys.stderr)
+            time.sleep(wait_time)
+            retries += 1
+            last_error = e
+        except Exception as e:
+            error_str = str(e).lower()
+            last_error = e
+            
+            # Check for rate limit or auth errors
+            if "429" in error_str or "forbidden" in error_str or "authentication" in error_str or "too many" in error_str:
+                wait_time = (2 ** retries) * 3  # 3s, 6s, 12s
+                print(f"Rate limited. Waiting {wait_time}s before retry {retries + 1}/{max_retries}", file=sys.stderr)
+                time.sleep(wait_time)
+                retries += 1
+            else:
+                # Non-rate-limit error, don't retry
+                raise e
+    
+    # All retries exhausted - provide helpful error message
+    if isinstance(last_error, TimeoutError):
+        raise Exception("Realtor.com is not responding (likely rate limited). Try again later.")
+    raise last_error if last_error else Exception("Max retries exceeded - Realtor.com may be rate limiting requests")
 
 
 def lookup_property_by_address(address: str) -> dict:
@@ -16,10 +84,11 @@ def lookup_property_by_address(address: str) -> dict:
     Returns property data in a standardized format.
     """
     try:
-        properties = scrape_property(
+        properties = scrape_with_retry(
             location=address,
             listing_type=None,
             extra_property_data=True,
+            max_retries=3,
         )
         
         if properties.empty:
@@ -107,9 +176,11 @@ def search_properties_by_location(location: str, listing_type: str = "for_sale",
         
         lt = listing_type_map.get(listing_type, "for_sale")
         
-        properties = scrape_property(
+        properties = scrape_with_retry(
             location=location,
             listing_type=lt,
+            extra_property_data=False,
+            max_retries=3,
         )
         
         if properties.empty:
