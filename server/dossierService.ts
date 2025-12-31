@@ -662,6 +662,82 @@ export async function runContactWaterfall(name: string, address?: string): Promi
   const firstName = nameParts[0] || "";
   const lastName = nameParts.slice(1).join(" ") || "";
 
+  // Parse address components for Apify
+  let city = "";
+  let state = "";
+  let zip = "";
+  if (address) {
+    const parts = address.split(",").map(p => p.trim());
+    if (parts.length >= 2) {
+      const stateZip = parts[parts.length - 1].split(" ");
+      state = stateZip[0] || "";
+      zip = stateZip[1] || "";
+      city = parts[parts.length - 2] || "";
+    }
+  }
+
+  // Step 1: Try Apify Skip Trace FIRST (cheap $0.03, rich data)
+  const apifyApiToken = process.env.APIFY_API_TOKEN;
+  if (apifyApiToken) {
+    try {
+      console.log(`[Waterfall] Trying Apify Skip Trace for ${name}`);
+      const ApifySkipTrace = await import("./providers/ApifySkipTraceProvider");
+      const apifyResult = await ApifySkipTrace.skipTraceIndividual(name, address || "", city, state, zip);
+      
+      if (apifyResult) {
+        result.providersUsed.push("apify_skip_trace");
+        trackProviderCall("apify_skip_trace");
+        
+        // Add phones (up to 3)
+        for (const phone of apifyResult.phones.slice(0, 3)) {
+          result.contacts.push({
+            type: "phone",
+            value: phone.number,
+            source: "apify_skip_trace",
+            confidence: phone.type === "Wireless" ? 90 : 80,
+          });
+        }
+        
+        // Add emails (up to 2)
+        for (const email of apifyResult.emails.slice(0, 2)) {
+          result.contacts.push({
+            type: "email",
+            value: email.email,
+            source: "apify_skip_trace",
+            confidence: 85,
+          });
+        }
+        
+        // Capture rich person data
+        result.personData = {
+          age: apifyResult.age ? parseInt(apifyResult.age) : undefined,
+          birthDate: apifyResult.born,
+          relatives: apifyResult.relatives.map(r => ({ name: r.name, age: r.age ? parseInt(r.age) : undefined })),
+          associates: apifyResult.associates.map(a => ({ name: a.name, age: a.age ? parseInt(a.age) : undefined })),
+          previousAddresses: apifyResult.previousAddresses.map(a => ({
+            address: a.streetAddress,
+            city: a.city,
+            state: a.state,
+            zip: a.postalCode,
+          })),
+        };
+        
+        result.primaryProvider = "apify_skip_trace";
+        
+        // If we got at least 1 phone and 1 email, we're done
+        const hasPhone = result.contacts.some(c => c.type === "phone");
+        const hasEmail = result.contacts.some(c => c.type === "email");
+        if (hasPhone && hasEmail) {
+          console.log(`[Waterfall] Apify provided complete contacts, stopping early`);
+          return result;
+        }
+      }
+    } catch (err) {
+      console.error("[Waterfall] Apify Skip Trace failed:", err);
+    }
+  }
+
+  // Step 2: Try Melissa (cheap $0.02, good for phone/email append)
   try {
     console.log(`[Waterfall] Trying Melissa Personator for ${name}`);
     const melissaResult = await dataProviders.lookupPerson({ name, address });
