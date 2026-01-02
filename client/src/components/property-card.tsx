@@ -1,13 +1,26 @@
 import { Link, useLocation } from "wouter";
-import { Building, MapPin, Calendar, DollarSign, ChevronRight, Home } from "lucide-react";
+import { Building, MapPin, Calendar, DollarSign, ChevronRight, Home, Percent, Landmark } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { RiskBadge } from "@/components/risk-badge";
 import type { Property } from "@shared/schema";
 
+interface MortgageData {
+  interestRate?: number;
+  interestRateType?: string;
+  loanAmount?: number;
+  lenderName?: string;
+  loanType?: string;
+  loanPurpose?: string;
+  originationDate?: string;
+  maturityDate?: string;
+  termInMonths?: number;
+  loanPosition?: string;
+}
+
 interface PropertyCardProps {
-  property: Property;
+  property: Property & { mortgage?: MortgageData };
   showOwnerLink?: boolean;
   compact?: boolean;
 }
@@ -146,6 +159,40 @@ export function PropertyCard({
               <span className="font-medium">
                 {formatCurrency(property.lastSalePrice)}
               </span>
+            </div>
+          )}
+
+          {property.mortgage && property.mortgage.loanAmount && property.mortgage.loanAmount > 0 && (
+            <div className="p-3 bg-muted/50 rounded-md space-y-2">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <Landmark className="h-4 w-4 text-muted-foreground" />
+                <span>Mortgage Details</span>
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                {property.mortgage.interestRate !== undefined && property.mortgage.interestRate > 0 && (
+                  <div className="flex items-center gap-2">
+                    <Percent className="h-3 w-3 text-muted-foreground" />
+                    <div>
+                      <div className="font-medium">{property.mortgage.interestRate}%</div>
+                      <div className="text-xs text-muted-foreground">
+                        {property.mortgage.interestRateType || "Rate"}
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <DollarSign className="h-3 w-3 text-muted-foreground" />
+                  <div>
+                    <div className="font-medium">{formatCurrency(property.mortgage.loanAmount)}</div>
+                    <div className="text-xs text-muted-foreground">Loan Amount</div>
+                  </div>
+                </div>
+              </div>
+              {property.mortgage.lenderName && (
+                <div className="text-xs text-muted-foreground">
+                  Lender: {property.mortgage.lenderName}
+                </div>
+              )}
             </div>
           )}
 
