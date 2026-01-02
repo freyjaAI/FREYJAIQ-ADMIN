@@ -467,27 +467,31 @@ export class AttomDataProvider {
       }
 
       const prop = data.property[0];
-      const mortgage = prop.sale?.mortgage;
+      // ATTOM detailmortgage returns mortgage at prop.mortgage (not prop.sale.mortgage)
+      const mortgage = prop.mortgage;
       
       if (!mortgage) {
         console.log("[ATTOM Mortgage] No mortgage data on property");
         return null;
       }
 
-      // Get the most recent/primary mortgage (first position preferred)
-      const firstMortgage = mortgage.FirstConcurrent || mortgage;
+      // Extract lender name from lender object or direct field
+      const lenderName = mortgage.lender?.lastname || 
+                         mortgage.lender?.fullname || 
+                         mortgage.lenderName || 
+                         mortgage.lenderFullName;
       
       const result: AttomMortgageData = {
-        loanAmount: firstMortgage.amount || 0,
-        interestRate: firstMortgage.interestRate || firstMortgage.interestRatePercent || undefined,
-        interestRateType: firstMortgage.interestRateType || firstMortgage.loanRateType || undefined,
-        lenderName: firstMortgage.lenderName || firstMortgage.lenderFullName || undefined,
-        loanType: firstMortgage.loanType || firstMortgage.loanTypeCode || undefined,
-        loanPurpose: firstMortgage.loanPurpose || undefined,
-        originationDate: firstMortgage.originationDate || prop.sale?.saleTransDate || undefined,
-        maturityDate: firstMortgage.dueDate || undefined,
-        term: firstMortgage.termInMonths || firstMortgage.term || undefined,
-        loanPosition: firstMortgage.loanPosition || "First",
+        loanAmount: mortgage.amount || 0,
+        interestRate: mortgage.interestrate || mortgage.interestRate || undefined,
+        interestRateType: mortgage.interestratetype || mortgage.interestRateType || undefined,
+        lenderName: lenderName || undefined,
+        loanType: mortgage.loantypecode || mortgage.loanType || undefined,
+        loanPurpose: mortgage.loanPurpose || undefined,
+        originationDate: mortgage.date || prop.sale?.saleTransDate || undefined,
+        maturityDate: mortgage.duedate || mortgage.dueDate || undefined,
+        term: mortgage.term || undefined,
+        loanPosition: "First",
         recordingDate: prop.sale?.saleRecDate || undefined,
         documentNumber: prop.sale?.documentNumber || undefined,
       };
