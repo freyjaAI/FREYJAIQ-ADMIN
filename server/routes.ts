@@ -2289,10 +2289,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(404).json({ message: "Owner not found" });
       }
 
-      const properties = await storage.getPropertiesByOwner(owner.id);
+      const rawProperties = await storage.getPropertiesByOwner(owner.id);
       const contacts = await storage.getContactsByOwner(owner.id);
       const legalEvents = await storage.getLegalEventsByOwner(owner.id);
       const llcLinks = await storage.getLlcLinksByOwner(owner.id);
+
+      // Enrich properties with mortgage data (parallel fetching, uses cache)
+      const properties = await Promise.all(
+        rawProperties.map(async (prop) => {
+          if (!prop.address) return prop;
+          const fullAddress = `${prop.address}${prop.city ? `, ${prop.city}` : ""}${prop.state ? `, ${prop.state}` : ""}`;
+          try {
+            const mortgage = await dataProviders.getMortgageDetails(fullAddress);
+            if (mortgage && mortgage.loanAmount > 0) {
+              return { ...prop, mortgage };
+            }
+          } catch (err) {
+            // Silently fail - mortgage enrichment is optional
+          }
+          return prop;
+        })
+      );
 
       // Enrich LLC links with owner data
       const linkedLlcs = await Promise.all(
