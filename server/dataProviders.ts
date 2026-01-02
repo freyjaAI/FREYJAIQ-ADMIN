@@ -52,6 +52,22 @@ interface AttomPropertyData {
     value: number;
     confidence: number;
   };
+  mortgage?: AttomMortgageData;
+}
+
+export interface AttomMortgageData {
+  loanAmount: number;
+  interestRate?: number;
+  interestRateType?: "Fixed" | "ARM" | "Variable" | string;
+  lenderName?: string;
+  loanType?: string;
+  loanPurpose?: string;
+  originationDate?: string;
+  maturityDate?: string;
+  term?: number; // in months
+  loanPosition?: "First" | "Second" | "Third" | string;
+  recordingDate?: string;
+  documentNumber?: string;
 }
 
 interface OpenCorporatesCompany {
@@ -424,6 +440,63 @@ export class AttomDataProvider {
     } catch (error) {
       console.error("ATTOM sales history error:", error);
       return [];
+    }
+  }
+
+  async getMortgageDetails(address: string): Promise<AttomMortgageData | null> {
+    try {
+      const parsed = parseFromDescription(address);
+      let params: Record<string, string>;
+      
+      if (parsed && isValidForSearch(parsed)) {
+        const split = toAttomSplitQuery(parsed);
+        params = {
+          address1: split.address1,
+          address2: split.address2,
+        };
+      } else {
+        params = { address };
+      }
+      
+      console.log(`[ATTOM Mortgage] Fetching mortgage details for: ${address}`);
+      const data = await this.request<any>("/propertyapi/v1.0.0/property/detailmortgage", params);
+
+      if (!data.property?.[0]) {
+        console.log("[ATTOM Mortgage] No property found");
+        return null;
+      }
+
+      const prop = data.property[0];
+      const mortgage = prop.sale?.mortgage;
+      
+      if (!mortgage) {
+        console.log("[ATTOM Mortgage] No mortgage data on property");
+        return null;
+      }
+
+      // Get the most recent/primary mortgage (first position preferred)
+      const firstMortgage = mortgage.FirstConcurrent || mortgage;
+      
+      const result: AttomMortgageData = {
+        loanAmount: firstMortgage.amount || 0,
+        interestRate: firstMortgage.interestRate || firstMortgage.interestRatePercent || undefined,
+        interestRateType: firstMortgage.interestRateType || firstMortgage.loanRateType || undefined,
+        lenderName: firstMortgage.lenderName || firstMortgage.lenderFullName || undefined,
+        loanType: firstMortgage.loanType || firstMortgage.loanTypeCode || undefined,
+        loanPurpose: firstMortgage.loanPurpose || undefined,
+        originationDate: firstMortgage.originationDate || prop.sale?.saleTransDate || undefined,
+        maturityDate: firstMortgage.dueDate || undefined,
+        term: firstMortgage.termInMonths || firstMortgage.term || undefined,
+        loanPosition: firstMortgage.loanPosition || "First",
+        recordingDate: prop.sale?.saleRecDate || undefined,
+        documentNumber: prop.sale?.documentNumber || undefined,
+      };
+
+      console.log(`[ATTOM Mortgage] Found mortgage: $${result.loanAmount}, rate: ${result.interestRate || 'N/A'}%, lender: ${result.lenderName || 'Unknown'}`);
+      return result;
+    } catch (error) {
+      console.error("[ATTOM Mortgage] Error fetching mortgage details:", error);
+      return null;
     }
   }
 
@@ -2617,6 +2690,28 @@ export class DataProviderManager {
       pricing?.costPerCall || 0.08,
       async () => {
         return this.attom!.searchByAddress(normalizedAddress);
+      }
+    );
+  }
+
+  async getMortgageDetails(address: string): Promise<AttomMortgageData | null> {
+    if (!this.attom) {
+      console.warn("ATTOM provider not configured");
+      return null;
+    }
+    const normalizedAddress = this.normalizeAddressForAttom(address);
+    
+    // Check cache first - mortgage data changes infrequently
+    const cacheKey = generateCacheKey(CachePrefix.PROPERTY, 'attom_mortgage', normalizedAddress);
+    const pricing = getProviderPricing('attom');
+    
+    return withCache<AttomMortgageData>(
+      'attom',
+      cacheKey,
+      CacheTTL.PROPERTY_DEFAULT * 2, // Mortgage data is stable, cache longer
+      pricing?.costPerCall || 0.08,
+      async () => {
+        return this.attom!.getMortgageDetails(normalizedAddress);
       }
     );
   }

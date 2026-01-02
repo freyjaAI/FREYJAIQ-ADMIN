@@ -689,6 +689,37 @@ async function enrichPropertyWithHomeHarvest(address: string, attomData: any): P
   }
 }
 
+// Enrich property data with ATTOM mortgage details (separate API call)
+async function enrichPropertyWithMortgage(address: string, propertyData: any): Promise<any> {
+  if (!propertyData) return null;
+  
+  // Skip if we already have mortgage data
+  if (propertyData.mortgage && propertyData.mortgage.loanAmount > 0) {
+    console.log(`[MORTGAGE SKIP] Already have mortgage data for "${address}"`);
+    return propertyData;
+  }
+  
+  try {
+    console.log(`[MORTGAGE ENRICHMENT] Fetching mortgage details for "${address}"`);
+    trackProviderCall('attom', false); // Track as separate ATTOM call
+    
+    const mortgage = await dataProviders.getMortgageDetails(address);
+    
+    if (mortgage && mortgage.loanAmount > 0) {
+      const enriched = { ...propertyData };
+      enriched.mortgage = mortgage;
+      console.log(`[MORTGAGE SUCCESS] Found mortgage: $${mortgage.loanAmount}, rate: ${mortgage.interestRate || 'N/A'}%`);
+      return enriched;
+    }
+    
+    console.log(`[MORTGAGE] No mortgage data found for "${address}"`);
+    return propertyData;
+  } catch (error) {
+    console.error(`[MORTGAGE ERROR] Failed to fetch for "${address}":`, error);
+    return propertyData;
+  }
+}
+
 // Check if owner has complete enrichment and return cached data if available
 async function getCachedOwnerEnrichment(
   ownerId: string,
@@ -4198,6 +4229,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       // Enrich with HomeHarvest if ATTOM data is incomplete
       if (address && typeof address === "string") {
         result = await enrichPropertyWithHomeHarvest(address, result);
+      }
+
+      // Enrich with mortgage details (interest rate, loan info)
+      if (address && typeof address === "string") {
+        result = await enrichPropertyWithMortgage(address, result);
       }
 
       // Cache the result for future lookups
