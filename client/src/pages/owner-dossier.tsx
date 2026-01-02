@@ -1978,12 +1978,11 @@ export default function OwnerDossierPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <StaggerContainer className="space-y-3">
+                  <StaggerContainer className="space-y-4">
                     {properties.map((property) => (
                       <StaggerItem key={property.id}>
                         <PropertyCard
                           property={property}
-                          compact
                           showOwnerLink={false}
                         />
                       </StaggerItem>
