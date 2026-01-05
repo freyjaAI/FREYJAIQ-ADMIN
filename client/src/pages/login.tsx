@@ -106,6 +106,13 @@ export default function Login() {
                 {isLoggingIn ? "Signing in..." : "Sign In"}
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
+              
+              <p className="text-center text-sm text-muted-foreground">
+                Don't have an account?{" "}
+                <Link href="/signup" className="text-primary hover:underline" data-testid="link-signup">
+                  Sign up
+                </Link>
+              </p>
             </form>
           </CardContent>
         </Card>

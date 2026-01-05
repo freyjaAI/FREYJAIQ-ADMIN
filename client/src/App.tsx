@@ -32,11 +32,13 @@ import SettingsPage from "@/pages/settings";
 import AdminBugReportsPage from "@/pages/admin-bug-reports";
 import AdminApiUsagePage from "@/pages/admin-api-usage";
 import AdminFirmsTiersPage from "@/pages/admin-firms-tiers";
+import SignupPage from "@/pages/signup";
 import MapView from "@/pages/map-view";
 import BulkEnrichmentPage from "@/pages/bulk-enrichment";
 import { BugReportWidget } from "@/components/bug-report-widget";
 import { KeyboardShortcutsModal } from "@/components/keyboard-shortcuts-modal";
 import { CookieConsent } from "@/components/cookie-consent";
+import { NoFirmAccess } from "@/components/no-firm-access";
 
 function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
   const style = {
@@ -72,7 +74,7 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
 }
 
 function Router() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
   const [location] = useLocation();
 
   if (isLoading) {
@@ -91,11 +93,19 @@ function Router() {
       <Switch>
         <Route path="/" component={Landing} />
         <Route path="/login" component={LoginPage} />
+        <Route path="/signup" component={SignupPage} />
         <Route path="/privacy" component={PrivacyPolicyPage} />
         <Route path="/terms" component={TermsOfServicePage} />
         <Route component={Landing} />
       </Switch>
     );
+  }
+
+  const isAdmin = user?.role === "admin";
+  const hasFirmAccess = !!user?.firmId || isAdmin;
+
+  if (!hasFirmAccess) {
+    return <NoFirmAccess />;
   }
 
   return (

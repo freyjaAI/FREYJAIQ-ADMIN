@@ -9,6 +9,8 @@ interface AuthUser {
   lastName: string | null;
   role: string | null;
   profileImageUrl: string | null;
+  firmId: string | null;
+  firmName: string | null;
 }
 
 export function useAuth() {
@@ -33,7 +35,7 @@ export function useAuth() {
   });
 
   const registerMutation = useMutation({
-    mutationFn: async (data: { email: string; password: string; firstName?: string; lastName?: string }) => {
+    mutationFn: async (data: { email: string; password: string; firstName?: string; lastName?: string; signupCode: string }) => {
       const res = await apiRequest("POST", "/api/auth/register", data);
       const json = await res.json();
       if (!res.ok) {
