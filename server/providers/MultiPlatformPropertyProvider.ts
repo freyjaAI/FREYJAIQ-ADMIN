@@ -14,6 +14,14 @@
 
 import { lookupProperty as homeHarvestLookup, searchProperties as homeHarvestSearch } from "./HomeHarvestProvider";
 import type { HomeHarvestPropertyData, HomeHarvestSearchResult } from "./HomeHarvestProvider";
+import { Tier } from "@shared/schema";
+import { 
+  getProviderSequence, 
+  checkOwnershipSufficiency,
+  ProviderConfig,
+  shouldAttemptLlcUnmasking
+} from "../tierProviderConfig";
+import { trackProviderCall } from "../providerConfig";
 
 export interface PropertyData {
   address: {
@@ -167,6 +175,174 @@ export async function lookupProperty(address: string): Promise<MultiPlatformResu
     sources,
     errors: errors.length > 0 ? errors : undefined,
   };
+}
+
+export interface TierAwarePropertyResult extends MultiPlatformResult {
+  ownerName?: string | null;
+  ownerType?: 'person' | 'llc' | 'unknown';
+  needsLlcUnmasking?: boolean;
+  providersUsed: string[];
+}
+
+/**
+ * Tier-aware property lookup with waterfall logic
+ * Uses the provider sequence defined for the user's tier
+ * Stops calling more expensive providers once sufficient data is found
+ */
+export async function lookupPropertyWithTier(
+  address: string,
+  tier: Tier | null | undefined
+): Promise<TierAwarePropertyResult> {
+  console.log(`[MultiPlatform] Tier-aware lookup for: ${address}`);
+  
+  const providerSequence = getProviderSequence(tier, 'propertyOwnership');
+  const sources: string[] = [];
+  const errors: string[] = [];
+  const providersUsed: string[] = [];
+  
+  let bestResult: PropertyData | null = null;
+  let ownerName: string | null = null;
+  let ownerType: 'person' | 'llc' | 'unknown' = 'unknown';
+  
+  for (const provider of providerSequence) {
+    console.log(`[MultiPlatform] Trying provider: ${provider.name} (cost: $${provider.costPerCall})`);
+    providersUsed.push(provider.key);
+    
+    try {
+      let result: { property: PropertyData | null; owner?: string } | null = null;
+      
+      switch (provider.key) {
+        case 'homeharvest':
+          const hhResult = await homeHarvestLookup(address);
+          if (hhResult.success && hhResult.data) {
+            result = { property: fromHomeHarvest(hhResult.data) };
+            trackProviderCall('homeharvest', false);
+          }
+          break;
+          
+        case 'attom':
+          result = await tryAttomProvider(address);
+          if (result) trackProviderCall('attom', false);
+          break;
+          
+        case 'realestateapi':
+          result = await tryRealEstateApiProvider(address);
+          if (result) trackProviderCall('realestateapi', false);
+          break;
+          
+        case 'sec_edgar':
+          continue;
+          
+        case 'opencorporates':
+          if (ownerName && shouldAttemptLlcUnmasking(ownerName)) {
+            console.log(`[MultiPlatform] LLC detected: ${ownerName}, would call OpenCorporates`);
+          }
+          continue;
+          
+        default:
+          console.log(`[MultiPlatform] Unknown provider: ${provider.key}`);
+          continue;
+      }
+      
+      if (result?.property) {
+        sources.push(provider.name);
+        bestResult = result.property;
+        
+        if (result.owner) {
+          ownerName = result.owner;
+          ownerType = shouldAttemptLlcUnmasking(result.owner) ? 'llc' : 'person';
+        }
+        
+        const sufficiencyCheck = { ownerName: result.owner };
+        if (checkOwnershipSufficiency(sufficiencyCheck) && provider.stopOnSuccess) {
+          console.log(`[MultiPlatform] Sufficient data from ${provider.name}, stopping waterfall`);
+          break;
+        }
+      }
+    } catch (error) {
+      const errorMsg = `${provider.name}: ${error instanceof Error ? error.message : String(error)}`;
+      console.error(`[MultiPlatform] ${errorMsg}`);
+      errors.push(errorMsg);
+    }
+  }
+  
+  return {
+    success: bestResult !== null,
+    property: bestResult,
+    sources,
+    errors: errors.length > 0 ? errors : undefined,
+    ownerName,
+    ownerType,
+    needsLlcUnmasking: ownerType === 'llc',
+    providersUsed,
+  };
+}
+
+async function tryAttomProvider(address: string): Promise<{ property: PropertyData | null; owner?: string } | null> {
+  try {
+    const { dataProviders } = await import("../dataProviders");
+    
+    const result = await dataProviders.searchPropertyByAddress(address);
+    if (!result) return null;
+    
+    const lastSale = result.sales && result.sales.length > 0 ? result.sales[0] : null;
+    
+    return {
+      property: {
+        address: {
+          street: result.address.line1 || '',
+          city: result.address.city || '',
+          state: result.address.state || '',
+          zipCode: result.address.zip || '',
+          fullAddress: address,
+        },
+        property: {
+          propertyType: result.building?.propertyType || '',
+          beds: result.building?.bedrooms || null,
+          baths: result.building?.bathrooms || null,
+          sqft: result.building?.sqft || null,
+          lotSqft: null,
+          yearBuilt: result.building?.yearBuilt || null,
+          stories: null,
+        },
+        pricing: {
+          listPrice: null,
+          soldPrice: lastSale?.saleAmount || null,
+          estimatedValue: result.avm?.value || result.assessment?.marketValue || null,
+          pricePerSqft: null,
+        },
+        listing: {
+          status: '',
+          listDate: null,
+          soldDate: lastSale?.saleDate || null,
+          daysOnMarket: null,
+          mlsId: null,
+        },
+        location: {
+          latitude: null,
+          longitude: null,
+        },
+        source: "ATTOM",
+        sourceUrl: null,
+      },
+      owner: result.ownership?.ownerName || undefined,
+    };
+  } catch (error) {
+    console.error("[MultiPlatform] ATTOM error:", error);
+    return null;
+  }
+}
+
+async function tryRealEstateApiProvider(address: string): Promise<{ property: PropertyData | null; owner?: string } | null> {
+  try {
+    const { isConfigured } = await import("./RealEstateApiProvider");
+    if (!isConfigured()) return null;
+    
+    return null;
+  } catch (error) {
+    console.error("[MultiPlatform] RealEstateAPI error:", error);
+    return null;
+  }
 }
 
 /**
