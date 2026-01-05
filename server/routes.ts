@@ -1756,12 +1756,35 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const stats = apiUsageTracker.getAllStats();
       const summary = apiUsageTracker.getSummary();
       
+      // Enhance stats with cost information from providerConfig
+      const providersWithCosts = stats.map(stat => {
+        const pricing = getProviderPricing(stat.provider);
+        const costPerCall = pricing?.costPerCall || 0;
+        const totalCost = (stat.dailyCount + stat.monthlyCount) * costPerCall;
+        
+        return {
+          ...stat,
+          costPerCall,
+          dailyCost: stat.dailyCount * costPerCall,
+          monthlyCost: stat.monthlyCount * costPerCall,
+          totalCost,
+          displayName: pricing?.displayName || stat.provider,
+          isFree: costPerCall === 0,
+        };
+      });
+      
+      // Calculate overall cost summary
+      const totalDailyCost = providersWithCosts.reduce((sum, p) => sum + (p.dailyCount * p.costPerCall), 0);
+      const totalMonthlyCost = providersWithCosts.reduce((sum, p) => sum + (p.monthlyCount * p.costPerCall), 0);
+      
       res.json({
-        providers: stats,
+        providers: providersWithCosts,
         summary: {
           totalCalls: summary.totalCalls,
           totalRecords: summary.totalRecords,
           trackingStarted: summary.trackingStarted,
+          totalDailyCost: Math.round(totalDailyCost * 1000) / 1000,
+          totalMonthlyCost: Math.round(totalMonthlyCost * 1000) / 1000,
         },
         limits: {
           data_axle_people: { totalQuota: 3000, dailyLimit: 1000, hourlyLimit: 100 },
