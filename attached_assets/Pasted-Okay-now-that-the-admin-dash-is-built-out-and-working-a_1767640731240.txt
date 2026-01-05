@@ -1,0 +1,30 @@
+Okay - now that the admin dash is built out and working and legit I need to start mapping out a two tiered system for actual users that we will be starting to signup clients that work for firms.
+
+We need to leave the admin dash as is.
+
+I think I would like to have it where I am able to create a "firm" within the admin dash. The firm will be the company that we sign the contract with. When "users" sign up to the software, they select the firm that they are working under, and that firm is associated with the tier that they have agreed to.
+
+These tiers will also have limits which mean total calls per month for the entire firm, but also limits per user.
+
+I would like to be able to create the firm, the limits, and any other admin information from the admin dash, and then users will be able to sign up / create their own accounts through a specialized code for their firm from the homepage.
+
+Tier one: this will include:
+- ALL / ANY owner(s) of property (whether its an individual, a corporation, a shell company, an officer, etc)
+- relatives & family members (information included in "view person details"
+- ALL contact information, phone numbers, addresses.
+
+API's INCLUDED IN TIER 1 it should use them relatively in this order, this is based on cheapest or free to most expensive, it doesn't need to do this exactly, but this is my best guest at cost efficiency, if it finds proper data, it obviously doesn't need to hit the next / more expensive API:
+
+-home harvest (property / ownership)
+- real estateapi (property / ownership)
+-SEC EDGAR (ownership)
+- Apify (relatives, associates, previous address, phone, contact info, investor data)
+-Data Axle (contact data, information, phone, email)
+-A-leads (contact data, information, phone, email)
+-Pacific (contact data, information, phone, email)
+-USPS (address validation)
+- Google address validation (address validation)
+- Google Gemini - (ai research)
+-Perplexity Sonar - (AI LLC unmasking)
+-open corporates (ONLY HIT THIS IF ABSOLUTELY NEEDED THIS SHOULD BE THE LAST HIT IN THE ENRICHMENT BC ITS MOST EXPENSIVE)
+- Attom (property data / ownership records ONLY, THIS SHOULD BE SECOND TO LAST IN THE WATERFALL, IT SHOULD ONLY HIT THIS IF OTHERS FAIL TO FIND PROPERTY AND OWNER)
