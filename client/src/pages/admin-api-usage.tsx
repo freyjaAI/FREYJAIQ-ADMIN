@@ -12,6 +12,9 @@ import {
   CheckCircle2,
   BarChart3,
   Search,
+  Building2,
+  Users,
+  ChevronRight,
 } from "lucide-react";
 import type { SearchHistory } from "@shared/schema";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -81,6 +84,40 @@ interface ApiUsage {
     totalQuota: number;
     dailyLimit: number;
     hourlyLimit: number;
+  }>;
+}
+
+interface FirmUsageData {
+  period: string;
+  firms: Array<{
+    id: string;
+    name: string;
+    tierName: string;
+    monthlyFirmCallLimit: number | null;
+    monthlyUserCallLimit: number | null;
+    usage: number;
+    usagePercent: number | null;
+  }>;
+}
+
+interface FirmDetailedUsage {
+  period: string;
+  firm: {
+    id: string;
+    name: string;
+    tierName: string;
+    monthlyFirmCallLimit: number | null;
+    monthlyUserCallLimit: number | null;
+  };
+  firmUsage: number;
+  firmUsagePercent: number | null;
+  users: Array<{
+    userId: string;
+    email: string;
+    firstName: string | null;
+    lastName: string | null;
+    usage: number;
+    usagePercent: number | null;
   }>;
 }
 
@@ -194,8 +231,11 @@ function CacheMetricRow({
   );
 }
 
+import { useState } from "react";
+
 export default function AdminApiUsagePage() {
   const { toast } = useToast();
+  const [selectedFirmId, setSelectedFirmId] = useState<string | null>(null);
 
   const { data: providerMetrics, isLoading: metricsLoading } = useQuery<ProviderMetrics>({
     queryKey: ['/api/admin/provider-metrics'],
@@ -215,6 +255,21 @@ export default function AdminApiUsagePage() {
   const { data: dashboardStats } = useQuery<{ recentSearches: SearchHistory[] }>({
     queryKey: ['/api/dashboard/stats'],
     refetchInterval: 30000,
+  });
+  
+  const { data: firmsUsage, isLoading: firmsUsageLoading } = useQuery<FirmUsageData>({
+    queryKey: ['/api/admin/usage/firms'],
+    refetchInterval: 30000,
+  });
+  
+  const { data: firmDetailedUsage, isLoading: firmDetailLoading } = useQuery<FirmDetailedUsage>({
+    queryKey: ['/api/admin/usage/firms', selectedFirmId],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/usage/firms/${selectedFirmId}`);
+      if (!res.ok) throw new Error('Failed to fetch firm usage');
+      return res.json();
+    },
+    enabled: !!selectedFirmId,
   });
 
   const resetCacheMutation = useMutation({
@@ -295,6 +350,7 @@ export default function AdminApiUsagePage() {
               queryClient.invalidateQueries({ queryKey: ['/api/admin/provider-metrics'] });
               queryClient.invalidateQueries({ queryKey: ['/api/admin/cache-stats'] });
               queryClient.invalidateQueries({ queryKey: ['/api/admin/api-usage'] });
+              queryClient.invalidateQueries({ queryKey: ['/api/admin/usage/firms'] });
             }}
             data-testid="button-refresh-stats"
           >
@@ -336,6 +392,10 @@ export default function AdminApiUsagePage() {
           <TabsTrigger value="providers" data-testid="tab-providers">
             <Server className="h-4 w-4 mr-2" />
             Providers
+          </TabsTrigger>
+          <TabsTrigger value="firms" data-testid="tab-firms">
+            <Building2 className="h-4 w-4 mr-2" />
+            Firm Usage
           </TabsTrigger>
           <TabsTrigger value="cache" data-testid="tab-cache">
             <Database className="h-4 w-4 mr-2" />
@@ -380,6 +440,141 @@ export default function AdminApiUsagePage() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="firms" className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle>Firms Usage This Month</CardTitle>
+                <CardDescription>
+                  Monthly API call usage by firm (period: {firmsUsage?.period || 'current'})
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {firmsUsageLoading ? (
+                  <div className="space-y-4">
+                    {[...Array(3)].map((_, i) => (
+                      <Skeleton key={i} className="h-16" />
+                    ))}
+                  </div>
+                ) : firmsUsage?.firms && firmsUsage.firms.length > 0 ? (
+                  <div className="divide-y">
+                    {firmsUsage.firms.map((firm) => (
+                      <div 
+                        key={firm.id} 
+                        className="py-3 cursor-pointer hover-elevate rounded-md px-2"
+                        onClick={() => setSelectedFirmId(firm.id)}
+                        data-testid={`firm-usage-row-${firm.id}`}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <Building2 className="h-4 w-4 text-muted-foreground" />
+                            <span className="font-medium">{firm.name}</span>
+                            <Badge variant="secondary" className="text-xs">
+                              {firm.tierName}
+                            </Badge>
+                          </div>
+                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                        <div className="flex items-center justify-between gap-4">
+                          <div className="flex-1">
+                            <Progress 
+                              value={firm.usagePercent ?? 0} 
+                              className="h-2" 
+                            />
+                          </div>
+                          <span className="text-sm text-muted-foreground min-w-20 text-right">
+                            {firm.usage} / {firm.monthlyFirmCallLimit ?? 'unlimited'}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Building2 className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <p>No firms found</p>
+                    <p className="text-sm">Create firms in the Firms & Tiers page</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+            
+            <Card>
+              <CardHeader>
+                <CardTitle>
+                  {selectedFirmId && firmDetailedUsage ? (
+                    <>User Usage: {firmDetailedUsage.firm.name}</>
+                  ) : (
+                    <>Select a Firm</>
+                  )}
+                </CardTitle>
+                <CardDescription>
+                  {selectedFirmId && firmDetailedUsage ? (
+                    <>Monthly limit per user: {firmDetailedUsage.firm.monthlyUserCallLimit ?? 'unlimited'}</>
+                  ) : (
+                    <>Click a firm to see user-level usage</>
+                  )}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {firmDetailLoading ? (
+                  <div className="space-y-4">
+                    {[...Array(3)].map((_, i) => (
+                      <Skeleton key={i} className="h-12" />
+                    ))}
+                  </div>
+                ) : selectedFirmId && firmDetailedUsage ? (
+                  <div className="divide-y">
+                    {firmDetailedUsage.users.length > 0 ? (
+                      firmDetailedUsage.users.map((user) => (
+                        <div key={user.userId} className="py-3" data-testid={`user-usage-row-${user.userId}`}>
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <Users className="h-4 w-4 text-muted-foreground" />
+                              <span className="font-medium">
+                                {user.firstName || user.lastName 
+                                  ? `${user.firstName || ''} ${user.lastName || ''}`.trim()
+                                  : user.email}
+                              </span>
+                            </div>
+                            {user.usagePercent !== null && user.usagePercent > 80 && (
+                              <Badge variant={user.usagePercent >= 100 ? "destructive" : "secondary"} className="text-xs">
+                                {user.usagePercent >= 100 ? 'Limit Reached' : 'High Usage'}
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center justify-between gap-4">
+                            <div className="flex-1">
+                              <Progress 
+                                value={user.usagePercent ?? 0} 
+                                className="h-2" 
+                              />
+                            </div>
+                            <span className="text-sm text-muted-foreground min-w-20 text-right">
+                              {user.usage} / {firmDetailedUsage.firm.monthlyUserCallLimit ?? 'unlimited'}
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1">{user.email}</p>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                        <p>No users in this firm</p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <p>Select a firm to view user usage</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
 
         <TabsContent value="cache" className="space-y-4">

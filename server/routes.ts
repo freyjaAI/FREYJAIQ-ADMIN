@@ -1704,6 +1704,74 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // GET /api/admin/usage/firms - get all firms usage for a period
+  app.get("/api/admin/usage/firms", isAuthenticated, adminRateLimit, async (req: any, res) => {
+    try {
+      const { period } = req.query;
+      const billingPeriod = period || getCurrentBillingPeriod();
+      
+      const firmsUsage = await storage.getAllFirmsUsage(billingPeriod as string);
+      
+      res.json({
+        period: billingPeriod,
+        firms: firmsUsage.map(({ firm, tier, usage }) => ({
+          id: firm.id,
+          name: firm.name,
+          tierName: tier?.name || "No Tier",
+          monthlyFirmCallLimit: tier?.monthlyFirmCallLimit || null,
+          monthlyUserCallLimit: tier?.monthlyUserCallLimit || null,
+          usage,
+          usagePercent: tier?.monthlyFirmCallLimit 
+            ? Math.round((usage / tier.monthlyFirmCallLimit) * 100) 
+            : null,
+        })),
+      });
+    } catch (error) {
+      console.error("Error fetching firms usage:", error);
+      res.status(500).json({ message: "Failed to fetch firms usage" });
+    }
+  });
+  
+  // GET /api/admin/usage/firms/:firmId - get detailed usage for a firm
+  app.get("/api/admin/usage/firms/:firmId", isAuthenticated, adminRateLimit, async (req: any, res) => {
+    try {
+      const { firmId } = req.params;
+      const { period } = req.query;
+      const billingPeriod = period || getCurrentBillingPeriod();
+      
+      const firmWithTier = await storage.getFirmWithTier(firmId);
+      if (!firmWithTier) {
+        return res.status(404).json({ message: "Firm not found" });
+      }
+      
+      const usageData = await storage.getUsageForFirm(firmId, billingPeriod as string);
+      
+      res.json({
+        period: billingPeriod,
+        firm: {
+          id: firmWithTier.id,
+          name: firmWithTier.name,
+          tierName: firmWithTier.tier?.name || "No Tier",
+          monthlyFirmCallLimit: firmWithTier.tier?.monthlyFirmCallLimit || null,
+          monthlyUserCallLimit: firmWithTier.tier?.monthlyUserCallLimit || null,
+        },
+        firmUsage: usageData.firmUsage,
+        firmUsagePercent: firmWithTier.tier?.monthlyFirmCallLimit 
+          ? Math.round((usageData.firmUsage / firmWithTier.tier.monthlyFirmCallLimit) * 100) 
+          : null,
+        users: usageData.userUsages.map(u => ({
+          ...u,
+          usagePercent: firmWithTier.tier?.monthlyUserCallLimit 
+            ? Math.round((u.usage / firmWithTier.tier.monthlyUserCallLimit) * 100) 
+            : null,
+        })),
+      });
+    } catch (error) {
+      console.error("Error fetching firm usage:", error);
+      res.status(500).json({ message: "Failed to fetch firm usage" });
+    }
+  });
+
   // Admin endpoint to clear LLC cache for specific entities (privacy-protected fix)
   app.post("/api/admin/clear-llc-cache", isAuthenticated, adminRateLimit, async (req: any, res) => {
     try {
