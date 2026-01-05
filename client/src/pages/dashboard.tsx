@@ -8,6 +8,7 @@ import {
   Clock,
   ArrowRight,
   TrendingUp,
+  AlertTriangle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,6 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { FreyjaLoader } from "@/components/freyja-loader";
 import { StatCard } from "@/components/stat-card";
 import { SearchBar } from "@/components/search-bar";
+import { UsageCard, useUsageLimits } from "@/components/usage-card";
 import { useAuth } from "@/hooks/useAuth";
 import type { Owner, Property, SearchHistory } from "@shared/schema";
 
@@ -29,6 +31,7 @@ export default function Dashboard() {
   const [, setLocation] = useLocation();
   const { user } = useAuth();
   const navigate = setLocation;
+  const { limitReached, resetDate } = useUsageLimits();
 
   const { data: stats, isLoading } = useQuery<DashboardStats>({
     queryKey: ["/api/dashboard/stats"],
@@ -39,6 +42,8 @@ export default function Dashboard() {
   });
 
   const handleSearch = (query: string, type: string, personData?: { name: string; address: string; city: string; state: string }) => {
+    if (limitReached) return;
+    
     if (type === "person" && personData) {
       const params = new URLSearchParams({
         q: query,
@@ -79,7 +84,22 @@ export default function Dashboard() {
             <h2 className="heading-3 text-center mb-4">
               Search Properties & Owners
             </h2>
-            <SearchBar onSearch={handleSearch} size="large" />
+            {limitReached ? (
+              <div 
+                className="flex flex-col items-center justify-center py-4 px-6 bg-destructive/10 border border-destructive/30 rounded-lg"
+                data-testid="search-limit-reached"
+              >
+                <AlertTriangle className="h-8 w-8 text-destructive mb-2" />
+                <p className="text-center font-medium text-destructive">
+                  Monthly limit reached
+                </p>
+                <p className="text-center text-sm text-muted-foreground mt-1">
+                  Resets {resetDate}
+                </p>
+              </div>
+            ) : (
+              <SearchBar onSearch={handleSearch} size="large" />
+            )}
           </div>
         </CardContent>
       </Card>
@@ -128,7 +148,9 @@ export default function Dashboard() {
         )}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-6 lg:grid-cols-3">
+        <UsageCard />
+        
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-4">
             <CardTitle className="text-base">Quick Actions</CardTitle>

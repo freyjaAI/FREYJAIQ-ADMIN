@@ -1,0 +1,51 @@
+Update server/tierProviderConfig.ts to add the complete Tier 1 configuration with accurate costs:
+
+1. Add this TIER_CONFIGURATIONS object:
+
+export const TIER_CONFIGURATIONS: Record<string, TierProviderSequence> = {
+  tier_1: {
+    tierName: "Tier 1",
+    propertyOwnershipProviders: [
+      { name: "Home Harvest", key: "home_harvest", costPerCall: 0, stopOnSuccess: true },
+      { name: "RealEstateAPI", key: "real_estate_api", costPerCall: 0, stopOnSuccess: true },
+      { name: "SEC EDGAR", key: "sec_edgar", costPerCall: 0, stopOnSuccess: true },
+      { name: "ATTOM", key: "attom", costPerCall: 0.05, stopOnSuccess: true },
+      { name: "OpenCorporates", key: "open_corporates", costPerCall: 0.10 }
+    ],
+    contactEnrichmentProviders: [
+      { name: "Apify Skip Trace", key: "apify", costPerCall: 0.007, stopOnSuccess: true },
+      { name: "Data Axle", key: "data_axle", costPerCall: 0.01, stopOnSuccess: true },
+      { name: "A-Leads", key: "a_leads", costPerCall: 0.01, stopOnSuccess: true },
+      { name: "Pacific East", key: "pacific_east", costPerCall: 0 }
+    ],
+    addressValidationProviders: [
+      { name: "USPS", key: "usps", costPerCall: 0 },
+      { name: "Google Address", key: "google_address", costPerCall: 0 }
+    ],
+    aiResearchProviders: [
+      { name: "Gemini", key: "gemini", costPerCall: 0.002 },
+      { name: "Perplexity", key: "perplexity", costPerCall: 0 }
+    ]
+  }
+};
+
+2. Add this helper function:
+
+export function getTierProviders(tierId: string, category: ProviderCategory): ProviderConfig[] {
+  const config = TIER_CONFIGURATIONS[tierId] || TIER_CONFIGURATIONS.tier_1;
+  
+  switch (category) {
+    case 'propertyOwnership':
+      return config.propertyOwnershipProviders;
+    case 'contactEnrichment':
+      return config.contactEnrichmentProviders;
+    case 'addressValidation':
+      return config.addressValidationProviders;
+    case 'aiResearch':
+      return config.aiResearchProviders;
+    default:
+      return [];
+  }
+}
+
+3. Export the getTierProviders function so it can be used throughout the app.
