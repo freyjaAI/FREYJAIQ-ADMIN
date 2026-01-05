@@ -212,28 +212,36 @@ export async function lookupPropertyWithTier(
       let result: { property: PropertyData | null; owner?: string } | null = null;
       
       switch (provider.key) {
+        case 'home_harvest':
         case 'homeharvest':
+          // HomeHarvest - FREE property data
           const hhResult = await homeHarvestLookup(address);
           if (hhResult.success && hhResult.data) {
             result = { property: fromHomeHarvest(hhResult.data) };
-            trackProviderCall('homeharvest', false);
+            trackProviderCall('home_harvest', false);
           }
           break;
           
+        case 'real_estate_api':
+        case 'realestateapi':
+          // RealEstateAPI - FREE property ownership data
+          result = await tryRealEstateApiProvider(address);
+          if (result) trackProviderCall('real_estate_api', false);
+          break;
+          
+        case 'sec_edgar':
+          // SEC EDGAR - FREE (more useful for LLC enrichment, skip for property search)
+          continue;
+          
         case 'attom':
+          // ATTOM - $0.05/call - USE AS FALLBACK ONLY
           result = await tryAttomProvider(address);
           if (result) trackProviderCall('attom', false);
           break;
           
-        case 'realestateapi':
-          result = await tryRealEstateApiProvider(address);
-          if (result) trackProviderCall('realestateapi', false);
-          break;
-          
-        case 'sec_edgar':
-          continue;
-          
+        case 'open_corporates':
         case 'opencorporates':
+          // OpenCorporates - $0.10/call - MOST EXPENSIVE, use for LLC unmasking only
           if (ownerName && shouldAttemptLlcUnmasking(ownerName)) {
             console.log(`[MultiPlatform] LLC detected: ${ownerName}, would call OpenCorporates`);
           }
