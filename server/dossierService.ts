@@ -771,7 +771,9 @@ async function runSingleContactProvider(
   const { name, firstName, lastName, address, city, state, zip } = input;
   
   switch (provider.key) {
+    case 'apify':
     case 'apify_skip_trace': {
+      // Apify Skip Trace - $0.007/call - cheapest contact enrichment
       const apifyApiToken = process.env.APIFY_API_TOKEN;
       if (!apifyApiToken) return null;
       
@@ -786,7 +788,7 @@ async function runSingleContactProvider(
         contacts.push({
           type: "phone",
           value: phone.number,
-          source: "apify_skip_trace",
+          source: "apify",
           confidence: phone.type === "Wireless" ? 90 : 80,
         });
       }
@@ -795,7 +797,7 @@ async function runSingleContactProvider(
         contacts.push({
           type: "email",
           value: email.email,
-          source: "apify_skip_trace",
+          source: "apify",
           confidence: 85,
         });
       }
@@ -817,7 +819,9 @@ async function runSingleContactProvider(
       };
     }
     
+    case 'data_axle':
     case 'dataaxle': {
+      // Data Axle - $0.01/call
       const dataAxleResult = await dataProviders.enrichContact({ name, address });
       if (!dataAxleResult) return null;
       
@@ -841,7 +845,9 @@ async function runSingleContactProvider(
       return { contacts };
     }
     
+    case 'a_leads':
     case 'aleads': {
+      // A-Leads - $0.01/call
       const aleadsResult = await dataProviders.searchALeadsByName(name);
       if (!aleadsResult || aleadsResult.length === 0) return null;
       
@@ -866,7 +872,9 @@ async function runSingleContactProvider(
       return { contacts };
     }
     
-    case 'pacific_east': {
+    case 'pacific_east':
+    case 'pacificeast': {
+      // Pacific East - FREE
       const pacificResult = await dataProviders.enrichContactWithPacificEast({
         firstName,
         lastName,
