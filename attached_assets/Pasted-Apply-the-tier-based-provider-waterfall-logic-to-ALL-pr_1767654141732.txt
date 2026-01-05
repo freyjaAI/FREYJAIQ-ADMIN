@@ -1,0 +1,41 @@
+Apply the tier-based provider waterfall logic to ALL property and owner searches across the entire platform, including admin searches:
+
+1. **Unified Search Path**:
+   - Ensure that ALL search endpoints (admin dashboard searches, user searches, bulk enrichment, dossier lookups) use the same tier-aware provider waterfall from `tierProviderConfig.ts`.
+   - Admin searches should default to "Tier 1" configuration (most cost-efficient waterfall) unless specified otherwise.
+
+2. **Routes to Update**:
+   - In `routes.ts`, find all search-related endpoints:
+     - `/api/search` (unified search)
+     - `/api/property/:id` (property lookup)
+     - `/api/owner/:id` (owner lookup)
+     - `/api/enrich` (enrichment)
+     - Any admin-only search routes
+   - Ensure each calls `getTierProviders(tierId, category)` from `tierProviderConfig.ts` to get the provider sequence.
+
+3. **Admin Default Tier**:
+   - For admin users (where `user.role === "admin"`), pass `tierId: "tier_1"` or lookup the firm's tier if they have one.
+   - This ensures admins also benefit from cost-efficient waterfall (HomeHarvest free → expensive APIs as fallback).
+
+4. **Cost Tracking**:
+   - Ensure `trackProviderCall()` from `providerConfig.ts` is called for EVERY provider invocation, including admin searches.
+   - This populates the admin "API Usage" dashboard with accurate cost data.
+
+5. **MultiPlatformPropertyProvider Integration**:
+   - In `MultiPlatformPropertyProvider.ts`, replace any hardcoded provider sequences with dynamic lookup:
+     ```typescript
+     const providers = getTierProviders(userTierId, 'propertyOwnership');
+     ```
+   - Remove hardcoded fallback chains like `ATTOM -> HomeHarvest -> Gemini`.
+
+6. **Bulk Enrichment**:
+   - In `bulkEnrichmentService.ts`, ensure batch property enrichment also uses tier-aware provider sequencing.
+   - Pass the user's tier through all enrichment calls.
+
+7. **Testing**:
+   - After changes, perform an admin search and verify:
+     - It uses HomeHarvest first (free)
+     - Only calls ATTOM/OpenCorporates if cheaper providers fail
+     - Cost is tracked in admin "API Usage" page
+
+This ensures consistent, cost-efficient API usage across the entire platform regardless of user role.

@@ -112,6 +112,36 @@ function setCachedLlcSearchResults(query: string, jurisdiction: string | undefin
 }
 
 /**
+ * Helper to get user's tier for tier-aware provider waterfall
+ * Admins without a firm default to Tier 1 (most cost-efficient)
+ */
+async function getUserTierForProviders(
+  user: { role?: string; firmId?: string | null } | null
+): Promise<import("@shared/schema").Tier | null> {
+  if (!user) return null;
+  
+  // If user has a firm, get the firm's tier
+  if (user.firmId) {
+    const firmWithTier = await storage.getFirmWithTier(user.firmId);
+    if (firmWithTier?.tier) {
+      return firmWithTier.tier;
+    }
+  }
+  
+  // For admins without a firm, or users without a tier, use Tier 1 as default
+  // This ensures cost-efficient provider waterfall (HomeHarvest free → paid APIs)
+  if (user.role === "admin" || user.role === "firm_admin") {
+    // Get Tier 1 from database as default for admins
+    const tier1 = await db.select().from(tiers).where(eq(tiers.name, "Tier 1")).limit(1);
+    if (tier1.length > 0) {
+      return tier1[0];
+    }
+  }
+  
+  return null;
+}
+
+/**
  * Calculate freshness label from a date
  */
 function calculateFreshnessLabel(date: Date | string | null | undefined): string {
@@ -5457,65 +5487,155 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       // Create cost tracker at the beginning to track ALL provider calls
       const costTracker = createSearchCostTracker();
+      
+      // Get user's tier for tier-aware provider waterfall
+      const userTier = await getUserTierForProviders(user);
+      console.log(`[SEARCH] Using tier: ${userTier?.name || 'default'} for provider waterfall`);
 
-      // Property search strategy: ATTOM is primary for owner info, HomeHarvest for property details
-      // Cost optimization: Try ATTOM first (has owner info), enrich with HomeHarvest details if needed
+      // Tier-aware property search using provider waterfall from tierProviderConfig
       if (type === "address" || type === "all") {
         let property = null;
         let propertySource = "";
-        let homeHarvestData = null;
         
-        // Step 1: Try ATTOM first for owner info (primary use case for CRE prospecting)
-        console.log(`[PROPERTY SEARCH] Trying ATTOM for owner info: "${query}"`);
-        property = await dataProviders.searchPropertyByAddress(query);
-        costTracker.trackCall("attom", false);
+        // Import tier provider config
+        const { getProviderSequence, checkOwnershipSufficiency } = await import("./tierProviderConfig");
+        const providerSequence = getProviderSequence(userTier, 'propertyOwnership');
         
-        if (property && property.ownership.ownerName) {
-          propertySource = "attom";
-          console.log(`[ATTOM SUCCESS] Found property with owner: "${property.ownership.ownerName}"`);
+        console.log(`[PROPERTY SEARCH] Using tier-aware waterfall: ${providerSequence.map(p => p.key).join(' → ')}`);
+        
+        // Iterate through providers in tier-defined order
+        for (const provider of providerSequence) {
+          if (property && checkOwnershipSufficiency({ ownerName: property.ownership?.ownerName }) && provider.stopOnSuccess) {
+            console.log(`[PROPERTY SEARCH] Sufficient data found, stopping waterfall`);
+            break;
+          }
           
-          // Optionally enrich with HomeHarvest for additional property details (free)
-          // Only if ATTOM property data is minimal
-          if (!property.building.sqft || property.building.sqft === 0) {
-            console.log(`[ENRICHMENT] ATTOM has minimal property data, trying HomeHarvest for details...`);
-            homeHarvestData = await dataProviders.searchPropertyViaHomeHarvest(query);
-            costTracker.trackCall("homeharvest", false);
-            
-            if (homeHarvestData && homeHarvestData.building) {
-              // Merge HomeHarvest building details into ATTOM property
-              property.building = {
-                ...property.building,
-                sqft: homeHarvestData.building.sqft || property.building.sqft,
-                yearBuilt: homeHarvestData.building.yearBuilt || property.building.yearBuilt,
-                bedrooms: homeHarvestData.building.bedrooms || property.building.bedrooms,
-                bathrooms: homeHarvestData.building.bathrooms || property.building.bathrooms,
-                propertyType: homeHarvestData.building.propertyType || property.building.propertyType,
-              };
-              if (homeHarvestData.avm && (!property.avm || property.avm.value === 0)) {
-                property.avm = homeHarvestData.avm;
-              }
-              propertySource = "attom+homeharvest";
-              console.log(`[HomeHarvest ENRICHMENT] Added property details (sqft: ${homeHarvestData.building.sqft})`);
+          try {
+            switch (provider.key) {
+              case 'homeharvest':
+                console.log(`[PROPERTY SEARCH] Trying HomeHarvest (cost: $${provider.costPerCall})...`);
+                const hhResult = await dataProviders.searchPropertyViaHomeHarvest(query);
+                trackProviderCall('homeharvest', false);
+                costTracker.trackCall("homeharvest", false);
+                
+                if (hhResult) {
+                  if (!property) {
+                    property = hhResult;
+                    propertySource = "homeharvest";
+                  } else {
+                    // Merge HomeHarvest building details into existing property
+                    property.building = {
+                      ...property.building,
+                      sqft: hhResult.building?.sqft || property.building?.sqft,
+                      yearBuilt: hhResult.building?.yearBuilt || property.building?.yearBuilt,
+                      bedrooms: hhResult.building?.bedrooms || property.building?.bedrooms,
+                      bathrooms: hhResult.building?.bathrooms || property.building?.bathrooms,
+                      propertyType: hhResult.building?.propertyType || property.building?.propertyType,
+                    };
+                    propertySource += "+homeharvest";
+                  }
+                  console.log(`[HomeHarvest SUCCESS] Found property data`);
+                }
+                break;
+                
+              case 'attom':
+                console.log(`[PROPERTY SEARCH] Trying ATTOM (cost: $${provider.costPerCall})...`);
+                const attomResult = await dataProviders.searchPropertyByAddress(query);
+                trackProviderCall('attom', false);
+                costTracker.trackCall("attom", false);
+                
+                if (attomResult && attomResult.ownership?.ownerName) {
+                  // ATTOM provides the authoritative data (attomId, parcel, assessment, ownership)
+                  // If we had HomeHarvest building data, preserve it by merging into ATTOM result
+                  const existingBuildingData = property?.building;
+                  property = attomResult;
+                  
+                  // Merge HomeHarvest building details into ATTOM if we had them
+                  if (existingBuildingData) {
+                    property.building = {
+                      ...property.building,
+                      sqft: existingBuildingData.sqft || property.building?.sqft,
+                      yearBuilt: existingBuildingData.yearBuilt || property.building?.yearBuilt,
+                      bedrooms: existingBuildingData.bedrooms || property.building?.bedrooms,
+                      bathrooms: existingBuildingData.bathrooms || property.building?.bathrooms,
+                      propertyType: existingBuildingData.propertyType || property.building?.propertyType,
+                    };
+                    propertySource = "attom+homeharvest";
+                  } else {
+                    propertySource = "attom";
+                  }
+                  console.log(`[ATTOM SUCCESS] Found owner: "${attomResult.ownership.ownerName}"`);
+                } else if (attomResult && !property) {
+                  // ATTOM found property but no owner - still use it as base
+                  property = attomResult;
+                  propertySource = "attom";
+                }
+                break;
+                
+              case 'realestateapi':
+                // RealEstateAPI provider (if configured)
+                console.log(`[PROPERTY SEARCH] Trying RealEstateAPI (cost: $${provider.costPerCall})...`);
+                // Would call realEstateApi provider here when implemented
+                break;
+                
+              case 'gemini':
+                // Gemini AI research as fallback
+                if (!property && GeminiDeepResearch.isConfigured()) {
+                  console.log(`[PROPERTY SEARCH] Trying Gemini AI (cost: $${provider.costPerCall})...`);
+                  logRoutingDecision('Property Search', 'gemini', 'Tier-aware fallback');
+                  trackProviderCall('gemini', false);
+                  costTracker.trackCall("gemini", false);
+                  
+                  const geminiResult = await GeminiDeepResearch.researchPropertyOwnership(query);
+                  if (geminiResult) {
+                    property = {
+                      attomId: "",
+                      address: {
+                        line1: geminiResult.address.line1,
+                        city: geminiResult.address.city,
+                        state: geminiResult.address.state,
+                        zip: geminiResult.address.zip,
+                        county: geminiResult.address.county || "",
+                      },
+                      parcel: {
+                        apn: geminiResult.parcel?.apn || "",
+                        fips: geminiResult.parcel?.fips || "",
+                      },
+                      ownership: {
+                        ownerName: geminiResult.ownership.ownerName,
+                        ownerType: geminiResult.ownership.ownerType,
+                        mailingAddress: geminiResult.ownership.mailingAddress,
+                      },
+                      assessment: {
+                        assessedValue: geminiResult.assessment?.assessedValue || 0,
+                        marketValue: geminiResult.assessment?.marketValue || 0,
+                        taxAmount: 0,
+                        taxYear: new Date().getFullYear(),
+                      },
+                      building: {
+                        yearBuilt: geminiResult.building?.yearBuilt || 0,
+                        sqft: geminiResult.building?.sqft || 0,
+                        bedrooms: 0,
+                        bathrooms: 0,
+                        propertyType: geminiResult.building?.propertyType || "",
+                      },
+                      sales: [],
+                    } as any;
+                    propertySource = "gemini";
+                    console.log(`[GEMINI SUCCESS] Found owner: "${geminiResult.ownership.ownerName}"`);
+                  }
+                }
+                break;
             }
+          } catch (error) {
+            console.error(`[PROPERTY SEARCH] ${provider.key} error:`, error);
           }
         }
         
-        // Step 2: If ATTOM failed, try HomeHarvest (free) for property data
-        if (!property) {
-          console.log(`[FALLBACK] ATTOM didn't find property, trying HomeHarvest (free)...`);
-          property = await dataProviders.searchPropertyViaHomeHarvest(query);
-          costTracker.trackCall("homeharvest", false);
-          
-          if (property) {
-            propertySource = "homeharvest";
-            console.log(`[HomeHarvest SUCCESS] Found property data (no owner info available)`);
-          }
-        }
-        
-        // Step 3: If both failed, try Gemini as last resort for owner research
-        if (!property && GeminiDeepResearch.isConfigured()) {
-          console.log(`[FALLBACK] ATTOM+HomeHarvest didn't find "${query}", trying Gemini...`);
-          logRoutingDecision('Property Search', 'gemini', 'ATTOM+HomeHarvest fallback - property not found');
+        // Legacy Gemini fallback if not in provider sequence and property not found
+        if (!property && GeminiDeepResearch.isConfigured() && !providerSequence.some(p => p.key === 'gemini')) {
+          console.log(`[FALLBACK] Trying Gemini as last resort...`);
+          logRoutingDecision('Property Search', 'gemini', 'Legacy fallback');
           trackProviderCall('gemini', false);
           costTracker.trackCall("gemini", false);
           
@@ -5811,13 +5931,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  // Auto-enrich owner with external data
+  // Auto-enrich owner with external data (tier-aware)
   app.post("/api/owners/:id/enrich", isAuthenticated, async (req: any, res) => {
     try {
       const owner = await storage.getOwner(req.params.id);
       if (!owner) {
         return res.status(404).json({ message: "Owner not found" });
       }
+      
+      // Get user's tier for tier-aware provider waterfall
+      const userId = getUserId(req);
+      const user = userId ? await storage.getUser(userId) : null;
+      const userTier = await getUserTierForProviders(user);
+      console.log(`[ENRICHMENT] Using tier: ${userTier?.name || 'default'} for provider waterfall`);
 
       // Check for force refresh flag
       const forceRefresh = req.body?.forceRefresh === true || req.query?.forceRefresh === "true";
@@ -5851,7 +5977,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         });
       }
 
-      console.log(`[ENRICHMENT] Starting full enrichment for owner "${owner.name}" (forceRefresh=${forceRefresh})`);
+      console.log(`[ENRICHMENT] Starting tier-aware enrichment for owner "${owner.name}" (tier=${userTier?.name || 'default'}, forceRefresh=${forceRefresh})`);
 
       // Check if we have cached properties first
       const existingProperties = await storage.getPropertiesByOwner(owner.id);
