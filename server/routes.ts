@@ -5512,16 +5512,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           
           try {
             switch (provider.key) {
+              case 'home_harvest':
               case 'homeharvest':
                 console.log(`[PROPERTY SEARCH] Trying HomeHarvest (cost: $${provider.costPerCall})...`);
                 const hhResult = await dataProviders.searchPropertyViaHomeHarvest(query);
-                trackProviderCall('homeharvest', false);
-                costTracker.trackCall("homeharvest", false);
+                trackProviderCall('home_harvest', false);
+                costTracker.trackCall("home_harvest", false);
                 
                 if (hhResult) {
                   if (!property) {
                     property = hhResult;
-                    propertySource = "homeharvest";
+                    propertySource = "home_harvest";
                   } else {
                     // Merge HomeHarvest building details into existing property
                     property.building = {
@@ -5532,10 +5533,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                       bathrooms: hhResult.building?.bathrooms || property.building?.bathrooms,
                       propertyType: hhResult.building?.propertyType || property.building?.propertyType,
                     };
-                    propertySource += "+homeharvest";
+                    propertySource += "+home_harvest";
                   }
                   console.log(`[HomeHarvest SUCCESS] Found property data`);
                 }
+                break;
+              
+              case 'real_estate_api':
+              case 'realestateapi':
+                // RealEstateAPI provider - free property ownership data
+                console.log(`[PROPERTY SEARCH] Trying RealEstateAPI (cost: $${provider.costPerCall})...`);
+                // Would call realEstateApi provider here when implemented
+                trackProviderCall('real_estate_api', false);
+                costTracker.trackCall("real_estate_api", false);
+                break;
+              
+              case 'sec_edgar':
+                // SEC EDGAR - free corporate filings (useful for public companies)
+                console.log(`[PROPERTY SEARCH] Trying SEC EDGAR (cost: $${provider.costPerCall})...`);
+                // SEC EDGAR is more useful for LLC unmasking than property search
+                // Skip for property ownership - will be used in LLC enrichment
                 break;
                 
               case 'attom':
@@ -5560,7 +5577,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                       bathrooms: existingBuildingData.bathrooms || property.building?.bathrooms,
                       propertyType: existingBuildingData.propertyType || property.building?.propertyType,
                     };
-                    propertySource = "attom+homeharvest";
+                    propertySource = "attom+home_harvest";
                   } else {
                     propertySource = "attom";
                   }
@@ -5571,11 +5588,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                   propertySource = "attom";
                 }
                 break;
-                
-              case 'realestateapi':
-                // RealEstateAPI provider (if configured)
-                console.log(`[PROPERTY SEARCH] Trying RealEstateAPI (cost: $${provider.costPerCall})...`);
-                // Would call realEstateApi provider here when implemented
+              
+              case 'open_corporates':
+              case 'opencorporates':
+                // OpenCorporates - MOST EXPENSIVE, use as last resort for LLC unmasking
+                console.log(`[PROPERTY SEARCH] Trying OpenCorporates (cost: $${provider.costPerCall})...`);
+                // OpenCorporates is more useful for LLC unmasking than property search
+                // Skip for property ownership - will be used in LLC enrichment
                 break;
                 
               case 'gemini':
@@ -5626,9 +5645,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                   }
                 }
                 break;
+              
+              default:
+                console.log(`[PROPERTY SEARCH] Unknown provider: ${provider.key}, skipping...`);
             }
           } catch (error) {
             console.error(`[PROPERTY SEARCH] ${provider.key} error:`, error);
+            // Continue to next provider on error
           }
         }
         
