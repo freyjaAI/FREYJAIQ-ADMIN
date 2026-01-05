@@ -54,103 +54,28 @@ const TIER_1_CONFIG: TierProviderSequence = {
   tierName: "Tier 1",
   
   propertyOwnershipProviders: [
-    {
-      name: "HomeHarvest",
-      key: "homeharvest",
-      costPerCall: 0,
-      stopOnSuccess: true,
-    },
-    {
-      name: "RealEstateAPI",
-      key: "realestateapi",
-      costPerCall: 0.04,
-      stopOnSuccess: true,
-    },
-    {
-      name: "SEC EDGAR",
-      key: "sec_edgar",
-      costPerCall: 0,
-      stopOnSuccess: false,
-    },
-    {
-      name: "ATTOM",
-      key: "attom",
-      costPerCall: 0.08,
-      stopOnSuccess: true,
-    },
-    {
-      name: "OpenCorporates",
-      key: "opencorporates",
-      costPerCall: 0.15,
-      stopOnSuccess: true,
-    },
+    { name: "Home Harvest", key: "home_harvest", costPerCall: 0, stopOnSuccess: true },
+    { name: "RealEstateAPI", key: "real_estate_api", costPerCall: 0, stopOnSuccess: true },
+    { name: "SEC EDGAR", key: "sec_edgar", costPerCall: 0, stopOnSuccess: true },
+    { name: "ATTOM", key: "attom", costPerCall: 0.05, stopOnSuccess: true },
+    { name: "OpenCorporates", key: "open_corporates", costPerCall: 0.10 }
   ],
 
   contactEnrichmentProviders: [
-    {
-      name: "Apify Skip Trace",
-      key: "apify_skip_trace",
-      costPerCall: 0.03,
-      minConfidence: 70,
-      stopOnSuccess: true,
-    },
-    {
-      name: "Data Axle",
-      key: "dataaxle",
-      costPerCall: 0.05,
-      minConfidence: 60,
-      stopOnSuccess: true,
-    },
-    {
-      name: "A-Leads",
-      key: "aleads",
-      costPerCall: 0.06,
-      minConfidence: 50,
-      stopOnSuccess: true,
-    },
-    {
-      name: "Pacific East",
-      key: "pacificeast",
-      costPerCall: 0.04,
-      minConfidence: 50,
-      stopOnSuccess: true,
-    },
+    { name: "Apify Skip Trace", key: "apify", costPerCall: 0.007, stopOnSuccess: true },
+    { name: "Data Axle", key: "data_axle", costPerCall: 0.01, stopOnSuccess: true },
+    { name: "A-Leads", key: "a_leads", costPerCall: 0.01, stopOnSuccess: true },
+    { name: "Pacific East", key: "pacific_east", costPerCall: 0 }
   ],
 
   addressValidationProviders: [
-    {
-      name: "USPS",
-      key: "usps",
-      costPerCall: 0,
-      stopOnSuccess: true,
-    },
-    {
-      name: "Google Address Validation",
-      key: "google_address",
-      costPerCall: 0.005,
-      stopOnSuccess: true,
-    },
+    { name: "USPS", key: "usps", costPerCall: 0 },
+    { name: "Google Address", key: "google_address", costPerCall: 0 }
   ],
 
   aiResearchProviders: [
-    {
-      name: "Gemini Deep Research",
-      key: "gemini",
-      costPerCall: 0.002,
-      stopOnSuccess: true,
-    },
-    {
-      name: "Perplexity Sonar",
-      key: "perplexity",
-      costPerCall: 0.05,
-      stopOnSuccess: true,
-    },
-    {
-      name: "OpenAI",
-      key: "openai",
-      costPerCall: 0.01,
-      stopOnSuccess: true,
-    },
+    { name: "Gemini", key: "gemini", costPerCall: 0.002 },
+    { name: "Perplexity", key: "perplexity", costPerCall: 0 }
   ],
 };
 

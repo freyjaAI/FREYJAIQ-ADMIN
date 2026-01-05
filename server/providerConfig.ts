@@ -40,130 +40,154 @@ export interface UsageMetrics {
 }
 
 // Default provider pricing (can be overridden via env vars)
-// Prices are estimates based on publicly available pricing info
+// Prices are accurate per-call costs - updated January 2026
 const DEFAULT_PRICING: Record<string, Omit<ProviderPricing, 'name'>> = {
-  // LLC Lookup Providers (cost hierarchy: SEC EDGAR FREE -> Gemini -> OpenCorporates)
-  sec_edgar: {
-    costPerCall: 0,             // 100% FREE - SEC public data
-    priority: 0,                // Highest priority (completely free)
-    category: 'llc',
-    description: 'SEC EDGAR - Free public company data (13F filers, public companies)',
-  },
-  gemini: {
-    costPerCall: 0.002,         // ~$2/million tokens, avg 1000 tokens/call
-    costPerToken: 0.000002,
-    priority: 1,
-    category: 'llc',
-    description: 'Google Gemini Deep Research - AI-powered LLC ownership research',
-  },
-  opencorporates: {
-    costPerCall: 0.15,          // Estimated per-lookup cost
-    priority: 2,
-    category: 'llc',
-    description: 'OpenCorporates - Official corporate registry data',
-  },
-  perplexity: {
-    costPerCall: 0.05,          // Perplexity Sonar API
-    priority: 3,
-    category: 'llc',
-    description: 'Perplexity Sonar - AI-powered web search for ownership',
-  },
-
-  // Property Lookup Providers
-  attom: {
-    costPerCall: 0.08,          // ATTOM property data
+  // Property Lookup Providers (free providers first, expensive as fallback)
+  home_harvest: {
+    costPerCall: 0,
     priority: 1,
     category: 'property',
-    description: 'ATTOM - Property ownership and assessment data',
+    description: 'Free property data from HomeHarvest',
   },
   homeharvest: {
-    costPerCall: 0,             // Free - scrapes Realtor.com
+    costPerCall: 0,             // Alias
+    priority: 1,
+    category: 'property',
+    description: 'Free property data from HomeHarvest',
+  },
+  real_estate_api: {
+    costPerCall: 0,
     priority: 2,
     category: 'property',
-    description: 'HomeHarvest - Property data fallback via Realtor.com scraping',
+    description: 'Free property ownership data',
+  },
+  realestateapi: {
+    costPerCall: 0,             // Alias
+    priority: 2,
+    category: 'property',
+    description: 'Free property ownership data',
+  },
+  attom: {
+    costPerCall: 0.05,
+    priority: 8,
+    category: 'property',
+    description: 'Premium property data - USE AS FALLBACK ONLY',
+  },
+
+  // LLC Lookup Providers (cost hierarchy: SEC EDGAR FREE -> Gemini -> OpenCorporates)
+  sec_edgar: {
+    costPerCall: 0,
+    priority: 3,
+    category: 'llc',
+    description: 'Free SEC corporate filings',
+  },
+  open_corporates: {
+    costPerCall: 0.10,
+    priority: 10,
+    category: 'llc',
+    description: 'MOST EXPENSIVE - LAST RESORT for LLC unmasking',
+  },
+  opencorporates: {
+    costPerCall: 0.10,          // Alias
+    priority: 10,
+    category: 'llc',
+    description: 'MOST EXPENSIVE - LAST RESORT for LLC unmasking',
   },
 
   // Contact Enrichment Providers (cost hierarchy: cheapest first)
-  apify_skip_trace: {
-    costPerCall: 0.03,          // Apify BeenVerified scraper
+  apify: {
+    costPerCall: 0.007,
     priority: 1,
     category: 'contact',
-    description: 'Apify Skip Trace - BeenVerified data via scraping',
+    description: 'Skip trace, relatives, associates',
   },
-  dataaxle: {
-    costPerCall: 0.05,          // Data Axle People/Places v3
-    priority: 2,
+  apify_skip_trace: {
+    costPerCall: 0.007,         // Alias
+    priority: 1,
     category: 'contact',
-    description: 'Data Axle - Business and people directory data',
+    description: 'Skip trace, relatives, associates',
   },
   data_axle: {
-    costPerCall: 0.05,          // Alias for dataaxle
+    costPerCall: 0.01,
     priority: 2,
     category: 'contact',
-    description: 'Data Axle - Business and people directory data',
+    description: 'Contact data enrichment',
+  },
+  dataaxle: {
+    costPerCall: 0.01,          // Alias
+    priority: 2,
+    category: 'contact',
+    description: 'Contact data enrichment',
+  },
+  a_leads: {
+    costPerCall: 0.01,
+    priority: 3,
+    category: 'contact',
+    description: 'Alternative contact data',
+  },
+  aleads: {
+    costPerCall: 0.01,          // Alias
+    priority: 3,
+    category: 'contact',
+    description: 'Alternative contact data',
+  },
+  pacific_east: {
+    costPerCall: 0,
+    priority: 4,
+    category: 'contact',
+    description: 'Free contact enrichment',
+  },
+  pacificeast: {
+    costPerCall: 0,             // Alias
+    priority: 4,
+    category: 'contact',
+    description: 'Free contact enrichment',
   },
   melissa: {
-    costPerCall: 0.02,          // Melissa Personator
-    priority: 3,
+    costPerCall: 0.02,
+    priority: 5,
     category: 'contact',
     description: 'Melissa - Address verification and contact append',
   },
-  pacificeast: {
-    costPerCall: 0.04,          // Pacific East suite (DataPrime, FPA, EMA, EMV)
-    priority: 4,
-    category: 'contact',
-    description: 'Pacific East - Contact enrichment suite',
-  },
-  pacific_east: {
-    costPerCall: 0.04,          // Alias for pacificeast
-    priority: 4,
-    category: 'contact',
-    description: 'Pacific East - Contact enrichment suite',
-  },
-  aleads: {
-    costPerCall: 0.06,          // A-Leads skip tracing
-    priority: 5,
-    category: 'contact',
-    description: 'A-Leads - Professional skip tracing',
-  },
-  a_leads: {
-    costPerCall: 0.06,          // Alias for aleads
-    priority: 5,
-    category: 'contact',
-    description: 'A-Leads - Professional skip tracing',
-  },
-  realestateapi: {
-    costPerCall: 0.04,          // RealEstateAPI Skip Engine
-    priority: 6,
-    category: 'contact',
-    description: 'RealEstateAPI Skip Engine - Property skip tracing with bulk support',
-  },
   email_sleuth: {
-    costPerCall: 0,             // Free - local email pattern generation and SMTP verification
-    priority: 0,                // Highest priority (free)
+    costPerCall: 0,
+    priority: 0,
     category: 'contact',
     description: 'Email Sleuth - Email discovery via pattern generation and SMTP verification',
   },
 
-  // Address Validation
+  // Address Validation (both free)
+  usps: {
+    costPerCall: 0,
+    priority: 1,
+    category: 'address',
+    description: 'USPS address validation',
+  },
   google_address: {
-    costPerCall: 0.005,         // Google Address Validation
+    costPerCall: 0,
     priority: 2,
     category: 'address',
-    description: 'Google - Address geocoding and validation',
-  },
-  usps: {
-    costPerCall: 0,             // Free - USPS Web Tools API
-    priority: 1,                // Highest priority (free, official)
-    category: 'address',
-    description: 'USPS - Official address validation and standardization',
+    description: 'Google address validation',
   },
 
   // AI Providers for insights
-  openai: {
-    costPerCall: 0.01,          // OpenAI GPT-4o-mini
-    costPerToken: 0.00001,
+  gemini: {
+    costPerCall: 0.002,
+    costPerToken: 0.000002,
     priority: 1,
+    category: 'ai',
+    description: 'Gemini AI research',
+  },
+  perplexity: {
+    costPerCall: 0,
+    priority: 2,
+    category: 'ai',
+    description: 'Free Perplexity AI research',
+  },
+  openai: {
+    costPerCall: 0.01,
+    costPerToken: 0.00001,
+    priority: 3,
     category: 'ai',
     description: 'OpenAI - AI-powered insights and suggestions',
   },
