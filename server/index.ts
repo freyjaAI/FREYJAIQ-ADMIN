@@ -35,6 +35,36 @@ export function log(message: string, source = "express") {
   console.log(`${formattedTime} [${source}] ${message}`);
 }
 
+// Paths containing sensitive data that should not be logged
+const SENSITIVE_PATHS = [
+  '/api/owners',
+  '/api/properties',
+  '/api/contacts',
+  '/api/dossier',
+  '/api/search',
+  '/api/external',
+  '/api/llcs',
+  '/api/persons',
+  '/api/auth',
+];
+
+function isSensitivePath(path: string): boolean {
+  return SENSITIVE_PATHS.some(p => path.startsWith(p));
+}
+
+function sanitizeLogPayload(payload: Record<string, any>): string {
+  // Only log summary info, never full PII
+  const summary: Record<string, any> = {};
+  if (payload.message) summary.message = payload.message;
+  if (payload.success !== undefined) summary.success = payload.success;
+  if (payload.total !== undefined) summary.total = payload.total;
+  if (payload.count !== undefined) summary.count = payload.count;
+  if (Array.isArray(payload)) summary.count = payload.length;
+  if (payload.id) summary.id = payload.id;
+  if (payload.cached !== undefined) summary.cached = payload.cached;
+  return JSON.stringify(summary);
+}
+
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
@@ -50,8 +80,15 @@ app.use((req, res, next) => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+      
+      // Only log sanitized summary for sensitive paths, skip body for auth
+      if (capturedJsonResponse && !path.startsWith('/api/auth')) {
+        if (isSensitivePath(path)) {
+          logLine += ` :: ${sanitizeLogPayload(capturedJsonResponse)}`;
+        } else {
+          // Non-sensitive paths can log full response (admin stats, etc)
+          logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+        }
       }
 
       log(logLine);

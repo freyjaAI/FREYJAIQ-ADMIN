@@ -63,15 +63,29 @@ const loginSchema = z.object({
   password: z.string().min(1, "Password is required"),
 });
 
-// Ensure admin user exists on startup
+// Bootstrap admin user from environment variables (secure, no hardcoded credentials)
 async function ensureAdminUser() {
-  const adminEmail = "admin@freyjafinancialgroup.net";
-  const adminPassword = "admin123";
+  const adminEmail = process.env.ADMIN_EMAIL;
+  const adminPassword = process.env.ADMIN_PASSWORD;
+  
+  // Only bootstrap if both environment variables are set
+  if (!adminEmail || !adminPassword) {
+    if (process.env.NODE_ENV === "development") {
+      console.log("Admin bootstrap skipped: Set ADMIN_EMAIL and ADMIN_PASSWORD env vars to create admin user");
+    }
+    return;
+  }
+  
+  // Validate password strength
+  if (adminPassword.length < 12) {
+    console.error("Admin bootstrap failed: ADMIN_PASSWORD must be at least 12 characters");
+    return;
+  }
   
   try {
     const existingAdmin = await storage.getUserByEmail(adminEmail);
     if (!existingAdmin) {
-      console.log("Creating admin user...");
+      console.log("Creating admin user from environment configuration...");
       const passwordHash = await hashPassword(adminPassword);
       await storage.createUser({
         email: adminEmail,
@@ -81,13 +95,8 @@ async function ensureAdminUser() {
         role: "admin",
       });
       console.log("Admin user created successfully");
-    } else if (!existingAdmin.passwordHash) {
-      // Update existing user to have password
-      console.log("Updating admin user with password...");
-      const passwordHash = await hashPassword(adminPassword);
-      await storage.updateUserPassword(adminEmail, passwordHash);
-      console.log("Admin user password updated");
     }
+    // Note: We don't auto-update existing passwords - manual intervention required
   } catch (error) {
     console.error("Error ensuring admin user:", error);
   }
