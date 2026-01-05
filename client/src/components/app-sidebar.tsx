@@ -12,6 +12,7 @@ import {
   MapPin,
   Target,
   Activity,
+  Layers,
 } from "lucide-react";
 import {
   Sidebar,
@@ -86,6 +87,11 @@ const adminItems = [
     title: "API Usage",
     url: "/admin/api-usage",
     icon: Activity,
+  },
+  {
+    title: "Firms & Tiers",
+    url: "/admin/firms-tiers",
+    icon: Layers,
   },
   {
     title: "Bug Reports",
