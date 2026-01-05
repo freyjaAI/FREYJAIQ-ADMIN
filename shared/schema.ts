@@ -27,6 +27,58 @@ export const sessions = pgTable(
   (table) => [index("IDX_session_expire").on(table.expire)]
 );
 
+// Subscription tiers for firm-based multi-tenant system
+export const tiers = pgTable("tiers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name").notNull(), // e.g. "Tier 1", "Tier 2"
+  description: text("description"),
+  monthlyFirmCallLimit: integer("monthly_firm_call_limit"), // max API calls across all users in firm
+  monthlyUserCallLimit: integer("monthly_user_call_limit"), // per-user limit
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const tiersRelations = relations(tiers, ({ many }) => ({
+  firms: many(firms),
+}));
+
+export const insertTierSchema = createInsertSchema(tiers).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertTier = z.infer<typeof insertTierSchema>;
+export type Tier = typeof tiers.$inferSelect;
+
+// Firms - companies that contract with us
+export const firms = pgTable("firms", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name").notNull().unique(),
+  externalId: varchar("external_id"), // optional CRM ID
+  tierId: varchar("tier_id").references(() => tiers.id),
+  signupCode: varchar("signup_code").notNull().unique(), // unique code users use to join
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const firmsRelations = relations(firms, ({ one, many }) => ({
+  tier: one(tiers, {
+    fields: [firms.tierId],
+    references: [tiers.id],
+  }),
+  users: many(users),
+}));
+
+export const insertFirmSchema = createInsertSchema(firms).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertFirm = z.infer<typeof insertFirmSchema>;
+export type Firm = typeof firms.$inferSelect;
+
 // User storage table for email/password authentication
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -35,13 +87,54 @@ export const users = pgTable("users", {
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
   profileImageUrl: varchar("profile_image_url"),
-  role: varchar("role").default("broker"),
+  role: varchar("role").default("user"), // admin | firm_admin | user
+  firmId: varchar("firm_id").references(() => firms.id), // nullable for admins
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+export const usersRelations = relations(users, ({ one }) => ({
+  firm: one(firms, {
+    fields: [users.firmId],
+    references: [firms.id],
+  }),
+}));
+
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
+
+// Usage tracking per firm and user per month
+export const usageSummaries = pgTable("usage_summaries", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  firmId: varchar("firm_id").references(() => firms.id),
+  userId: varchar("user_id").references(() => users.id),
+  periodStart: varchar("period_start").notNull(), // YYYY-MM format for monthly tracking
+  totalCalls: integer("total_calls").default(0).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_usage_firm_period").on(table.firmId, table.periodStart),
+  index("idx_usage_user_period").on(table.userId, table.periodStart),
+]);
+
+export const usageSummariesRelations = relations(usageSummaries, ({ one }) => ({
+  firm: one(firms, {
+    fields: [usageSummaries.firmId],
+    references: [firms.id],
+  }),
+  user: one(users, {
+    fields: [usageSummaries.userId],
+    references: [users.id],
+  }),
+}));
+
+export const insertUsageSummarySchema = createInsertSchema(usageSummaries).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertUsageSummary = z.infer<typeof insertUsageSummarySchema>;
+export type UsageSummary = typeof usageSummaries.$inferSelect;
 
 // Owner entity - can be individual or LLC/entity
 export const owners = pgTable("owners", {
