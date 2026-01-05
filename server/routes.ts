@@ -14,7 +14,8 @@ import {
   calculateContactConfidence,
 } from "./openai";
 import { dataProviders } from "./dataProviders";
-import { insertOwnerSchema, insertPropertySchema, insertContactInfoSchema, ownerLlcLinks, owners, contactInfos, properties, llcOwnershipChains, ProviderSource, PROVIDER_DISPLAY_NAMES, bugReports, insertBugReportSchema } from "@shared/schema";
+import { insertOwnerSchema, insertPropertySchema, insertContactInfoSchema, ownerLlcLinks, owners, contactInfos, properties, llcOwnershipChains, ProviderSource, PROVIDER_DISPLAY_NAMES, bugReports, insertBugReportSchema, tiers, firms, usageSummaries, insertTierSchema, insertFirmSchema } from "@shared/schema";
+import crypto from "crypto";
 import { z } from "zod";
 import { db } from "./db";
 import { eq, sql } from "drizzle-orm";
@@ -1983,6 +1984,240 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (error) {
       console.error("Reverse phone lookup failed:", error);
       res.status(500).json({ message: "Failed to perform reverse phone lookup", error: String(error) });
+    }
+  });
+
+  // =============================================================================
+  // Admin: Tier & Firm Management
+  // =============================================================================
+
+  // Generate cryptographically secure signup code (8-10 chars)
+  function generateSignupCode(): string {
+    return crypto.randomBytes(5).toString("hex").toUpperCase().slice(0, 8);
+  }
+
+  // GET /api/admin/tiers - list all tiers
+  app.get("/api/admin/tiers", isAuthenticated, adminRateLimit, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "User not found" });
+      
+      const user = await storage.getUser(userId);
+      if (user?.role !== "admin") return res.status(403).json({ message: "Admin access required" });
+
+      const allTiers = await db.select().from(tiers).orderBy(tiers.name);
+      res.json(allTiers);
+    } catch (error) {
+      console.error("Failed to get tiers:", error);
+      res.status(500).json({ message: "Failed to get tiers" });
+    }
+  });
+
+  // POST /api/admin/tiers - create a tier
+  app.post("/api/admin/tiers", isAuthenticated, adminRateLimit, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "User not found" });
+      
+      const user = await storage.getUser(userId);
+      if (user?.role !== "admin") return res.status(403).json({ message: "Admin access required" });
+
+      const parsed = insertTierSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid tier data", errors: parsed.error.flatten() });
+      }
+
+      const [newTier] = await db.insert(tiers).values(parsed.data).returning();
+      console.log(`[ADMIN] Created tier: ${newTier.name} (ID: ${newTier.id})`);
+      res.status(201).json(newTier);
+    } catch (error) {
+      console.error("Failed to create tier:", error);
+      res.status(500).json({ message: "Failed to create tier" });
+    }
+  });
+
+  // PUT /api/admin/tiers/:id - update a tier
+  app.put("/api/admin/tiers/:id", isAuthenticated, adminRateLimit, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "User not found" });
+      
+      const user = await storage.getUser(userId);
+      if (user?.role !== "admin") return res.status(403).json({ message: "Admin access required" });
+
+      const { id } = req.params;
+      const { name, description, monthlyFirmCallLimit, monthlyUserCallLimit, isActive } = req.body;
+
+      const [updated] = await db.update(tiers)
+        .set({
+          name,
+          description,
+          monthlyFirmCallLimit,
+          monthlyUserCallLimit,
+          isActive,
+          updatedAt: new Date(),
+        })
+        .where(eq(tiers.id, id))
+        .returning();
+
+      if (!updated) {
+        return res.status(404).json({ message: "Tier not found" });
+      }
+
+      console.log(`[ADMIN] Updated tier: ${updated.name} (ID: ${updated.id})`);
+      res.json(updated);
+    } catch (error) {
+      console.error("Failed to update tier:", error);
+      res.status(500).json({ message: "Failed to update tier" });
+    }
+  });
+
+  // GET /api/admin/firms - list all firms with tier and usage
+  app.get("/api/admin/firms", isAuthenticated, adminRateLimit, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "User not found" });
+      
+      const user = await storage.getUser(userId);
+      if (user?.role !== "admin") return res.status(403).json({ message: "Admin access required" });
+
+      // Get current month for usage query
+      const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
+
+      // Get all firms with their tiers
+      const allFirms = await db.select({
+        id: firms.id,
+        name: firms.name,
+        externalId: firms.externalId,
+        tierId: firms.tierId,
+        signupCode: firms.signupCode,
+        notes: firms.notes,
+        createdAt: firms.createdAt,
+        updatedAt: firms.updatedAt,
+        tierName: tiers.name,
+        monthlyFirmCallLimit: tiers.monthlyFirmCallLimit,
+        monthlyUserCallLimit: tiers.monthlyUserCallLimit,
+      })
+        .from(firms)
+        .leftJoin(tiers, eq(firms.tierId, tiers.id))
+        .orderBy(firms.name);
+
+      // Get usage for each firm this month
+      const firmUsage = await db.select({
+        firmId: usageSummaries.firmId,
+        totalCalls: sql<number>`COALESCE(SUM(${usageSummaries.totalCalls}), 0)`,
+      })
+        .from(usageSummaries)
+        .where(eq(usageSummaries.periodStart, currentMonth))
+        .groupBy(usageSummaries.firmId);
+
+      const usageMap = new Map(firmUsage.map(u => [u.firmId, u.totalCalls]));
+
+      const firmsWithUsage = allFirms.map(firm => ({
+        ...firm,
+        monthlyCallsUsed: usageMap.get(firm.id) || 0,
+      }));
+
+      res.json(firmsWithUsage);
+    } catch (error) {
+      console.error("Failed to get firms:", error);
+      res.status(500).json({ message: "Failed to get firms" });
+    }
+  });
+
+  // POST /api/admin/firms - create a firm
+  app.post("/api/admin/firms", isAuthenticated, adminRateLimit, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "User not found" });
+      
+      const user = await storage.getUser(userId);
+      if (user?.role !== "admin") return res.status(403).json({ message: "Admin access required" });
+
+      const { name, tierId, externalId, notes } = req.body;
+      if (!name) {
+        return res.status(400).json({ message: "Firm name is required" });
+      }
+
+      // Generate unique signup code
+      let signupCode = generateSignupCode();
+      let attempts = 0;
+      while (attempts < 5) {
+        const existing = await db.select().from(firms).where(eq(firms.signupCode, signupCode));
+        if (existing.length === 0) break;
+        signupCode = generateSignupCode();
+        attempts++;
+      }
+
+      const [newFirm] = await db.insert(firms).values({
+        name,
+        tierId,
+        externalId,
+        notes,
+        signupCode,
+      }).returning();
+
+      console.log(`[ADMIN] Created firm: ${newFirm.name} (ID: ${newFirm.id}, Code: ${newFirm.signupCode})`);
+      res.status(201).json(newFirm);
+    } catch (error: any) {
+      if (error?.code === "23505") {
+        return res.status(400).json({ message: "A firm with this name already exists" });
+      }
+      console.error("Failed to create firm:", error);
+      res.status(500).json({ message: "Failed to create firm" });
+    }
+  });
+
+  // PUT /api/admin/firms/:id - update a firm
+  app.put("/api/admin/firms/:id", isAuthenticated, adminRateLimit, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "User not found" });
+      
+      const user = await storage.getUser(userId);
+      if (user?.role !== "admin") return res.status(403).json({ message: "Admin access required" });
+
+      const { id } = req.params;
+      const { name, tierId, externalId, notes, regenerateCode } = req.body;
+
+      const updateData: any = {
+        name,
+        tierId,
+        externalId,
+        notes,
+        updatedAt: new Date(),
+      };
+
+      // Optionally regenerate signup code
+      if (regenerateCode) {
+        let signupCode = generateSignupCode();
+        let attempts = 0;
+        while (attempts < 5) {
+          const existing = await db.select().from(firms).where(eq(firms.signupCode, signupCode));
+          if (existing.length === 0) break;
+          signupCode = generateSignupCode();
+          attempts++;
+        }
+        updateData.signupCode = signupCode;
+      }
+
+      const [updated] = await db.update(firms)
+        .set(updateData)
+        .where(eq(firms.id, id))
+        .returning();
+
+      if (!updated) {
+        return res.status(404).json({ message: "Firm not found" });
+      }
+
+      console.log(`[ADMIN] Updated firm: ${updated.name} (ID: ${updated.id})`);
+      res.json(updated);
+    } catch (error: any) {
+      if (error?.code === "23505") {
+        return res.status(400).json({ message: "A firm with this name already exists" });
+      }
+      console.error("Failed to update firm:", error);
+      res.status(500).json({ message: "Failed to update firm" });
     }
   });
 
