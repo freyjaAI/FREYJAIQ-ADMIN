@@ -697,9 +697,10 @@ export async function runContactWaterfall(name: string, address?: string, tier?:
         result.providersUsed.push(provider.key);
         trackProviderCall(provider.key);
         
-        // Merge contacts
-        if (providerResult.contacts) {
-          result.contacts.push(...providerResult.contacts);
+        // Merge contacts (with null guard)
+        const providerContacts = providerResult.contacts ?? [];
+        if (providerContacts.length > 0) {
+          result.contacts.push(...providerContacts);
         }
         
         // Merge person data
@@ -711,9 +712,32 @@ export async function runContactWaterfall(name: string, address?: string, tier?:
           result.primaryProvider = provider.key;
         }
         
-        // Check sufficiency
-        if (checkContactSufficiency(result.contacts, provider.minConfidence) && provider.stopOnSuccess) {
-          console.log(`[Waterfall] Sufficient data from ${provider.name}, stopping`);
+        // Check sufficiency using THIS provider's confidence threshold
+        const providerMinConfidence = provider.minConfidence ?? 60;
+        
+        // Check if THIS provider returned both phone AND email at its confidence threshold
+        const providerHasQualifiedPhone = providerContacts.some(
+          c => c.type === "phone" && c.confidence >= providerMinConfidence
+        );
+        const providerHasQualifiedEmail = providerContacts.some(
+          c => c.type === "email" && c.confidence >= providerMinConfidence
+        );
+        
+        if (providerHasQualifiedPhone && providerHasQualifiedEmail && provider.stopOnSuccess) {
+          console.log(`[Waterfall] ${provider.name} returned sufficient data (phone+email at ${providerMinConfidence}+ confidence), stopping`);
+          return result;
+        }
+        
+        // Also check if ACCUMULATED contacts have both phone AND email at this threshold
+        const accumulatedHasQualifiedPhone = result.contacts.some(
+          c => c.type === "phone" && c.confidence >= providerMinConfidence
+        );
+        const accumulatedHasQualifiedEmail = result.contacts.some(
+          c => c.type === "email" && c.confidence >= providerMinConfidence
+        );
+        
+        if (accumulatedHasQualifiedPhone && accumulatedHasQualifiedEmail && provider.stopOnSuccess) {
+          console.log(`[Waterfall] Accumulated sufficient contacts (phone+email at ${providerMinConfidence}+ confidence), stopping after ${provider.name}`);
           return result;
         }
       }
