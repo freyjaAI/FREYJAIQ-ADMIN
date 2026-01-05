@@ -1276,6 +1276,66 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json({ token: getCsrfToken(req) });
   });
 
+  // Endpoint to get user's usage and limits
+  app.get("/api/me/usage", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) {
+        return res.status(401).json({ message: "User ID not found" });
+      }
+      
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      
+      const period = getCurrentBillingPeriod();
+      
+      let firmName: string | null = null;
+      let tierName: string | null = null;
+      let firmCallsUsed = 0;
+      let firmCallLimit: number | null = null;
+      let userCallsUsed = 0;
+      let userCallLimit: number | null = null;
+      
+      // Get user's own usage
+      const userUsage = await storage.getUsageSummary(null, userId, period);
+      userCallsUsed = userUsage?.totalCalls || 0;
+      
+      // Get firm details and usage if user belongs to a firm
+      if (user.firmId) {
+        const firmWithTier = await storage.getFirmWithTier(user.firmId);
+        
+        if (firmWithTier) {
+          firmName = firmWithTier.firm.name;
+          
+          if (firmWithTier.tier) {
+            tierName = firmWithTier.tier.name;
+            firmCallLimit = firmWithTier.tier.monthlyFirmCallLimit;
+            userCallLimit = firmWithTier.tier.monthlyUserCallLimit;
+          }
+          
+          // Get firm-level usage
+          const firmUsage = await storage.getUsageSummary(user.firmId, null, period);
+          firmCallsUsed = firmUsage?.totalCalls || 0;
+        }
+      }
+      
+      res.json({
+        firmName,
+        tierName,
+        firmCallsUsed,
+        firmCallLimit,
+        userCallsUsed,
+        userCallLimit,
+        period,
+      });
+    } catch (error) {
+      console.error("Error fetching user usage:", error);
+      res.status(500).json({ message: "Failed to fetch usage data" });
+    }
+  });
+
   // Initialize LLC lookup function for chain resolver (breaks circular dependency)
   setLlcLookupFunction(getCachedLlcData);
 

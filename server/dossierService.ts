@@ -652,7 +652,8 @@ export interface WaterfallResult {
   primaryProvider?: string;
 }
 
-import { getProviderSequence, checkContactSufficiency, type Tier, type ProviderConfig } from "./tierProviderConfig";
+import { getProviderSequence, checkContactSufficiency, type ProviderConfig } from "./tierProviderConfig";
+import type { Tier } from "@shared/schema";
 
 export async function runContactWaterfall(name: string, address?: string, tier?: Tier | null): Promise<WaterfallResult> {
   const result: WaterfallResult = {

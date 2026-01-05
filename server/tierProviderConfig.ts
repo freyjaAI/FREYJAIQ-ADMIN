@@ -6,10 +6,10 @@
  * Waterfall logic stops calling additional providers once sufficient data is found.
  */
 
-import { Tier } from "@shared/schema";
+import type { Tier } from "@shared/schema";
 
 // Re-export Tier for consumers
-export { Tier };
+export type { Tier };
 
 export type ProviderCategory = 
   | 'propertyOwnership'    // Property and ownership lookup
