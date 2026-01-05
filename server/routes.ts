@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import { setupAuth, isAuthenticated, getUserId } from "./auth";
 import { auditLogger } from "./auditLogger";
 import { searchRateLimit, enrichmentRateLimit, adminRateLimit } from "./rateLimiter";
+import { csrfProtection, getCsrfToken } from "./csrf";
 import { dataRetentionScheduler } from "./dataRetentionScheduler";
 import { securityAuditService } from "./securityAudit";
 import {
@@ -1265,6 +1266,14 @@ async function verifyPersonAtAddress(
 export async function registerRoutes(httpServer: Server, app: Express): Promise<void> {
   // Auth middleware
   await setupAuth(app);
+  
+  // CSRF protection for state-changing requests
+  app.use(csrfProtection);
+  
+  // Endpoint to get CSRF token for authenticated users
+  app.get("/api/auth/csrf-token", isAuthenticated, (req: any, res) => {
+    res.json({ token: getCsrfToken(req) });
+  });
 
   // Initialize LLC lookup function for chain resolver (breaks circular dependency)
   setLlcLookupFunction(getCachedLlcData);

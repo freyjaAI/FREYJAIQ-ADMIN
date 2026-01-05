@@ -10,6 +10,29 @@ const openai = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
 });
 
+/**
+ * Sanitize user input before including in AI prompts to prevent prompt injection.
+ * Removes control characters, escapes potential injection patterns, and limits length.
+ */
+function sanitizeForPrompt(input: string | undefined | null, maxLength = 500): string {
+  if (!input) return "Unknown";
+  
+  let sanitized = String(input)
+    // Remove control characters
+    .replace(/[\x00-\x1F\x7F]/g, '')
+    // Remove potential prompt injection patterns
+    .replace(/\b(ignore|disregard|forget|override|system|assistant|user|human|ai)\s+(previous|above|all|instructions|prompt)/gi, '[FILTERED]')
+    // Remove markdown/code fence attempts
+    .replace(/```/g, '')
+    // Escape quotes to prevent breaking out of context
+    .replace(/"/g, '\\"')
+    // Limit length
+    .slice(0, maxLength)
+    .trim();
+  
+  return sanitized || "Unknown";
+}
+
 function isRateLimitError(error: any): boolean {
   const errorMsg = error?.message || String(error);
   return (
@@ -67,14 +90,20 @@ export async function unmaskLlc(
   mailingAddress?: string,
   officers?: string[]
 ): Promise<LlcUnmaskingResult> {
+  // Sanitize all user-provided inputs to prevent prompt injection
+  const safeLlcName = sanitizeForPrompt(llcName, 200);
+  const safeAgent = sanitizeForPrompt(registeredAgent, 200);
+  const safeAddress = sanitizeForPrompt(mailingAddress, 300);
+  const safeOfficers = officers?.map(o => sanitizeForPrompt(o, 100)).join(", ") || "Unknown";
+  
   const prompt = `You are an expert at identifying the real human owners behind LLC entities used for real estate holdings.
 
 Given the following LLC information, analyze and determine if you can identify the likely real person(s) behind this entity:
 
-LLC Name: ${llcName}
-Registered Agent: ${registeredAgent || "Unknown"}
-Mailing Address: ${mailingAddress || "Unknown"}
-Officers/Members: ${officers?.join(", ") || "Unknown"}
+LLC Name: ${safeLlcName}
+Registered Agent: ${safeAgent}
+Mailing Address: ${safeAddress}
+Officers/Members: ${safeOfficers}
 
 Analyze the patterns and provide:
 1. A confidence score (0-100) for how likely you can identify the real owner
@@ -195,18 +224,21 @@ export async function generateOutreachSuggestion(
   properties: Property[],
   sellerIntentScore: number
 ): Promise<string> {
+  // Sanitize inputs for prompt injection prevention
+  const safeOwnerName = sanitizeForPrompt(owner.name, 100);
   const propertyList = properties
     .slice(0, 3)
-    .map((p) => `${p.address}, ${p.city} ${p.state}`)
+    .map((p) => `${sanitizeForPrompt(p.address, 100)}, ${sanitizeForPrompt(p.city, 50)} ${sanitizeForPrompt(p.state, 10)}`)
     .join("; ");
+  const safeScore = Math.max(0, Math.min(100, Number(sellerIntentScore) || 50));
 
   const prompt = `You are a commercial real estate broker writing a personalized outreach message.
 
-Owner: ${owner.name}
+Owner: ${safeOwnerName}
 Owner Type: ${owner.type === "entity" ? "LLC/Entity" : "Individual"}
 Properties: ${propertyList}
-Number of Properties: ${properties.length}
-Seller Intent Score: ${sellerIntentScore}/100 (higher = more likely to sell)
+Number of Properties: ${Math.min(properties.length, 100)}
+Seller Intent Score: ${safeScore}/100 (higher = more likely to sell)
 
 Write a brief, professional cold outreach message (2-3 sentences) that:
 1. Is personalized to the owner's situation
@@ -282,15 +314,23 @@ export async function generateDataCenterFitSummary(params: {
 }): Promise<string> {
   const { name, title, company, industry, location, signals } = params;
   
-  const signalsList = signals?.length ? signals.join("; ") : "Family office/investment professional";
+  // Sanitize all inputs for prompt injection prevention
+  const safeName = sanitizeForPrompt(name, 100);
+  const safeTitle = sanitizeForPrompt(title, 100);
+  const safeCompany = sanitizeForPrompt(company, 100);
+  const safeIndustry = sanitizeForPrompt(industry, 100);
+  const safeLocation = sanitizeForPrompt(location, 100);
+  const signalsList = signals?.length 
+    ? signals.slice(0, 10).map(s => sanitizeForPrompt(s, 50)).join("; ") 
+    : "Family office/investment professional";
   
   const prompt = `You are a commercial real estate analyst. In 1-2 concise sentences, explain why this person would be a good prospect for data center investment opportunities. Focus on their decision-making authority and investment relevance.
 
-Person: ${name}
-Title: ${title || "Executive"}
-Company: ${company || "Investment Firm"}
-Industry: ${industry || "Investment Management"}
-Location: ${location || "Unknown"}
+Person: ${safeName}
+Title: ${safeTitle === "Unknown" ? "Executive" : safeTitle}
+Company: ${safeCompany === "Unknown" ? "Investment Firm" : safeCompany}
+Industry: ${safeIndustry === "Unknown" ? "Investment Management" : safeIndustry}
+Location: ${safeLocation}
 Investment Signals: ${signalsList}
 
 Write a brief, professional summary (max 2 sentences) explaining why they're a good data center investment prospect. Focus on their position and firm's likely investment capacity.`;
