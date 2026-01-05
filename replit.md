@@ -55,6 +55,15 @@ Preferred communication style: Simple, everyday language.
 - **Mechanism**: Dossier API responses include a `sources` array detailing data providers, their status (success, cached, error, stale, fallback), last updated timestamp, and freshness label.
 - **UI**: `SourcesStrip` component displays provider chips with status icons, freshness labels, tooltips, and retry options for failed providers.
 
+### Provider Health Monitoring
+- **Purpose**: Track the health and reliability of external API providers to proactively identify issues and prevent cascading failures.
+- **Database Table**: `provider_health` stores per-provider metrics including success/error counts, consecutive failures, error rates, and status (healthy/degraded/down).
+- **Status Calculation**: Providers are marked as `degraded` when error rate exceeds 20%, and `down` when error rate exceeds 80% or consecutive failures reach 5.
+- **Health Scheduler**: Background task runs every 5 minutes to decay error counts by 20% and auto-recover providers with no recent errors.
+- **Admin UI**: `/admin/provider-health` page displays all providers with sortable table showing status, error rates, last success/error times, and manual reset buttons.
+- **Admin APIs**: `GET /api/admin/providers/health` for status list, `POST /api/admin/providers/health/:key/reset` for manual reset, `GET /api/admin/providers/health/alerts` for down/degraded provider alerts.
+- **Integration**: Health tracking is integrated into `trackProviderCall()` for successes and `trackProviderError()` for failures.
+
 ## External Dependencies
 
 ### Core Framework & Build
