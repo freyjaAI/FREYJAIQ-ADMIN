@@ -295,3 +295,85 @@ export function withUsageTracking<T>(
     return result;
   });
 }
+
+export function getCurrentBillingPeriod(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+export interface TierLimitCheckResult {
+  allowed: boolean;
+  error?: "firm_limit_reached" | "user_limit_reached";
+  message?: string;
+  firmUsage?: number;
+  firmLimit?: number | null;
+  userUsage?: number;
+  userLimit?: number | null;
+}
+
+export async function checkTierLimits(
+  firmId: string | null,
+  userId: string,
+  storageInstance: {
+    getFirmWithTier: (id: string) => Promise<{ tier: { monthlyFirmCallLimit: number | null; monthlyUserCallLimit: number | null } | null } | undefined>;
+    getUsageSummary: (firmId: string | null, userId: string | null, period: string) => Promise<{ totalCalls: number } | undefined>;
+  }
+): Promise<TierLimitCheckResult> {
+  const period = getCurrentBillingPeriod();
+  
+  let firmLimit: number | null = null;
+  let userLimit: number | null = null;
+  
+  if (firmId) {
+    const firmWithTier = await storageInstance.getFirmWithTier(firmId);
+    if (firmWithTier?.tier) {
+      firmLimit = firmWithTier.tier.monthlyFirmCallLimit;
+      userLimit = firmWithTier.tier.monthlyUserCallLimit;
+    }
+    
+    if (firmLimit !== null) {
+      const firmUsageSummary = await storageInstance.getUsageSummary(firmId, null, period);
+      const firmUsage = firmUsageSummary?.totalCalls || 0;
+      
+      if (firmUsage >= firmLimit) {
+        return {
+          allowed: false,
+          error: "firm_limit_reached",
+          message: "Your firm has reached its monthly search limit.",
+          firmUsage,
+          firmLimit,
+        };
+      }
+    }
+  }
+  
+  if (userLimit !== null) {
+    const userUsageSummary = await storageInstance.getUsageSummary(null, userId, period);
+    const userUsage = userUsageSummary?.totalCalls || 0;
+    
+    if (userUsage >= userLimit) {
+      return {
+        allowed: false,
+        error: "user_limit_reached",
+        message: "You have reached your monthly search limit.",
+        userUsage,
+        userLimit,
+      };
+    }
+  }
+  
+  return { allowed: true };
+}
+
+export async function recordUserUsage(
+  firmId: string | null,
+  userId: string,
+  storageInstance: {
+    incrementUsage: (firmId: string | null, userId: string | null, period: string, count?: number) => Promise<void>;
+  },
+  count: number = 1
+): Promise<void> {
+  const period = getCurrentBillingPeriod();
+  await storageInstance.incrementUsage(firmId, userId, period, count);
+  console.log(`[API USAGE] Recorded ${count} call(s) for user ${userId}${firmId ? ` (firm: ${firmId})` : ""} in period ${period}`);
+}
