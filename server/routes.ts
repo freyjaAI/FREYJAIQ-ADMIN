@@ -2170,6 +2170,239 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ============================================
+  // FIRM ADMIN ENDPOINTS (Firm Admin Role)
+  // ============================================
+  
+  // GET /api/firm/users - Get all users in the firm admin's firm
+  app.get("/api/firm/users", isAuthenticated, isFirmAdmin, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) {
+        return res.status(401).json({ message: "User not found" });
+      }
+      
+      const user = await storage.getUser(userId);
+      if (!user || !user.firmId) {
+        return res.status(400).json({ message: "User is not associated with a firm" });
+      }
+      
+      const firmUsers = await storage.getUsersByFirmId(user.firmId);
+      const period = getCurrentBillingPeriod();
+      
+      // Get usage for each user
+      const usersWithUsage = await Promise.all(firmUsers.map(async (u) => {
+        const usageSummary = await storage.getUsageSummary(null, u.id, period);
+        return {
+          id: u.id,
+          email: u.email,
+          firstName: u.firstName,
+          lastName: u.lastName,
+          role: u.role,
+          createdAt: u.createdAt,
+          usage: usageSummary?.totalCalls || 0,
+        };
+      }));
+      
+      res.json({
+        firmId: user.firmId,
+        users: usersWithUsage,
+        period,
+      });
+    } catch (error) {
+      console.error("Error fetching firm users:", error);
+      res.status(500).json({ message: "Failed to fetch firm users" });
+    }
+  });
+  
+  // GET /api/firm/usage - Get detailed usage stats for the firm admin's firm
+  app.get("/api/firm/usage", isAuthenticated, isFirmAdmin, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) {
+        return res.status(401).json({ message: "User not found" });
+      }
+      
+      const user = await storage.getUser(userId);
+      if (!user || !user.firmId) {
+        return res.status(400).json({ message: "User is not associated with a firm" });
+      }
+      
+      const firmWithTier = await storage.getFirmWithTier(user.firmId);
+      if (!firmWithTier) {
+        return res.status(404).json({ message: "Firm not found" });
+      }
+      
+      const period = (req.query.period as string) || getCurrentBillingPeriod();
+      const usageData = await storage.getUsageForFirm(user.firmId, period);
+      
+      res.json({
+        period,
+        firm: {
+          id: firmWithTier.id,
+          name: firmWithTier.name,
+          signupCode: firmWithTier.signupCode,
+          tierName: firmWithTier.tier?.name || "No Tier",
+          monthlyFirmCallLimit: firmWithTier.tier?.monthlyFirmCallLimit || null,
+          monthlyUserCallLimit: firmWithTier.tier?.monthlyUserCallLimit || null,
+        },
+        firmUsage: usageData.firmUsage,
+        firmUsagePercent: firmWithTier.tier?.monthlyFirmCallLimit 
+          ? Math.round((usageData.firmUsage / firmWithTier.tier.monthlyFirmCallLimit) * 100) 
+          : null,
+        users: usageData.userUsages.map(u => ({
+          ...u,
+          usagePercent: firmWithTier.tier?.monthlyUserCallLimit 
+            ? Math.round((u.usage / firmWithTier.tier.monthlyUserCallLimit) * 100) 
+            : null,
+        })),
+      });
+    } catch (error) {
+      console.error("Error fetching firm usage:", error);
+      res.status(500).json({ message: "Failed to fetch firm usage" });
+    }
+  });
+  
+  // GET /api/firm/settings - Get firm settings and tier info
+  app.get("/api/firm/settings", isAuthenticated, isFirmAdmin, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) {
+        return res.status(401).json({ message: "User not found" });
+      }
+      
+      const user = await storage.getUser(userId);
+      if (!user || !user.firmId) {
+        return res.status(400).json({ message: "User is not associated with a firm" });
+      }
+      
+      const firmWithTier = await storage.getFirmWithTier(user.firmId);
+      if (!firmWithTier) {
+        return res.status(404).json({ message: "Firm not found" });
+      }
+      
+      const firmUsers = await storage.getUsersByFirmId(user.firmId);
+      
+      res.json({
+        firm: {
+          id: firmWithTier.id,
+          name: firmWithTier.name,
+          signupCode: firmWithTier.signupCode,
+          notes: firmWithTier.notes,
+          createdAt: firmWithTier.createdAt,
+          updatedAt: firmWithTier.updatedAt,
+        },
+        tier: firmWithTier.tier ? {
+          id: firmWithTier.tier.id,
+          name: firmWithTier.tier.name,
+          monthlyFirmCallLimit: firmWithTier.tier.monthlyFirmCallLimit,
+          monthlyUserCallLimit: firmWithTier.tier.monthlyUserCallLimit,
+        } : null,
+        userCount: firmUsers.length,
+      });
+    } catch (error) {
+      console.error("Error fetching firm settings:", error);
+      res.status(500).json({ message: "Failed to fetch firm settings" });
+    }
+  });
+  
+  // PATCH /api/firm/users/:userId/role - Update a user's role within the firm
+  app.patch("/api/firm/users/:userId/role", isAuthenticated, isFirmAdmin, async (req: any, res) => {
+    try {
+      const adminUserId = getUserId(req);
+      if (!adminUserId) {
+        return res.status(401).json({ message: "User not found" });
+      }
+      
+      const adminUser = await storage.getUser(adminUserId);
+      if (!adminUser || !adminUser.firmId) {
+        return res.status(400).json({ message: "Admin is not associated with a firm" });
+      }
+      
+      const { userId: targetUserId } = req.params;
+      const { role } = req.body;
+      
+      if (!role || !["user", "firm_admin"].includes(role)) {
+        return res.status(400).json({ message: "Invalid role. Must be 'user' or 'firm_admin'" });
+      }
+      
+      const targetUser = await storage.getUser(targetUserId);
+      if (!targetUser) {
+        return res.status(404).json({ message: "Target user not found" });
+      }
+      
+      // Ensure target user is in the same firm
+      if (targetUser.firmId !== adminUser.firmId) {
+        return res.status(403).json({ message: "Cannot modify users outside your firm" });
+      }
+      
+      // Prevent removing the last admin
+      if (role === "user" && targetUser.role === "firm_admin") {
+        const firmUsers = await storage.getUsersByFirmId(adminUser.firmId);
+        const adminCount = firmUsers.filter(u => u.role === "firm_admin").length;
+        if (adminCount <= 1) {
+          return res.status(400).json({ message: "Cannot remove the last firm admin" });
+        }
+      }
+      
+      const updatedUser = await storage.updateUser(targetUserId, { role });
+      
+      res.json({
+        success: true,
+        user: {
+          id: updatedUser?.id,
+          email: updatedUser?.email,
+          role: updatedUser?.role,
+        },
+      });
+    } catch (error) {
+      console.error("Error updating user role:", error);
+      res.status(500).json({ message: "Failed to update user role" });
+    }
+  });
+  
+  // DELETE /api/firm/users/:userId - Remove a user from the firm
+  app.delete("/api/firm/users/:userId", isAuthenticated, isFirmAdmin, async (req: any, res) => {
+    try {
+      const adminUserId = getUserId(req);
+      if (!adminUserId) {
+        return res.status(401).json({ message: "User not found" });
+      }
+      
+      const adminUser = await storage.getUser(adminUserId);
+      if (!adminUser || !adminUser.firmId) {
+        return res.status(400).json({ message: "Admin is not associated with a firm" });
+      }
+      
+      const { userId: targetUserId } = req.params;
+      
+      if (targetUserId === adminUserId) {
+        return res.status(400).json({ message: "Cannot remove yourself" });
+      }
+      
+      const targetUser = await storage.getUser(targetUserId);
+      if (!targetUser) {
+        return res.status(404).json({ message: "Target user not found" });
+      }
+      
+      // Ensure target user is in the same firm
+      if (targetUser.firmId !== adminUser.firmId) {
+        return res.status(403).json({ message: "Cannot modify users outside your firm" });
+      }
+      
+      // Remove user from firm (set firmId to null rather than deleting)
+      await db.update(users).set({ firmId: null, role: "user" }).where(eq(users.id, targetUserId));
+      
+      res.json({
+        success: true,
+        message: `User ${targetUser.email} has been removed from the firm`,
+      });
+    } catch (error) {
+      console.error("Error removing user from firm:", error);
+      res.status(500).json({ message: "Failed to remove user from firm" });
+    }
+  });
+
   // Reverse phone lookup endpoint (admin) - look up owner from phone number
   app.get("/api/admin/reverse-phone/:phoneNumber", isAuthenticated, adminRateLimit, async (req: any, res) => {
     try {
