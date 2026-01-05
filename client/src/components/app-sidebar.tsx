@@ -14,6 +14,7 @@ import {
   Activity,
   Layers,
   HeartPulse,
+  UsersRound,
 } from "lucide-react";
 import {
   Sidebar,
@@ -182,6 +183,28 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+
+        {(user?.role === "firm_admin" || user?.role === "admin") && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Firm Management</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={location === "/firm-settings"}
+                    data-testid="nav-firm-settings"
+                  >
+                    <Link href="/firm-settings">
+                      <UsersRound className="h-4 w-4" />
+                      <span>Firm Settings</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
 
         {user?.role === "admin" && (
           <SidebarGroup>

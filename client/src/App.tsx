@@ -36,6 +36,7 @@ import AdminProviderHealthPage from "@/pages/admin-provider-health";
 import SignupPage from "@/pages/signup";
 import MapView from "@/pages/map-view";
 import BulkEnrichmentPage from "@/pages/bulk-enrichment";
+import FirmSettingsPage from "@/pages/firm-settings";
 import { BugReportWidget } from "@/components/bug-report-widget";
 import { KeyboardShortcutsModal } from "@/components/keyboard-shortcuts-modal";
 import { CookieConsent } from "@/components/cookie-consent";
@@ -133,6 +134,7 @@ function Router() {
             <Route path="/llcs/:id" component={LlcDossierPage} />
             <Route path="/dossier/:id" component={UnifiedDossierPage} />
             <Route path="/settings" component={SettingsPage} />
+            <Route path="/firm-settings" component={FirmSettingsPage} />
             <Route path="/admin/bug-reports" component={AdminBugReportsPage} />
             <Route path="/admin/api-usage" component={AdminApiUsagePage} />
             <Route path="/admin/firms-tiers" component={AdminFirmsTiersPage} />
