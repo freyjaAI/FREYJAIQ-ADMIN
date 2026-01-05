@@ -42,6 +42,8 @@ import {
   UserMinus,
   Loader2,
   AlertCircle,
+  Link2,
+  Check,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { format } from "date-fns";
@@ -107,6 +109,8 @@ export default function FirmSettingsPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [userToRemove, setUserToRemove] = useState<FirmUser | null>(null);
+  const [copiedCode, setCopiedCode] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
 
   const { data: settings, isLoading: settingsLoading, error: settingsError } = useQuery<FirmSettings>({
     queryKey: ["/api/firm/settings"],
@@ -165,9 +169,24 @@ export default function FirmSettingsPage() {
   const copySignupCode = () => {
     if (settings?.firm.signupCode) {
       navigator.clipboard.writeText(settings.firm.signupCode);
+      setCopiedCode(true);
+      setTimeout(() => setCopiedCode(false), 2000);
       toast({
         title: "Copied",
         description: "Signup code copied to clipboard.",
+      });
+    }
+  };
+  
+  const copyInviteLink = () => {
+    if (settings?.firm.signupCode) {
+      const inviteUrl = `${window.location.origin}/signup?code=${settings.firm.signupCode}`;
+      navigator.clipboard.writeText(inviteUrl);
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2000);
+      toast({
+        title: "Copied",
+        description: "Invitation link copied to clipboard.",
       });
     }
   };
@@ -243,24 +262,43 @@ export default function FirmSettingsPage() {
                 </div>
               </div>
               <Separator />
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="font-medium">Signup Code</div>
-                  <div className="text-sm text-muted-foreground">
-                    Share this code with new team members to join your firm
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-medium">Signup Code</div>
+                    <div className="text-sm text-muted-foreground">
+                      Share this code with new team members to join your firm
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <code className="bg-muted px-3 py-1 rounded text-sm font-mono" data-testid="text-signup-code">
+                      {settings.firm.signupCode}
+                    </code>
+                    <Button 
+                      size="icon" 
+                      variant="ghost" 
+                      onClick={copySignupCode}
+                      data-testid="button-copy-signup-code"
+                    >
+                      {copiedCode ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
+                    </Button>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <code className="bg-muted px-3 py-1 rounded text-sm font-mono" data-testid="text-signup-code">
-                    {settings.firm.signupCode}
-                  </code>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-medium">Invitation Link</div>
+                    <div className="text-sm text-muted-foreground">
+                      Share this link to invite new team members directly
+                    </div>
+                  </div>
                   <Button 
-                    size="icon" 
-                    variant="ghost" 
-                    onClick={copySignupCode}
-                    data-testid="button-copy-signup-code"
+                    variant="outline"
+                    onClick={copyInviteLink}
+                    className="gap-2"
+                    data-testid="button-copy-invite-link"
                   >
-                    <Copy className="h-4 w-4" />
+                    {copiedLink ? <Check className="h-4 w-4 text-green-600" /> : <Link2 className="h-4 w-4" />}
+                    {copiedLink ? "Copied" : "Copy Link"}
                   </Button>
                 </div>
               </div>

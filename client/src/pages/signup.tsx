@@ -28,6 +28,15 @@ export default function Signup() {
   const [signupCode, setSignupCode] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [debouncedCode, setDebouncedCode] = useState("");
+  
+  // Pre-fill signup code from URL query parameter (for invitation links)
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const codeFromUrl = urlParams.get("code");
+    if (codeFromUrl) {
+      setSignupCode(codeFromUrl.toUpperCase());
+    }
+  }, []);
 
   useEffect(() => {
     const timer = setTimeout(() => {
