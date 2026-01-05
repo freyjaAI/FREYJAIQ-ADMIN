@@ -60,6 +60,7 @@ export interface IStorage {
   
   // Firm operations
   getFirmBySignupCode(signupCode: string): Promise<(Firm & { tier: Tier | null }) | undefined>;
+  getFirm(id: string): Promise<Firm | undefined>;
 
   // Owner operations
   getOwner(id: string): Promise<Owner | undefined>;
@@ -182,6 +183,11 @@ export class DatabaseStorage implements IStorage {
       ...result.firm,
       tier: result.tier,
     };
+  }
+  
+  async getFirm(id: string): Promise<Firm | undefined> {
+    const [firm] = await db.select().from(firms).where(eq(firms.id, id));
+    return firm;
   }
 
   async updateUserPassword(email: string, passwordHash: string): Promise<void> {

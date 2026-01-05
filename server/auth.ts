@@ -56,6 +56,7 @@ const registerSchema = z.object({
   password: z.string().min(8, "Password must be at least 8 characters"),
   firstName: z.string().optional(),
   lastName: z.string().optional(),
+  signupCode: z.string().min(1, "Signup code is required"),
 });
 
 const loginSchema = z.object({
@@ -109,6 +110,32 @@ export async function setupAuth(app: Express) {
   // Ensure admin user exists
   await ensureAdminUser();
 
+  app.get("/api/auth/validate-signup-code", async (req, res) => {
+    try {
+      const code = req.query.code as string;
+      if (!code) {
+        return res.status(400).json({ message: "Signup code is required" });
+      }
+
+      const firmWithTier = await storage.getFirmBySignupCode(code.toUpperCase());
+      if (!firmWithTier) {
+        return res.status(404).json({ message: "Invalid signup code" });
+      }
+
+      if (!firmWithTier.tierId) {
+        return res.status(400).json({ message: "This firm does not have an active subscription" });
+      }
+
+      res.json({
+        firmId: firmWithTier.id,
+        firmName: firmWithTier.name,
+      });
+    } catch (error) {
+      console.error("Signup code validation error:", error);
+      res.status(500).json({ message: "Failed to validate signup code" });
+    }
+  });
+
   app.post("/api/auth/register", async (req, res) => {
     try {
       const result = registerSchema.safeParse(req.body);
@@ -118,7 +145,16 @@ export async function setupAuth(app: Express) {
         });
       }
 
-      const { email, password, firstName, lastName } = result.data;
+      const { email, password, firstName, lastName, signupCode } = result.data;
+
+      const firmWithTier = await storage.getFirmBySignupCode(signupCode.toUpperCase());
+      if (!firmWithTier) {
+        return res.status(400).json({ message: "Invalid signup code" });
+      }
+
+      if (!firmWithTier.tierId) {
+        return res.status(400).json({ message: "This firm does not have an active subscription" });
+      }
 
       const existingUser = await storage.getUserByEmail(email);
       if (existingUser) {
@@ -132,6 +168,8 @@ export async function setupAuth(app: Express) {
         passwordHash,
         firstName: firstName || null,
         lastName: lastName || null,
+        firmId: firmWithTier.id,
+        role: "user",
       });
 
       req.session.userId = user.id;
@@ -142,6 +180,8 @@ export async function setupAuth(app: Express) {
         firstName: user.firstName,
         lastName: user.lastName,
         role: user.role,
+        firmId: user.firmId,
+        firmName: firmWithTier.name,
       });
     } catch (error) {
       console.error("Registration error:", error);
@@ -172,12 +212,20 @@ export async function setupAuth(app: Express) {
 
       req.session.userId = user.id;
       
+      let firmName: string | null = null;
+      if (user.firmId) {
+        const firm = await storage.getFirm(user.firmId);
+        firmName = firm?.name || null;
+      }
+      
       res.json({
         id: user.id,
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
         role: user.role,
+        firmId: user.firmId,
+        firmName,
       });
     } catch (error) {
       console.error("Login error:", error);
@@ -208,6 +256,12 @@ export async function setupAuth(app: Express) {
         return res.status(401).json({ message: "User not found" });
       }
 
+      let firmName: string | null = null;
+      if (user.firmId) {
+        const firm = await storage.getFirm(user.firmId);
+        firmName = firm?.name || null;
+      }
+
       res.json({
         id: user.id,
         email: user.email,
@@ -215,6 +269,8 @@ export async function setupAuth(app: Express) {
         lastName: user.lastName,
         role: user.role,
         profileImageUrl: user.profileImageUrl,
+        firmId: user.firmId,
+        firmName,
       });
     } catch (error) {
       console.error("Auth check error:", error);
