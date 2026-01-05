@@ -652,7 +652,259 @@ export interface WaterfallResult {
   primaryProvider?: string;
 }
 
-export async function runContactWaterfall(name: string, address?: string): Promise<WaterfallResult> {
+import { getProviderSequence, checkContactSufficiency, type Tier, type ProviderConfig } from "./tierProviderConfig";
+
+export async function runContactWaterfall(name: string, address?: string, tier?: Tier | null): Promise<WaterfallResult> {
+  const result: WaterfallResult = {
+    contacts: [],
+    providersUsed: [],
+  };
+
+  const nameParts = name.split(" ");
+  const firstName = nameParts[0] || "";
+  const lastName = nameParts.slice(1).join(" ") || "";
+
+  // Parse address components
+  let city = "";
+  let state = "";
+  let zip = "";
+  if (address) {
+    const parts = address.split(",").map(p => p.trim());
+    if (parts.length >= 2) {
+      const stateZip = parts[parts.length - 1].split(" ");
+      state = stateZip[0] || "";
+      zip = stateZip[1] || "";
+      city = parts[parts.length - 2] || "";
+    }
+  }
+
+  // Get tier-specific provider sequence
+  const providerSequence = getProviderSequence(tier, 'contactEnrichment');
+  console.log(`[Waterfall] Using tier ${tier || 'default'} with ${providerSequence.length} providers`);
+
+  // Run waterfall through tier-ordered providers
+  for (const provider of providerSequence) {
+    console.log(`[Waterfall] Trying ${provider.name} (cost: $${provider.costPerCall})`);
+    
+    try {
+      const providerResult = await runSingleContactProvider(
+        provider,
+        { name, firstName, lastName, address, city, state, zip }
+      );
+      
+      if (providerResult) {
+        result.providersUsed.push(provider.key);
+        trackProviderCall(provider.key);
+        
+        // Merge contacts
+        if (providerResult.contacts) {
+          result.contacts.push(...providerResult.contacts);
+        }
+        
+        // Merge person data
+        if (providerResult.personData) {
+          result.personData = { ...result.personData, ...providerResult.personData };
+        }
+        
+        if (!result.primaryProvider) {
+          result.primaryProvider = provider.key;
+        }
+        
+        // Check sufficiency
+        if (checkContactSufficiency(result.contacts, provider.minConfidence) && provider.stopOnSuccess) {
+          console.log(`[Waterfall] Sufficient data from ${provider.name}, stopping`);
+          return result;
+        }
+      }
+    } catch (err) {
+      console.error(`[Waterfall] ${provider.name} failed:`, err);
+    }
+  }
+
+  return result;
+}
+
+interface ProviderInput {
+  name: string;
+  firstName: string;
+  lastName: string;
+  address?: string;
+  city: string;
+  state: string;
+  zip: string;
+}
+
+interface ProviderOutput {
+  contacts: Array<{ type: "phone" | "email"; value: string; source: string; confidence: number }>;
+  personData?: WaterfallResult["personData"];
+}
+
+async function runSingleContactProvider(
+  provider: ProviderConfig,
+  input: ProviderInput
+): Promise<ProviderOutput | null> {
+  const { name, firstName, lastName, address, city, state, zip } = input;
+  
+  switch (provider.key) {
+    case 'apify_skip_trace': {
+      const apifyApiToken = process.env.APIFY_API_TOKEN;
+      if (!apifyApiToken) return null;
+      
+      const ApifySkipTrace = await import("./providers/ApifySkipTraceProvider");
+      const apifyResult = await ApifySkipTrace.skipTraceIndividual(name, address || "", city, state, zip);
+      
+      if (!apifyResult) return null;
+      
+      const contacts: ProviderOutput["contacts"] = [];
+      
+      for (const phone of apifyResult.phones.slice(0, 3)) {
+        contacts.push({
+          type: "phone",
+          value: phone.number,
+          source: "apify_skip_trace",
+          confidence: phone.type === "Wireless" ? 90 : 80,
+        });
+      }
+      
+      for (const email of apifyResult.emails.slice(0, 2)) {
+        contacts.push({
+          type: "email",
+          value: email.email,
+          source: "apify_skip_trace",
+          confidence: 85,
+        });
+      }
+      
+      return {
+        contacts,
+        personData: {
+          age: apifyResult.age ? parseInt(apifyResult.age) : undefined,
+          birthDate: apifyResult.born,
+          relatives: apifyResult.relatives.map(r => ({ name: r.name, age: r.age ? parseInt(r.age) : undefined })),
+          associates: apifyResult.associates.map(a => ({ name: a.name, age: a.age ? parseInt(a.age) : undefined })),
+          previousAddresses: apifyResult.previousAddresses.map(a => ({
+            address: a.streetAddress,
+            city: a.city,
+            state: a.state,
+            zip: a.postalCode,
+          })),
+        },
+      };
+    }
+    
+    case 'dataaxle': {
+      const dataAxleResult = await dataProviders.enrichContact({ name, address });
+      if (!dataAxleResult) return null;
+      
+      const contacts: ProviderOutput["contacts"] = [];
+      if (dataAxleResult.phone) {
+        contacts.push({
+          type: "phone",
+          value: dataAxleResult.phone,
+          source: "data_axle",
+          confidence: dataAxleResult.confidenceScore || 70,
+        });
+      }
+      if (dataAxleResult.email) {
+        contacts.push({
+          type: "email",
+          value: dataAxleResult.email,
+          source: "data_axle",
+          confidence: dataAxleResult.confidenceScore || 70,
+        });
+      }
+      return { contacts };
+    }
+    
+    case 'aleads': {
+      const aleadsResult = await dataProviders.searchALeadsByName(name);
+      if (!aleadsResult || aleadsResult.length === 0) return null;
+      
+      const contacts: ProviderOutput["contacts"] = [];
+      const first = aleadsResult[0];
+      if (first.phone) {
+        contacts.push({
+          type: "phone",
+          value: first.phone,
+          source: "a_leads",
+          confidence: 60,
+        });
+      }
+      if (first.email) {
+        contacts.push({
+          type: "email",
+          value: first.email,
+          source: "a_leads",
+          confidence: 55,
+        });
+      }
+      return { contacts };
+    }
+    
+    case 'pacific_east': {
+      const pacificResult = await dataProviders.enrichContactWithPacificEast({
+        firstName,
+        lastName,
+        address,
+      });
+      if (!pacificResult) return null;
+      
+      const contacts: ProviderOutput["contacts"] = [];
+      if (pacificResult.phones) {
+        for (const phone of pacificResult.phones) {
+          contacts.push({
+            type: "phone",
+            value: phone.number,
+            source: "pacific_east",
+            confidence: phone.matchScore || 65,
+          });
+        }
+      }
+      if (pacificResult.emails) {
+        for (const email of pacificResult.emails) {
+          contacts.push({
+            type: "email",
+            value: email.address,
+            source: "pacific_east",
+            confidence: email.confidence || 60,
+          });
+        }
+      }
+      return { contacts };
+    }
+    
+    case 'melissa': {
+      const melissaResult = await dataProviders.lookupPerson({ name, address });
+      if (!melissaResult) return null;
+      
+      const contacts: ProviderOutput["contacts"] = [];
+      if (melissaResult.phone) {
+        contacts.push({
+          type: "phone",
+          value: melissaResult.phone,
+          source: "melissa",
+          confidence: 80,
+        });
+      }
+      if (melissaResult.email) {
+        contacts.push({
+          type: "email",
+          value: melissaResult.email,
+          source: "melissa",
+          confidence: 75,
+        });
+      }
+      return { contacts };
+    }
+    
+    default:
+      console.log(`[Waterfall] Unknown provider: ${provider.key}`);
+      return null;
+  }
+}
+
+// Legacy function for backwards compatibility - calls new tier-aware function
+export async function runContactWaterfallLegacy(name: string, address?: string): Promise<WaterfallResult> {
   const result: WaterfallResult = {
     contacts: [],
     providersUsed: [],

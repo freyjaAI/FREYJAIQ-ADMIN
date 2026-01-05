@@ -8,6 +8,9 @@
 
 import { Tier } from "@shared/schema";
 
+// Re-export Tier for consumers
+export { Tier };
+
 export type ProviderCategory = 
   | 'propertyOwnership'    // Property and ownership lookup
   | 'contactEnrichment'    // Contact info (phones, emails)
