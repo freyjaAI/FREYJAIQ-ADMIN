@@ -12,10 +12,12 @@ import {
   llcOwnershipChains,
   firms,
   tiers,
+  usageSummaries,
   type User,
   type UpsertUser,
   type Firm,
   type Tier,
+  type UsageSummary,
   type Owner,
   type InsertOwner,
   type Property,
@@ -61,6 +63,13 @@ export interface IStorage {
   // Firm operations
   getFirmBySignupCode(signupCode: string): Promise<(Firm & { tier: Tier | null }) | undefined>;
   getFirm(id: string): Promise<Firm | undefined>;
+  getFirmWithTier(id: string): Promise<(Firm & { tier: Tier | null }) | undefined>;
+  
+  // Usage summary operations
+  getUsageSummary(firmId: string | null, userId: string | null, period: string): Promise<UsageSummary | undefined>;
+  incrementUsage(firmId: string | null, userId: string | null, period: string, count?: number): Promise<void>;
+  getUsageForFirm(firmId: string, period: string): Promise<{ firmUsage: number; userUsages: Array<{ userId: string; email: string; firstName: string | null; lastName: string | null; usage: number }> }>;
+  getAllFirmsUsage(period: string): Promise<Array<{ firm: Firm; tier: Tier | null; usage: number }>>;
 
   // Owner operations
   getOwner(id: string): Promise<Owner | undefined>;
@@ -188,6 +197,129 @@ export class DatabaseStorage implements IStorage {
   async getFirm(id: string): Promise<Firm | undefined> {
     const [firm] = await db.select().from(firms).where(eq(firms.id, id));
     return firm;
+  }
+  
+  async getFirmWithTier(id: string): Promise<(Firm & { tier: Tier | null }) | undefined> {
+    const [result] = await db
+      .select({
+        firm: firms,
+        tier: tiers,
+      })
+      .from(firms)
+      .leftJoin(tiers, eq(firms.tierId, tiers.id))
+      .where(eq(firms.id, id));
+    
+    if (!result) return undefined;
+    
+    return {
+      ...result.firm,
+      tier: result.tier,
+    };
+  }
+  
+  async getUsageSummary(firmId: string | null, userId: string | null, period: string): Promise<UsageSummary | undefined> {
+    const conditions = [eq(usageSummaries.periodStart, period)];
+    
+    if (firmId) {
+      conditions.push(eq(usageSummaries.firmId, firmId));
+    }
+    if (userId) {
+      conditions.push(eq(usageSummaries.userId, userId));
+    }
+    
+    const [summary] = await db
+      .select()
+      .from(usageSummaries)
+      .where(and(...conditions));
+    
+    return summary;
+  }
+  
+  async incrementUsage(firmId: string | null, userId: string | null, period: string, count: number = 1): Promise<void> {
+    if (firmId) {
+      const existingFirmUsage = await this.getUsageSummary(firmId, null, period);
+      if (existingFirmUsage) {
+        await db
+          .update(usageSummaries)
+          .set({ 
+            totalCalls: sql`${usageSummaries.totalCalls} + ${count}`,
+            updatedAt: new Date()
+          })
+          .where(eq(usageSummaries.id, existingFirmUsage.id));
+      } else {
+        await db.insert(usageSummaries).values({
+          firmId,
+          userId: null,
+          periodStart: period,
+          totalCalls: count,
+        });
+      }
+    }
+    
+    if (userId) {
+      const existingUserUsage = await this.getUsageSummary(null, userId, period);
+      if (existingUserUsage) {
+        await db
+          .update(usageSummaries)
+          .set({ 
+            totalCalls: sql`${usageSummaries.totalCalls} + ${count}`,
+            updatedAt: new Date()
+          })
+          .where(eq(usageSummaries.id, existingUserUsage.id));
+      } else {
+        await db.insert(usageSummaries).values({
+          firmId: null,
+          userId,
+          periodStart: period,
+          totalCalls: count,
+        });
+      }
+    }
+  }
+  
+  async getUsageForFirm(firmId: string, period: string): Promise<{ firmUsage: number; userUsages: Array<{ userId: string; email: string; firstName: string | null; lastName: string | null; usage: number }> }> {
+    const firmSummary = await this.getUsageSummary(firmId, null, period);
+    const firmUsage = firmSummary?.totalCalls || 0;
+    
+    const firmUsers = await db.select().from(users).where(eq(users.firmId, firmId));
+    
+    const userUsages = await Promise.all(
+      firmUsers.map(async (user) => {
+        const userSummary = await this.getUsageSummary(null, user.id, period);
+        return {
+          userId: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          usage: userSummary?.totalCalls || 0,
+        };
+      })
+    );
+    
+    return { firmUsage, userUsages };
+  }
+  
+  async getAllFirmsUsage(period: string): Promise<Array<{ firm: Firm; tier: Tier | null; usage: number }>> {
+    const allFirms = await db
+      .select({
+        firm: firms,
+        tier: tiers,
+      })
+      .from(firms)
+      .leftJoin(tiers, eq(firms.tierId, tiers.id));
+    
+    const result = await Promise.all(
+      allFirms.map(async ({ firm, tier }) => {
+        const summary = await this.getUsageSummary(firm.id, null, period);
+        return {
+          firm,
+          tier,
+          usage: summary?.totalCalls || 0,
+        };
+      })
+    );
+    
+    return result;
   }
 
   async updateUserPassword(email: string, passwordHash: string): Promise<void> {
