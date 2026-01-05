@@ -546,7 +546,7 @@ export async function buildUnifiedDossier(id: string): Promise<UnifiedDossier | 
   };
 }
 
-export async function runFullEnrichment(id: string): Promise<{ success: boolean; providersUsed: string[]; error?: string }> {
+export async function runFullEnrichment(id: string, tier?: Tier | null): Promise<{ success: boolean; providersUsed: string[]; error?: string }> {
   const resolved = await resolveEntityById(id);
   if (!resolved) {
     return { success: false, providersUsed: [], error: "Entity not found" };
@@ -560,7 +560,7 @@ export async function runFullEnrichment(id: string): Promise<{ success: boolean;
   const providersUsed: string[] = [];
   
   try {
-    console.log(`[Enrichment] Starting full enrichment for ${owner.name} (${id})`);
+    console.log(`[Enrichment] Starting full enrichment for ${owner.name} (${id}) with tier: ${tier?.name || 'default'}`);
 
     const contacts = await db.select().from(contactInfos).where(eq(contactInfos.ownerId, id));
     const hasContacts = contacts.length > 0;
@@ -568,7 +568,7 @@ export async function runFullEnrichment(id: string): Promise<{ success: boolean;
     if (!hasContacts || isEnrichmentStale(owner.enrichmentUpdatedAt)) {
       console.log(`[Enrichment] Running contact enrichment waterfall for ${owner.name}`);
       
-      const enrichmentResult = await runContactWaterfall(owner.name, owner.primaryAddress || undefined);
+      const enrichmentResult = await runContactWaterfall(owner.name, owner.primaryAddress || undefined, tier);
       providersUsed.push(...enrichmentResult.providersUsed);
 
       if (enrichmentResult.contacts.length > 0) {
@@ -928,249 +928,14 @@ async function runSingleContactProvider(
   }
 }
 
-// Legacy function for backwards compatibility - calls new tier-aware function
+/**
+ * @deprecated Use runContactWaterfall(name, address, tier) instead.
+ * This legacy function is kept for backwards compatibility only.
+ * It delegates to the tier-aware version with tier=null (uses default tier).
+ */
 export async function runContactWaterfallLegacy(name: string, address?: string): Promise<WaterfallResult> {
-  const result: WaterfallResult = {
-    contacts: [],
-    providersUsed: [],
-  };
-
-  const nameParts = name.split(" ");
-  const firstName = nameParts[0] || "";
-  const lastName = nameParts.slice(1).join(" ") || "";
-
-  // Parse address components for Apify
-  let city = "";
-  let state = "";
-  let zip = "";
-  if (address) {
-    const parts = address.split(",").map(p => p.trim());
-    if (parts.length >= 2) {
-      const stateZip = parts[parts.length - 1].split(" ");
-      state = stateZip[0] || "";
-      zip = stateZip[1] || "";
-      city = parts[parts.length - 2] || "";
-    }
-  }
-
-  // Step 1: Try Apify Skip Trace FIRST (cheap $0.03, rich data)
-  const apifyApiToken = process.env.APIFY_API_TOKEN;
-  if (apifyApiToken) {
-    try {
-      console.log(`[Waterfall] Trying Apify Skip Trace for ${name}`);
-      const ApifySkipTrace = await import("./providers/ApifySkipTraceProvider");
-      const apifyResult = await ApifySkipTrace.skipTraceIndividual(name, address || "", city, state, zip);
-      
-      if (apifyResult) {
-        result.providersUsed.push("apify_skip_trace");
-        trackProviderCall("apify_skip_trace");
-        
-        // Add phones (up to 3)
-        for (const phone of apifyResult.phones.slice(0, 3)) {
-          result.contacts.push({
-            type: "phone",
-            value: phone.number,
-            source: "apify_skip_trace",
-            confidence: phone.type === "Wireless" ? 90 : 80,
-          });
-        }
-        
-        // Add emails (up to 2)
-        for (const email of apifyResult.emails.slice(0, 2)) {
-          result.contacts.push({
-            type: "email",
-            value: email.email,
-            source: "apify_skip_trace",
-            confidence: 85,
-          });
-        }
-        
-        // Capture rich person data
-        result.personData = {
-          age: apifyResult.age ? parseInt(apifyResult.age) : undefined,
-          birthDate: apifyResult.born,
-          relatives: apifyResult.relatives.map(r => ({ name: r.name, age: r.age ? parseInt(r.age) : undefined })),
-          associates: apifyResult.associates.map(a => ({ name: a.name, age: a.age ? parseInt(a.age) : undefined })),
-          previousAddresses: apifyResult.previousAddresses.map(a => ({
-            address: a.streetAddress,
-            city: a.city,
-            state: a.state,
-            zip: a.postalCode,
-          })),
-        };
-        
-        result.primaryProvider = "apify_skip_trace";
-        
-        // If we got at least 1 phone and 1 email, we're done
-        const hasPhone = result.contacts.some(c => c.type === "phone");
-        const hasEmail = result.contacts.some(c => c.type === "email");
-        if (hasPhone && hasEmail) {
-          console.log(`[Waterfall] Apify provided complete contacts, stopping early`);
-          return result;
-        }
-      }
-    } catch (err) {
-      console.error("[Waterfall] Apify Skip Trace failed:", err);
-    }
-  }
-
-  // Step 2: Try Melissa (cheap $0.02, good for phone/email append)
-  try {
-    console.log(`[Waterfall] Trying Melissa Personator for ${name}`);
-    const melissaResult = await dataProviders.lookupPerson({ name, address });
-    
-    if (melissaResult) {
-      result.providersUsed.push("melissa");
-      trackProviderCall("melissa");
-      
-      if (melissaResult.phone) {
-        result.contacts.push({
-          type: "phone",
-          value: melissaResult.phone,
-          source: "melissa",
-          confidence: 80,
-        });
-      }
-      if (melissaResult.email) {
-        result.contacts.push({
-          type: "email",
-          value: melissaResult.email,
-          source: "melissa",
-          confidence: 75,
-        });
-      }
-      
-      result.primaryProvider = "melissa";
-
-      if (result.contacts.length >= 2) {
-        return result;
-      }
-    }
-  } catch (err) {
-    console.error("[Waterfall] Melissa failed:", err);
-  }
-
-  try {
-    console.log(`[Waterfall] Trying Data Axle for ${name}`);
-    const dataAxleResult = await dataProviders.enrichContact({ name, address });
-    
-    if (dataAxleResult) {
-      result.providersUsed.push("data_axle");
-      trackProviderCall("data_axle");
-      
-      if (dataAxleResult.phone) {
-        result.contacts.push({
-          type: "phone",
-          value: dataAxleResult.phone,
-          source: "data_axle",
-          confidence: dataAxleResult.confidenceScore || 70,
-        });
-      }
-      if (dataAxleResult.email) {
-        result.contacts.push({
-          type: "email",
-          value: dataAxleResult.email,
-          source: "data_axle",
-          confidence: dataAxleResult.confidenceScore || 70,
-        });
-      }
-      
-      if (!result.primaryProvider) {
-        result.primaryProvider = "data_axle";
-      }
-
-      if (result.contacts.length >= 2) {
-        return result;
-      }
-    }
-  } catch (err) {
-    console.error("[Waterfall] Data Axle failed:", err);
-  }
-
-  try {
-    console.log(`[Waterfall] Trying Pacific East for ${name}`);
-    const pacificResult = await dataProviders.enrichContactWithPacificEast({
-      firstName,
-      lastName,
-      address,
-    });
-    
-    if (pacificResult) {
-      result.providersUsed.push("pacific_east");
-      trackProviderCall("pacific_east");
-      
-      if (pacificResult.phones) {
-        for (const phone of pacificResult.phones) {
-          result.contacts.push({
-            type: "phone",
-            value: phone.number,
-            source: "pacific_east",
-            confidence: phone.matchScore || 65,
-          });
-        }
-      }
-      if (pacificResult.emails) {
-        for (const email of pacificResult.emails) {
-          result.contacts.push({
-            type: "email",
-            value: email.address,
-            source: "pacific_east",
-            confidence: email.confidence || 60,
-          });
-        }
-      }
-      
-      if (!result.primaryProvider) {
-        result.primaryProvider = "pacific_east";
-      }
-
-      if (result.contacts.length >= 2) {
-        return result;
-      }
-    }
-  } catch (err) {
-    console.error("[Waterfall] Pacific East failed:", err);
-  }
-
-  try {
-    console.log(`[Waterfall] Trying A-Leads for ${name}`);
-    const aleadsResult = await dataProviders.searchALeadsByName(name);
-    
-    if (aleadsResult && aleadsResult.length > 0) {
-      result.providersUsed.push("a_leads");
-      trackProviderCall("a_leads");
-      
-      const first = aleadsResult[0];
-      if (first.phone) {
-        result.contacts.push({
-          type: "phone",
-          value: first.phone,
-          source: "a_leads",
-          confidence: 60,
-        });
-      }
-      if (first.email) {
-        result.contacts.push({
-          type: "email",
-          value: first.email,
-          source: "a_leads",
-          confidence: 55,
-        });
-      }
-      
-      if (!result.primaryProvider) {
-        result.primaryProvider = "a_leads";
-      }
-    }
-  } catch (err) {
-    console.error("[Waterfall] A-Leads failed:", err);
-  }
-
-  // Note: Email Sleuth is available via discoverEmailForOwner() for cases where
-  // we have both an individual name AND a verified company domain.
-  // It's not suitable for the generic waterfall since we need both pieces.
-
-  return result;
+  console.warn('[DEPRECATED] runContactWaterfallLegacy called - use runContactWaterfall with tier parameter instead');
+  return runContactWaterfall(name, address, null);
 }
 
 /**
@@ -1258,10 +1023,12 @@ function updateStep(
   }
 }
 
-export async function runPhasedEnrichment(id: string): Promise<PhasedEnrichmentResult> {
+export async function runPhasedEnrichment(id: string, tier?: Tier | null): Promise<PhasedEnrichmentResult> {
   const startTime = Date.now();
   const providersUsed: string[] = [];
   let estimatedCost = 0;
+  
+  console.log(`[PhasedEnrichment] Starting enrichment for ${id} with tier: ${tier?.name || 'default'}`);
   
   const summary: EnrichmentChangeSummary = {
     newContacts: 0,
@@ -1429,7 +1196,7 @@ export async function runPhasedEnrichment(id: string): Promise<PhasedEnrichmentR
   updateStep(steps, "contacts", { status: "running", startedAt: new Date().toISOString() });
   try {
     if (owner && !isProperty) {
-      const waterfallResult = await runContactWaterfall(owner.name, owner.primaryAddress || undefined);
+      const waterfallResult = await runContactWaterfall(owner.name, owner.primaryAddress || undefined, tier);
       providersUsed.push(...waterfallResult.providersUsed);
       
       // Track estimated costs for contact providers used

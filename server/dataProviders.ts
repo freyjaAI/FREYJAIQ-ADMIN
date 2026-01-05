@@ -9,6 +9,7 @@ import { parseFromDescription, toAttomQuery, toAttomSplitQuery, isValidForSearch
 import { apiUsageTracker, withUsageTracking } from "./apiUsageTracker";
 import { withCache, generateCacheKey, CachePrefix, CacheTTL, getCachedResult, setCachedResult } from "./cacheService";
 import { getProviderPricing } from "./providerConfig";
+import type { Tier } from "@shared/schema";
 
 const limit = pLimit(3);
 
@@ -2534,6 +2535,7 @@ export class DataProviderManager {
   private google?: GoogleAddressValidationProvider;
   private secEdgar: SECEdgarProvider;  // Always available - FREE, no API key
   private pacificEastEnabled: boolean = false;
+  private apifySkipTraceEnabled: boolean = false; // Uses static ApifySkipTrace module
   private openMart?: OpenMartProvider;
   private apifyInvestors?: ApifyStartupInvestorsProvider;
 
@@ -2574,7 +2576,12 @@ export class DataProviderManager {
       this.openMart = new OpenMartProvider(process.env.OPENMART_API_KEY);
       console.log("✓ OpenMart provider initialized (Business leads discovery)");
     }
-    // Apify Startup Investors - Investor profiles with contact info
+    // Apify Skip Trace - uses static module with APIFY_API_TOKEN
+    if (process.env.APIFY_API_TOKEN) {
+      this.apifySkipTraceEnabled = true;
+      console.log("✓ Apify Skip Trace provider enabled (static module)");
+    }
+    // Apify Startup Investors - Investor profiles with contact info (instance-based)
     if (process.env.APIFY_API_TOKEN) {
       this.apifyInvestors = new ApifyStartupInvestorsProvider(process.env.APIFY_API_TOKEN);
       console.log("✓ Apify Startup Investors provider initialized (9,312+ investor profiles)");
@@ -3177,23 +3184,44 @@ export class DataProviderManager {
     }
   }
 
-  async enrichContact(input: { name?: string; email?: string; phone?: string; address?: string }): Promise<DataAxleContact | null> {
-    if (this.dataAxle) {
-      const result = await this.dataAxle.enrichContact(input);
-      if (result) return result;
-    }
-
-    if (this.aLeads && input.name) {
-      const result = await this.aLeads.skipTrace({ name: input.name, address: input.address });
-      if (result) {
-        return {
-          firstName: result.name.split(" ")[0] || "",
-          lastName: result.name.split(" ").slice(1).join(" ") || "",
-          email: result.email,
-          phone: result.phone,
-          address: result.address,
-          confidenceScore: result.confidence,
-        };
+  async enrichContact(input: { name?: string; email?: string; phone?: string; address?: string }, tier?: Tier | null): Promise<DataAxleContact | null> {
+    // Import tier-aware provider sequencing
+    const { getProviderSequence } = await import("./tierProviderConfig");
+    const providerSequence = getProviderSequence(tier, 'contactEnrichment');
+    
+    console.log(`[EnrichContact] Using tier ${tier?.name || 'default'} with providers: ${providerSequence.map(p => p.key).join(', ')}`);
+    
+    for (const provider of providerSequence) {
+      try {
+        if (provider.key === 'dataaxle' && this.dataAxle) {
+          const result = await this.dataAxle.enrichContact(input);
+          if (result) {
+            if (provider.stopOnSuccess) {
+              console.log(`[EnrichContact] Data Axle returned data, stopping per tier config`);
+            }
+            return result;
+          }
+        }
+        
+        if (provider.key === 'aleads' && this.aLeads && input.name) {
+          const result = await this.aLeads.skipTrace({ name: input.name, address: input.address });
+          if (result) {
+            if (provider.stopOnSuccess) {
+              console.log(`[EnrichContact] A-Leads returned data, stopping per tier config`);
+            }
+            return {
+              firstName: result.name.split(" ")[0] || "",
+              lastName: result.name.split(" ").slice(1).join(" ") || "",
+              email: result.email,
+              phone: result.phone,
+              address: result.address,
+              confidenceScore: result.confidence,
+            };
+          }
+        }
+      } catch (err) {
+        console.error(`[EnrichContact] Provider ${provider.key} failed:`, err);
+        // Continue to next provider on error
       }
     }
 
@@ -3425,89 +3453,212 @@ export class DataProviderManager {
 
   async fetchContactEnrichment(
     companyName: string,
-    location?: { city?: string; state?: string; zip?: string }
+    location?: { city?: string; state?: string; zip?: string },
+    tier?: Tier | null
   ): Promise<ContactEnrichmentResult | null> {
     const sources: string[] = [];
     const companyEmails: ContactEnrichmentResult["companyEmails"] = [];
     const directDials: ContactEnrichmentResult["directDials"] = [];
     const employeeProfiles: ContactEnrichmentResult["employeeProfiles"] = [];
 
-    try {
-      if (this.dataAxle) {
-        sources.push("data-axle");
-        const businessResults = await this.dataAxle.searchBusinesses(companyName, location);
-        
-        for (const contact of businessResults) {
-          if (contact.email) {
-            const isPersonal = contact.firstName && contact.lastName;
-            companyEmails.push({
-              email: contact.email,
-              type: isPersonal ? "personal" : "general",
-              confidence: contact.confidenceScore,
-            });
-          }
-          
-          if (contact.phone) {
-            directDials.push({
-              phone: contact.phone,
-              type: "office",
-              name: `${contact.firstName} ${contact.lastName}`.trim() || undefined,
-              title: contact.title,
-              confidence: contact.confidenceScore,
-            });
-          }
-          
-          if (contact.firstName || contact.lastName) {
-            employeeProfiles.push({
-              name: `${contact.firstName} ${contact.lastName}`.trim(),
-              title: contact.title,
-              email: contact.email,
-              phone: contact.phone,
-              confidence: contact.confidenceScore,
-            });
-          }
-        }
-      }
+    // Import tier-aware provider sequencing
+    const { getProviderSequence } = await import("./tierProviderConfig");
+    const providerSequence = getProviderSequence(tier, 'contactEnrichment');
+    const allowedProviderKeys = new Set(providerSequence.map(p => p.key));
+    
+    console.log(`[ContactEnrichment] Using tier ${tier?.name || 'default'} with providers: ${providerSequence.map(p => p.key).join(', ')}`);
 
-      if (this.aLeads) {
-        sources.push("a-leads");
-        const locationStr = location ? `${location.city || ""}, ${location.state || ""}`.trim() : undefined;
-        const aLeadsResults = await this.aLeads.searchContacts({ 
-          company: companyName, 
-          location: locationStr 
-        });
-        
-        for (const contact of aLeadsResults) {
-          if (contact.email && !companyEmails.some(e => e.email === contact.email)) {
-            companyEmails.push({
-              email: contact.email,
-              type: "personal",
-              confidence: contact.confidence,
-            });
+    try {
+      // Only call providers that are in the tier's allowed list, in tier-defined order
+      for (const provider of providerSequence) {
+        try {
+          // Apify Skip Trace for company contacts (uses static module)
+          if (provider.key === 'apify_skip_trace' && allowedProviderKeys.has('apify_skip_trace') && this.apifySkipTraceEnabled) {
+            sources.push("apify-skip-trace");
+            console.log(`[ContactEnrichment] Trying Apify Skip Trace for company: ${companyName}`);
+            
+            try {
+              const ApifySkipTrace = await import("./providers/ApifySkipTraceProvider");
+              const apifyResult = await ApifySkipTrace.skipTraceCompany(companyName, location?.city, location?.state);
+              
+              if (apifyResult?.contacts) {
+                for (const contact of apifyResult.contacts) {
+                  if (contact.email && !companyEmails.some(e => e.email === contact.email)) {
+                    companyEmails.push({
+                      email: contact.email,
+                      type: "personal",
+                      confidence: 85,
+                    });
+                  }
+                  if (contact.phone && !directDials.some(d => d.phone === contact.phone)) {
+                    directDials.push({
+                      phone: contact.phone,
+                      type: "direct",
+                      name: contact.name,
+                      confidence: 80,
+                    });
+                  }
+                  if (contact.name && !employeeProfiles.some(p => p.name === contact.name)) {
+                    employeeProfiles.push({
+                      name: contact.name,
+                      email: contact.email,
+                      phone: contact.phone,
+                      confidence: 80,
+                    });
+                  }
+                }
+                
+                if (provider.stopOnSuccess && (companyEmails.length > 0 || directDials.length > 0)) {
+                  console.log(`[ContactEnrichment] Apify returned sufficient data, stopping per tier config`);
+                  break;
+                }
+              }
+            } catch (apifyErr) {
+              console.error(`[ContactEnrichment] Apify Skip Trace failed:`, apifyErr);
+            }
           }
           
-          if (contact.phone && !directDials.some(d => d.phone === contact.phone)) {
-            directDials.push({
-              phone: contact.phone,
-              type: "direct",
-              name: contact.name,
-              confidence: contact.confidence,
-            });
+          // Data Axle for business contacts
+          if (provider.key === 'dataaxle' && this.dataAxle && allowedProviderKeys.has('dataaxle')) {
+            sources.push("data-axle");
+            const businessResults = await this.dataAxle.searchBusinesses(companyName, location);
+            
+            for (const contact of businessResults) {
+              if (contact.email) {
+                const isPersonal = contact.firstName && contact.lastName;
+                companyEmails.push({
+                  email: contact.email,
+                  type: isPersonal ? "personal" : "general",
+                  confidence: contact.confidenceScore,
+                });
+              }
+              
+              if (contact.phone) {
+                directDials.push({
+                  phone: contact.phone,
+                  type: "office",
+                  name: `${contact.firstName} ${contact.lastName}`.trim() || undefined,
+                  title: contact.title,
+                  confidence: contact.confidenceScore,
+                });
+              }
+              
+              if (contact.firstName || contact.lastName) {
+                employeeProfiles.push({
+                  name: `${contact.firstName} ${contact.lastName}`.trim(),
+                  title: contact.title,
+                  email: contact.email,
+                  phone: contact.phone,
+                  confidence: contact.confidenceScore,
+                });
+              }
+            }
+            
+            // Check if we should stop based on tier config
+            if (provider.stopOnSuccess && (companyEmails.length > 0 || directDials.length > 0)) {
+              console.log(`[ContactEnrichment] Data Axle returned sufficient data, stopping per tier config`);
+              break;
+            }
           }
           
-          if (contact.name && !employeeProfiles.some(p => p.name === contact.name)) {
-            employeeProfiles.push({
-              name: contact.name,
-              email: contact.email,
-              phone: contact.phone,
-              confidence: contact.confidence,
+          // A-Leads for contact search
+          if (provider.key === 'aleads' && this.aLeads && allowedProviderKeys.has('aleads')) {
+            sources.push("a-leads");
+            const locationStr = location ? `${location.city || ""}, ${location.state || ""}`.trim() : undefined;
+            const aLeadsResults = await this.aLeads.searchContacts({ 
+              company: companyName, 
+              location: locationStr 
             });
+            
+            for (const contact of aLeadsResults) {
+              if (contact.email && !companyEmails.some(e => e.email === contact.email)) {
+                companyEmails.push({
+                  email: contact.email,
+                  type: "personal",
+                  confidence: contact.confidence,
+                });
+              }
+              
+              if (contact.phone && !directDials.some(d => d.phone === contact.phone)) {
+                directDials.push({
+                  phone: contact.phone,
+                  type: "direct",
+                  name: contact.name,
+                  confidence: contact.confidence,
+                });
+              }
+              
+              if (contact.name && !employeeProfiles.some(p => p.name === contact.name)) {
+                employeeProfiles.push({
+                  name: contact.name,
+                  email: contact.email,
+                  phone: contact.phone,
+                  confidence: contact.confidence,
+                });
+              }
+            }
+            
+            if (provider.stopOnSuccess && (companyEmails.length > 0 || directDials.length > 0)) {
+              console.log(`[ContactEnrichment] A-Leads returned sufficient data, stopping per tier config`);
+              break;
+            }
           }
+          
+          // Pacific East for phone/email enrichment (uses static module, always available)
+          if (provider.key === 'pacificeast' && allowedProviderKeys.has('pacificeast') && this.pacificEastEnabled) {
+            sources.push("pacific-east");
+            console.log(`[ContactEnrichment] Trying Pacific East for company: ${companyName}`);
+            
+            try {
+              const peResult = await PacificEast.enrichBusinessContact({
+                businessName: companyName,
+                city: location?.city,
+                state: location?.state,
+                zip: location?.zip,
+              });
+              
+              if (peResult) {
+                if (peResult.phones) {
+                  for (const phone of peResult.phones) {
+                    if (phone.number && !directDials.some(d => d.phone === phone.number)) {
+                      directDials.push({
+                        phone: phone.number,
+                        type: phone.type || "office",
+                        confidence: phone.matchScore || 65,
+                      });
+                    }
+                  }
+                }
+                
+                if (peResult.emails) {
+                  for (const email of peResult.emails) {
+                    if (email.address && !companyEmails.some(e => e.email === email.address)) {
+                      companyEmails.push({
+                        email: email.address,
+                        type: "general",
+                        confidence: email.confidence || 60,
+                      });
+                    }
+                  }
+                }
+                
+                if (provider.stopOnSuccess && (companyEmails.length > 0 || directDials.length > 0)) {
+                  console.log(`[ContactEnrichment] Pacific East returned sufficient data, stopping per tier config`);
+                  break;
+                }
+              }
+            } catch (peErr) {
+              console.error(`[ContactEnrichment] Pacific East failed:`, peErr);
+            }
+          }
+        } catch (providerError) {
+          console.error(`[ContactEnrichment] Provider ${provider.key} failed:`, providerError);
+          // Continue to next provider on error
         }
       }
 
       if (sources.length === 0) {
-        console.warn("No contact enrichment providers configured");
+        console.warn("No contact enrichment providers configured or available in tier");
         return null;
       }
 

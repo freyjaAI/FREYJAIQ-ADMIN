@@ -23,6 +23,7 @@ import * as GeminiDeepResearch from "./providers/GeminiDeepResearchProvider";
 import * as HomeHarvest from "./providers/HomeHarvestProvider";
 import { buildUnifiedDossier, runFullEnrichment, resolveEntityById, UnifiedDossier, runPhasedEnrichment, PhasedEnrichmentResult, runContactWaterfall } from "./dossierService";
 import { resolveOwnershipChain } from "./llcChainResolver";
+import { lookupPropertyWithTier } from "./providers/MultiPlatformPropertyProvider";
 import { 
   trackProviderCall, 
   trackCacheEvent, 
@@ -2999,6 +3000,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(404).json({ message: "Owner not found" });
       }
 
+      // Get user's tier for tier-aware provider ordering
+      const firmId = req.user?.firmId || null;
+      let userTier = null;
+      if (firmId) {
+        const firmWithTier = await storage.getFirmWithTier(firmId);
+        userTier = firmWithTier?.tier || null;
+      }
+
       const rawProperties = await storage.getPropertiesByOwner(owner.id);
       const contacts = await storage.getContactsByOwner(owner.id);
       const legalEvents = await storage.getLegalEventsByOwner(owner.id);
@@ -3291,12 +3300,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (isEntity) {
         try {
           const parsed = parseAddress(owner.primaryAddress);
-          // First search by company name
+          // First search by company name (tier-aware provider ordering)
           contactEnrichment = await dataProviders.fetchContactEnrichment(owner.name, { 
             city: parsed.city, 
             state: parsed.state,
             zip: parsed.zip
-          });
+          }, userTier);
           
           // If LLC has officers from OpenCorporates, search Data Axle and A-Leads for officer contacts
           if (llcUnmasking?.officers?.length && contactEnrichment) {
@@ -5245,7 +5254,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  // External Contact Enrichment (Data Axle + A-Leads)
+  // External Contact Enrichment (Data Axle + A-Leads) - tier-aware
   app.post("/api/external/enrich-contact", isAuthenticated, async (req: any, res) => {
     try {
       const { name, email, phone, address } = req.body;
@@ -5254,7 +5263,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(400).json({ message: "Name, email, or phone required" });
       }
 
-      const result = await dataProviders.enrichContact({ name, email, phone, address });
+      // Get user's tier for tier-aware provider ordering
+      const firmId = req.user?.firmId || null;
+      let userTier = null;
+      if (firmId) {
+        const firmWithTier = await storage.getFirmWithTier(firmId);
+        userTier = firmWithTier?.tier || null;
+      }
+
+      const result = await dataProviders.enrichContact({ name, email, phone, address }, userTier);
 
       if (!result) {
         return res.status(404).json({ message: "Contact not found" });
@@ -6976,7 +6993,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(400).json({ message: "Entity ID required" });
       }
 
-      const result = await runFullEnrichment(id);
+      // Get user's tier for tier-aware provider ordering
+      let userTier = null;
+      if (firmId) {
+        const firmWithTier = await storage.getFirmWithTier(firmId);
+        userTier = firmWithTier?.tier || null;
+      }
+
+      const result = await runFullEnrichment(id, userTier);
       
       if (!result.success && result.error) {
         return res.status(result.error === "Entity not found" ? 404 : 500).json({ 
@@ -7026,8 +7050,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(400).json({ message: "Entity ID required" });
       }
 
+      // Get user's tier for tier-aware provider ordering
+      let userTier = null;
+      if (firmId) {
+        const firmWithTier = await storage.getFirmWithTier(firmId);
+        userTier = firmWithTier?.tier || null;
+      }
+
       console.log(`[PhasedEnrichment] Starting enrichment for entity ${id}`);
-      const result = await runPhasedEnrichment(id);
+      const result = await runPhasedEnrichment(id, userTier);
       
       if (result.overallStatus === "failed") {
         return res.status(404).json({
@@ -7082,6 +7113,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
       
       if (!id) return res.status(400).json({ message: "Entity ID required" });
+
+      // Get user's tier for tier-aware provider ordering
+      let userTier = null;
+      if (firmId) {
+        const firmWithTier = await storage.getFirmWithTier(firmId);
+        userTier = firmWithTier?.tier || null;
+      }
 
       const resolved = await resolveEntityById(id);
       if (!resolved || resolved.entityType === "property") {
@@ -7156,7 +7194,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           waterfallResult = { contacts: [], providersUsed: [] };
           for (const ubo of beneficialOwners) {
             console.log(`[ContactEnrichment] Enriching beneficial owner: "${ubo.name}"`);
-            const uboResult = await runContactWaterfall(ubo.name, owner.primaryAddress || undefined);
+            const uboResult = await runContactWaterfall(ubo.name, owner.primaryAddress || undefined, userTier);
             waterfallResult.contacts.push(...uboResult.contacts);
             for (const p of uboResult.providersUsed) {
               if (!waterfallResult.providersUsed.includes(p)) {
@@ -7172,7 +7210,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
       } else {
         // For individuals, search directly
-        waterfallResult = await runContactWaterfall(owner.name, owner.primaryAddress || undefined);
+        waterfallResult = await runContactWaterfall(owner.name, owner.primaryAddress || undefined, userTier);
       }
       
       let estimatedCost = 0;
