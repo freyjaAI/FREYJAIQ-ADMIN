@@ -33,7 +33,7 @@ import {
   createSearchCostTracker
 } from "./providerConfig";
 import { setLlcLookupFunction, setPersonVerifyFunction } from "./llcChainResolver";
-import { apiUsageTracker } from "./apiUsageTracker";
+import { apiUsageTracker, checkTierLimits, recordUserUsage, getCurrentBillingPeriod } from "./apiUsageTracker";
 import { getFullCacheStats, resetCacheMetrics } from "./cacheService";
 
 // Common first names to help detect person names (subset of most common US names)
@@ -2401,6 +2401,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (!userId) {
         return res.status(401).json({ message: "User ID not found" });
       }
+      
+      const user = await storage.getUser(userId);
+      const firmId = user?.firmId || null;
+      
+      const tierCheck = await checkTierLimits(firmId, userId, storage);
+      if (!tierCheck.allowed) {
+        return res.status(429).json({ 
+          error: tierCheck.error, 
+          message: tierCheck.message 
+        });
+      }
 
       if (!q || typeof q !== "string") {
         return res.status(400).json({ message: "Search query is required" });
@@ -2479,6 +2490,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         estimatedCost: 0,
         providerCalls: [],
       });
+      
+      // Record usage for tier-based tracking
+      await recordUserUsage(firmId, userId, storage);
 
       // Audit log for compliance
       await auditLogger.logSearch(userId, q, type as string, owners.length + foundProperties.length);
@@ -4946,6 +4960,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (!userId) {
         return res.status(401).json({ message: "User ID not found" });
       }
+      
+      const user = await storage.getUser(userId);
+      const firmId = user?.firmId || null;
+      
+      const tierCheck = await checkTierLimits(firmId, userId, storage);
+      if (!tierCheck.allowed) {
+        return res.status(429).json({ 
+          error: tierCheck.error, 
+          message: tierCheck.message 
+        });
+      }
 
       const { query, type } = req.body;
 
@@ -5222,6 +5247,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         estimatedCost: costSummary.estimatedCost,
         providerCalls,
       });
+      
+      // Record usage for tier-based tracking
+      await recordUserUsage(firmId, userId, storage);
 
       res.json({
         ...results,
@@ -6476,6 +6504,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post("/api/dossier/:id/enrich", isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
+      const userId = getUserId(req);
+      if (!userId) {
+        return res.status(401).json({ message: "User ID not found" });
+      }
+      
+      const user = await storage.getUser(userId);
+      const firmId = user?.firmId || null;
+      
+      const tierCheck = await checkTierLimits(firmId, userId, storage);
+      if (!tierCheck.allowed) {
+        return res.status(429).json({ 
+          error: tierCheck.error, 
+          message: tierCheck.message 
+        });
+      }
       
       if (!id) {
         return res.status(400).json({ message: "Entity ID required" });
@@ -6493,6 +6536,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       // Return updated dossier after enrichment
       const dossier = await buildUnifiedDossier(id);
       
+      // Record usage for tier-based tracking
+      await recordUserUsage(firmId, userId, storage);
+      
       res.json({
         success: result.success,
         providersUsed: result.providersUsed,
@@ -6508,6 +6554,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post("/api/dossiers/:id/enrich-full", isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
+      const userId = getUserId(req);
+      if (!userId) {
+        return res.status(401).json({ message: "User ID not found" });
+      }
+      
+      const user = await storage.getUser(userId);
+      const firmId = user?.firmId || null;
+      
+      const tierCheck = await checkTierLimits(firmId, userId, storage);
+      if (!tierCheck.allowed) {
+        return res.status(429).json({ 
+          error: tierCheck.error, 
+          message: tierCheck.message 
+        });
+      }
       
       if (!id) {
         return res.status(400).json({ message: "Entity ID required" });
@@ -6529,6 +6590,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       // Fetch the updated dossier after enrichment
       const dossier = await buildUnifiedDossier(id);
       
+      // Record usage for tier-based tracking
+      await recordUserUsage(firmId, userId, storage);
+      
       console.log(`[PhasedEnrichment] Completed for ${id} in ${result.durationMs}ms - status: ${result.overallStatus}`);
       
       res.json({
@@ -6549,6 +6613,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post("/api/dossiers/:id/enrich-contacts", isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
+      const userId = getUserId(req);
+      if (!userId) {
+        return res.status(401).json({ message: "User ID not found" });
+      }
+      
+      const user = await storage.getUser(userId);
+      const firmId = user?.firmId || null;
+      
+      const tierCheck = await checkTierLimits(firmId, userId, storage);
+      if (!tierCheck.allowed) {
+        return res.status(429).json({ 
+          error: tierCheck.error, 
+          message: tierCheck.message 
+        });
+      }
+      
       if (!id) return res.status(400).json({ message: "Entity ID required" });
 
       const resolved = await resolveEntityById(id);
@@ -6676,6 +6756,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         providersUsed: waterfallResult.providersUsed,
         estimatedCost: Math.round(estimatedCost * 1000) / 1000,
       });
+      
+      // Record usage for tier-based tracking (after response for non-blocking)
+      await recordUserUsage(firmId, userId, storage);
     } catch (error) {
       console.error("Error enriching contacts:", error);
       res.status(500).json({ message: "Failed to enrich contacts" });
