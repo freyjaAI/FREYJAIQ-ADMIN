@@ -34,6 +34,7 @@ import {
 } from "./providerConfig";
 import { setLlcLookupFunction, setPersonVerifyFunction } from "./llcChainResolver";
 import { apiUsageTracker, checkTierLimits, recordUserUsage, getCurrentBillingPeriod } from "./apiUsageTracker";
+import { enforceQuota, recordUsageAfterCall } from "./quotaEnforcement";
 import { getFullCacheStats, resetCacheMetrics } from "./cacheService";
 import { getAllProviderHealth, resetProviderHealth, getDownProviders, getDegradedProviders } from "./providerHealthService";
 import { startHealthMonitorScheduler } from "./healthMonitorScheduler";
@@ -6984,10 +6985,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // Targeted enrichment: Ownership chain only
-  app.post("/api/dossiers/:id/enrich-ownership", isAuthenticated, async (req: any, res) => {
+  app.post("/api/dossiers/:id/enrich-ownership", isAuthenticated, enforceQuota, async (req: any, res) => {
     try {
       const { id } = req.params;
       if (!id) return res.status(400).json({ message: "Entity ID required" });
+      
+      const userId = req.user?.id;
+      const firmId = req.user?.firmId || null;
 
       const resolved = await resolveEntityById(id);
       if (!resolved || resolved.entityType !== "entity") {
@@ -7037,13 +7041,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         providersUsed: chain.perplexityUsed ? ["gemini", "perplexity"] : ["gemini"],
         estimatedCost: Math.round(estimatedCost * 1000) / 1000,
       });
+      
+      // Record usage for tier-based tracking
+      if (userId) {
+        await recordUsageAfterCall(userId, firmId);
+      }
     } catch (error) {
       console.error("Error enriching ownership:", error);
       res.status(500).json({ message: "Failed to enrich ownership" });
     }
   });
 
-  // Targeted enrichment: Franchise detection
+  // Targeted enrichment: Franchise detection (no external API calls, no quota needed)
   app.post("/api/dossiers/:id/enrich-franchise", isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
@@ -7072,10 +7081,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // Targeted enrichment: Property data
-  app.post("/api/dossiers/:id/enrich-property", isAuthenticated, async (req: any, res) => {
+  app.post("/api/dossiers/:id/enrich-property", isAuthenticated, enforceQuota, async (req: any, res) => {
     try {
       const { id } = req.params;
       if (!id) return res.status(400).json({ message: "Entity ID required" });
+      
+      const userId = req.user?.id;
+      const firmId = req.user?.firmId || null;
 
       const resolved = await resolveEntityById(id);
       if (!resolved) {
@@ -7109,6 +7121,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         providersUsed,
         estimatedCost: Math.round(estimatedCost * 1000) / 1000,
       });
+      
+      // Record usage for tier-based tracking if external API was called
+      if (providersUsed.length > 0 && userId) {
+        await recordUsageAfterCall(userId, firmId);
+      }
     } catch (error) {
       console.error("Error enriching property:", error);
       res.status(500).json({ message: "Failed to enrich property" });
