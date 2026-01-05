@@ -13,6 +13,7 @@
 import { db } from "./db";
 import { providerUsageMetrics } from "@shared/schema";
 import { eq, and, sql } from "drizzle-orm";
+import { recordProviderSuccess, recordProviderError as healthRecordError } from "./providerHealthService";
 
 // Get today's date in YYYY-MM-DD format
 function getTodayDate(): string {
@@ -277,6 +278,25 @@ export function trackProviderCall(
   // Persist to database asynchronously (fire and forget)
   persistMetricToDb(providerName, wasCacheHit, costIncrement).catch(err => {
     console.error('[PROVIDER METRICS] Failed to persist metric:', err);
+  });
+  
+  // Record successful health (non-blocking)
+  if (!wasCacheHit) {
+    recordProviderSuccess(providerName).catch(err => {
+      console.error('[PROVIDER HEALTH] Failed to record success:', err);
+    });
+  }
+}
+
+/**
+ * Track a provider API error - updates health tracking
+ */
+export function trackProviderError(
+  providerName: string,
+  error: Error | string
+): void {
+  healthRecordError(providerName, error).catch(err => {
+    console.error('[PROVIDER HEALTH] Failed to record error:', err);
   });
 }
 

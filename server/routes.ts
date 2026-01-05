@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
-import { setupAuth, isAuthenticated, getUserId } from "./auth";
+import { setupAuth, isAuthenticated, isFirmAdmin, isAdmin, getUserId } from "./auth";
 import { auditLogger } from "./auditLogger";
 import { searchRateLimit, enrichmentRateLimit, adminRateLimit } from "./rateLimiter";
 import { csrfProtection, getCsrfToken } from "./csrf";
@@ -35,6 +35,8 @@ import {
 import { setLlcLookupFunction, setPersonVerifyFunction } from "./llcChainResolver";
 import { apiUsageTracker, checkTierLimits, recordUserUsage, getCurrentBillingPeriod } from "./apiUsageTracker";
 import { getFullCacheStats, resetCacheMetrics } from "./cacheService";
+import { getAllProviderHealth, resetProviderHealth, getDownProviders, getDegradedProviders } from "./providerHealthService";
+import { startHealthMonitorScheduler } from "./healthMonitorScheduler";
 
 // Common first names to help detect person names (subset of most common US names)
 const COMMON_FIRST_NAMES = new Set([
@@ -1761,6 +1763,94 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (error) {
       console.error("Error resetting API usage:", error);
       res.status(500).json({ message: "Failed to reset API usage" });
+    }
+  });
+
+  // GET /api/admin/providers/health - get all provider health status
+  app.get("/api/admin/providers/health", isAuthenticated, adminRateLimit, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const user = userId ? await storage.getUser(userId) : null;
+      
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+      
+      const providers = await getAllProviderHealth();
+      const downProviders = await getDownProviders();
+      const degradedProviders = await getDegradedProviders();
+      
+      res.json({
+        providers: providers.map(p => ({
+          providerKey: p.providerKey,
+          displayName: p.displayName,
+          status: p.status,
+          lastErrorAt: p.lastErrorAt,
+          lastErrorMessage: p.lastErrorMessage,
+          lastSuccessAt: p.lastSuccessAt,
+          errorRateLastHour: p.errorRateLastHour,
+          errorCountLastHour: p.errorCountLastHour,
+          successCountLastHour: p.successCountLastHour,
+          consecutiveFailures: p.consecutiveFailures,
+          updatedAt: p.updatedAt,
+        })),
+        summary: {
+          total: providers.length,
+          healthy: providers.filter(p => p.status === "healthy").length,
+          degraded: degradedProviders.length,
+          down: downProviders.length,
+        },
+      });
+    } catch (error) {
+      console.error("Error fetching provider health:", error);
+      res.status(500).json({ message: "Failed to fetch provider health" });
+    }
+  });
+
+  // POST /api/admin/providers/health/:providerKey/reset - reset provider health
+  app.post("/api/admin/providers/health/:providerKey/reset", isAuthenticated, adminRateLimit, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const user = userId ? await storage.getUser(userId) : null;
+      
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+      
+      const { providerKey } = req.params;
+      
+      const updated = await resetProviderHealth(providerKey);
+      
+      if (!updated) {
+        return res.status(404).json({ message: "Provider not found" });
+      }
+      
+      console.log(`[ADMIN] Reset provider health for: ${providerKey}`);
+      res.json({ 
+        success: true, 
+        message: `Reset health for ${updated.displayName}`,
+        provider: updated,
+      });
+    } catch (error) {
+      console.error("Error resetting provider health:", error);
+      res.status(500).json({ message: "Failed to reset provider health" });
+    }
+  });
+
+  // GET /api/admin/providers/health/alerts - get down/degraded providers for alert banner
+  app.get("/api/admin/providers/health/alerts", isAuthenticated, async (req: any, res) => {
+    try {
+      const downProviders = await getDownProviders();
+      const degradedProviders = await getDegradedProviders();
+      
+      res.json({
+        hasAlerts: downProviders.length > 0 || degradedProviders.length > 0,
+        down: downProviders.map(p => ({ key: p.providerKey, name: p.displayName })),
+        degraded: degradedProviders.map(p => ({ key: p.providerKey, name: p.displayName })),
+      });
+    } catch (error) {
+      console.error("Error fetching provider alerts:", error);
+      res.status(500).json({ message: "Failed to fetch provider alerts" });
     }
   });
 

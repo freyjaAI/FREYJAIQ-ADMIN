@@ -3,6 +3,7 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { dataRetentionScheduler } from "./dataRetentionScheduler";
+import { startHealthMonitorScheduler, stopHealthMonitorScheduler } from "./healthMonitorScheduler";
 import { loadMetricsFromDb } from "./providerConfig";
 
 const app = express();
@@ -138,6 +139,9 @@ app.use((req, res, next) => {
       
       // Start automated data retention scheduler
       dataRetentionScheduler.start();
+      
+      // Start provider health monitor scheduler
+      startHealthMonitorScheduler();
     },
   );
 
@@ -145,6 +149,7 @@ app.use((req, res, next) => {
   const shutdown = () => {
     log("Shutting down gracefully...");
     dataRetentionScheduler.stop();
+    stopHealthMonitorScheduler();
     httpServer.close(() => {
       log("Server closed");
       process.exit(0);

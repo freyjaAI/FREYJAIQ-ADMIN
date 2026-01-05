@@ -286,6 +286,40 @@ export const isAuthenticated: RequestHandler = (req, res, next) => {
   next();
 };
 
+export const isFirmAdmin: RequestHandler = async (req, res, next) => {
+  if (!req.session.userId) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+  
+  const user = await storage.getUser(req.session.userId);
+  if (!user) {
+    return res.status(401).json({ message: "User not found" });
+  }
+  
+  if (user.role !== "firm_admin" && user.role !== "admin") {
+    return res.status(403).json({ message: "Forbidden: Firm admin access required" });
+  }
+  
+  next();
+};
+
+export const isAdmin: RequestHandler = async (req, res, next) => {
+  if (!req.session.userId) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+  
+  const user = await storage.getUser(req.session.userId);
+  if (!user) {
+    return res.status(401).json({ message: "User not found" });
+  }
+  
+  if (user.role !== "admin") {
+    return res.status(403).json({ message: "Forbidden: Admin access required" });
+  }
+  
+  next();
+};
+
 export function getUserId(req: any): string | null {
   return req.session?.userId || null;
 }

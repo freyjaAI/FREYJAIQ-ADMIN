@@ -136,6 +136,29 @@ export const insertUsageSummarySchema = createInsertSchema(usageSummaries).omit(
 export type InsertUsageSummary = z.infer<typeof insertUsageSummarySchema>;
 export type UsageSummary = typeof usageSummaries.$inferSelect;
 
+// Provider health tracking for external API monitoring
+export const providerHealth = pgTable("provider_health", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  providerKey: varchar("provider_key").notNull().unique(),
+  displayName: varchar("display_name").notNull(),
+  status: varchar("status").notNull().default("healthy"), // healthy | degraded | down
+  lastErrorMessage: text("last_error_message"),
+  lastErrorAt: timestamp("last_error_at"),
+  errorCountLastHour: integer("error_count_last_hour").default(0).notNull(),
+  successCountLastHour: integer("success_count_last_hour").default(0).notNull(),
+  errorRateLastHour: real("error_rate_last_hour").default(0).notNull(),
+  consecutiveFailures: integer("consecutive_failures").default(0).notNull(),
+  lastSuccessAt: timestamp("last_success_at"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertProviderHealthSchema = createInsertSchema(providerHealth).omit({
+  id: true,
+  updatedAt: true,
+});
+export type InsertProviderHealth = z.infer<typeof insertProviderHealthSchema>;
+export type ProviderHealth = typeof providerHealth.$inferSelect;
+
 // Owner entity - can be individual or LLC/entity
 export const owners = pgTable("owners", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

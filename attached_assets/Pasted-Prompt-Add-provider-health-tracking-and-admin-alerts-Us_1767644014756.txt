@@ -1,0 +1,120 @@
+Prompt – Add provider health tracking and admin alerts
+Use this as a single prompt to Replit’s agent (adjust filenames if they differ):
+
+Add centralized provider health tracking and an admin alert UI so I can see when any external API is failing:
+
+Create a provider health model:
+
+In schema.ts (or the DB schema file), add a ProviderHealth table:
+
+id (uuid, pk)
+
+providerKey (string, unique; e.g. "home_harvest", "real_estate_api", "sec_edgar", "apify", "data_axle", "a_leads", "pacific", "usps", "google_address", "gemini", "perplexity", "open_corporates", "attom")
+
+displayName (string)
+
+status (enum/string: "healthy" | "degraded" | "down")
+
+lastErrorMessage (text, nullable)
+
+lastErrorAt (timestamp, nullable)
+
+errorCountLastHour (int, default 0)
+
+errorRateLastHour (float, default 0)
+
+updatedAt (timestamp)
+
+Hook into existing provider calls:
+
+In the common provider wrapper(s) (dataProviders.ts, MultiPlatformPropertyProvider.ts, bulkEnrichmentService.ts, or wherever outbound API calls are centralized):
+
+Wrap each external API call in a try/catch that:
+
+On success:
+
+Optionally decay or reset errorCountLastHour and set status = "healthy" if there have been no recent errors.
+
+On error (network error, timeout, non‑2xx status, or provider‑specific failure):
+
+Log to the existing auditLogger.ts.
+
+Call a helper recordProviderError(providerKey: string, error: Error) that:
+
+Updates or upserts the ProviderHealth row:
+
+Increment errorCountLastHour.
+
+Recompute errorRateLastHour based on total calls vs errors if that data is available in apiUsageTracker.ts (otherwise approximate using a rolling window).
+
+Set lastErrorMessage and lastErrorAt.
+
+Set status:
+
+"down" if there are N consecutive failures or errorRateLastHour > 0.8 for the last 10–20 calls.
+
+"degraded" if errorRateLastHour between 0.2 and 0.8.
+
+"healthy" otherwise.
+
+Make sure this error tracking does not break the existing waterfall logic or caching.
+
+Background cleanup:
+
+Add a small scheduler (can reuse dataRetentionScheduler.ts or create healthMonitorScheduler.ts) that runs every 5–10 minutes:
+
+Decreases errorCountLastHour over time so a spike of errors does not keep a provider “down” forever.
+
+If there have been no errors for the last 30–60 minutes, reset status to "healthy" and clear lastErrorMessage.
+
+Admin API endpoints:
+
+Under the existing admin routes in routes.ts, add:
+
+GET /admin/providers/health:
+
+Returns a list of all providers with: providerKey, displayName, status, lastErrorAt, lastErrorMessage, errorRateLastHour, errorCountLastHour.
+
+POST /admin/providers/health/:providerKey/reset:
+
+Admin‑only endpoint to manually reset health (set to "healthy", clear counts and lastErrorMessage).
+
+Protect these with the same admin auth middleware used for the API usage and cost pages.
+
+Admin UI alerts:
+
+In the admin dashboard, add a “Provider Health” or “API Health” section (can be a new tab or a card on the existing API usage page):
+
+Display a table of all providers:
+
+Name
+
+Status (color‑coded: green=healthy, yellow=degraded, red=down)
+
+Last error time
+
+Last error message (truncate with tooltip)
+
+Error rate last hour
+
+A “Reset” button that calls the reset endpoint.
+
+Add a global alert banner at the top of the admin dashboard that appears only when any provider has status = "down":
+
+Example: “Some providers are currently down: Home Harvest, Attom. Click here for details.”
+
+Clicking goes to the Provider Health section.
+
+Optionally, for status = "degraded", show a smaller warning icon on the nav with a badge count of affected providers.
+
+Optional notifications:
+
+Add a simple hook in the health update helper so that when a provider transitions from "healthy" → "down", it:
+
+Sends an email via the existing SendGrid integration (if available) to a configured admin address, or
+
+Logs a special entry in auditLogger.ts so it shows up clearly in logs.
+
+Keep this simple and configurable via environment variables, e.g. ALERT_EMAIL_TO.
+
+Please implement this end‑to‑end, reusing the existing logging (auditLogger.ts), scheduling (dataRetentionScheduler.ts), and admin UI patterns already used for the API usage and cost tracking panels.

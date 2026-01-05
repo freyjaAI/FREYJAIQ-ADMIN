@@ -13,6 +13,7 @@ import {
   Target,
   Activity,
   Layers,
+  HeartPulse,
 } from "lucide-react";
 import {
   Sidebar,
@@ -87,6 +88,11 @@ const adminItems = [
     title: "API Usage",
     url: "/admin/api-usage",
     icon: Activity,
+  },
+  {
+    title: "Provider Health",
+    url: "/admin/provider-health",
+    icon: HeartPulse,
   },
   {
     title: "Firms & Tiers",
