@@ -259,6 +259,50 @@ const TIER_CONFIGS: Record<string, TierProviderSequence> = {
   "default": DEFAULT_CONFIG,
 };
 
+// Export tier configurations for external access
+export const TIER_CONFIGURATIONS = TIER_CONFIGS;
+
+/**
+ * Get providers for a tier by tier ID string
+ * @param tierId - The tier identifier (e.g., "tier_1", "tier_2")
+ * @param category - The provider category to retrieve
+ * @returns Array of provider configurations for the specified category
+ */
+export function getTierProviders(
+  tierId: string | null | undefined,
+  category: ProviderCategory
+): ProviderConfig[] {
+  if (!tierId) {
+    console.log("[TierProviderConfig] No tierId provided, using default config");
+    return getTierProvidersFromConfig(DEFAULT_CONFIG, category);
+  }
+  
+  const normalizedId = tierId.toLowerCase().replace(/\s+/g, '_');
+  const config = TIER_CONFIGS[normalizedId] || DEFAULT_CONFIG;
+  
+  console.log(`[TierProviderConfig] getTierProviders for tierId: ${tierId} -> ${config.tierName}`);
+  return getTierProvidersFromConfig(config, category);
+}
+
+function getTierProvidersFromConfig(
+  config: TierProviderSequence,
+  category: ProviderCategory
+): ProviderConfig[] {
+  switch (category) {
+    case 'propertyOwnership':
+      return config.propertyOwnershipProviders;
+    case 'contactEnrichment':
+      return config.contactEnrichmentProviders;
+    case 'addressValidation':
+      return config.addressValidationProviders;
+    case 'aiResearch':
+      return config.aiResearchProviders;
+    default:
+      console.warn(`[TierProviderConfig] Unknown category: ${category}`);
+      return [];
+  }
+}
+
 export function getProvidersForTier(tier: Tier | null | undefined): TierProviderSequence {
   if (!tier) {
     console.log("[TierProviderConfig] No tier provided, using default config");
