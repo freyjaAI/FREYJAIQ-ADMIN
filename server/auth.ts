@@ -4,8 +4,73 @@ import type { Express, RequestHandler } from "express";
 import connectPg from "connect-pg-simple";
 import { storage } from "./storage";
 import { z } from "zod";
+import { db } from "./db";
+import { signupAuditLogs } from "@shared/schema";
 
 const SALT_ROUNDS = 12;
+
+// Rate limiting for signup code validation (in-memory)
+interface RateLimitEntry {
+  attempts: number;
+  firstAttempt: number;
+  blockedUntil?: number;
+}
+
+const signupCodeRateLimits = new Map<string, RateLimitEntry>();
+const RATE_LIMIT_WINDOW = 15 * 60 * 1000; // 15 minutes
+const MAX_ATTEMPTS = 10; // Max 10 attempts per window
+const BLOCK_DURATION = 30 * 60 * 1000; // 30 minute block after exceeding
+
+// Clean up old rate limit entries periodically
+setInterval(() => {
+  const now = Date.now();
+  const entries = Array.from(signupCodeRateLimits.entries());
+  for (const [key, entry] of entries) {
+    if (entry.blockedUntil && entry.blockedUntil < now) {
+      signupCodeRateLimits.delete(key);
+    } else if (now - entry.firstAttempt > RATE_LIMIT_WINDOW * 2) {
+      signupCodeRateLimits.delete(key);
+    }
+  }
+}, 5 * 60 * 1000); // Clean every 5 minutes
+
+function checkSignupCodeRateLimit(ip: string): { allowed: boolean; retryAfter?: number } {
+  const now = Date.now();
+  const entry = signupCodeRateLimits.get(ip);
+  
+  if (!entry) {
+    signupCodeRateLimits.set(ip, { attempts: 1, firstAttempt: now });
+    return { allowed: true };
+  }
+  
+  // Check if blocked
+  if (entry.blockedUntil && entry.blockedUntil > now) {
+    return { allowed: false, retryAfter: Math.ceil((entry.blockedUntil - now) / 1000) };
+  }
+  
+  // Reset if window expired
+  if (now - entry.firstAttempt > RATE_LIMIT_WINDOW) {
+    signupCodeRateLimits.set(ip, { attempts: 1, firstAttempt: now });
+    return { allowed: true };
+  }
+  
+  // Increment attempts
+  entry.attempts++;
+  
+  // Check if exceeded
+  if (entry.attempts > MAX_ATTEMPTS) {
+    entry.blockedUntil = now + BLOCK_DURATION;
+    return { allowed: false, retryAfter: Math.ceil(BLOCK_DURATION / 1000) };
+  }
+  
+  return { allowed: true };
+}
+
+// Constant-time delay to prevent timing attacks
+async function constantTimeDelay(minMs: number = 100, maxMs: number = 200): Promise<void> {
+  const delay = minMs + Math.random() * (maxMs - minMs);
+  await new Promise(resolve => setTimeout(resolve, delay));
+}
 
 export async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, SALT_ROUNDS);
@@ -111,54 +176,143 @@ export async function setupAuth(app: Express) {
   await ensureAdminUser();
 
   app.get("/api/auth/validate-signup-code", async (req, res) => {
+    // All paths get consistent timing to prevent enumeration
+    const startTime = Date.now();
+    const MIN_RESPONSE_TIME = 150; // Minimum response time in ms
+    
+    async function sendResponse(status: number, body: object) {
+      const elapsed = Date.now() - startTime;
+      if (elapsed < MIN_RESPONSE_TIME) {
+        await new Promise(r => setTimeout(r, MIN_RESPONSE_TIME - elapsed + Math.random() * 50));
+      }
+      return res.status(status).json(body);
+    }
+    
     try {
+      // Get client IP for rate limiting
+      const clientIp = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || 
+                       req.socket.remoteAddress || 
+                       "unknown";
+      
+      // Check rate limit
+      const rateCheck = checkSignupCodeRateLimit(clientIp);
+      if (!rateCheck.allowed) {
+        res.set("Retry-After", String(rateCheck.retryAfter));
+        return sendResponse(429, { 
+          message: "Too many attempts. Please try again later.",
+          retryAfter: rateCheck.retryAfter
+        });
+      }
+      
       const code = req.query.code as string;
       if (!code) {
-        return res.status(400).json({ message: "Signup code is required" });
+        return sendResponse(400, { message: "Signup code is required" });
       }
 
       const firmWithTier = await storage.getFirmBySignupCode(code.toUpperCase());
+      
       if (!firmWithTier) {
-        return res.status(404).json({ message: "Invalid signup code" });
+        return sendResponse(404, { message: "Invalid signup code" });
       }
 
       if (!firmWithTier.tierId) {
-        return res.status(400).json({ message: "This firm does not have an active subscription" });
+        return sendResponse(400, { message: "This firm does not have an active subscription" });
       }
 
-      res.json({
+      return sendResponse(200, {
         firmId: firmWithTier.id,
         firmName: firmWithTier.name,
       });
     } catch (error) {
       console.error("Signup code validation error:", error);
-      res.status(500).json({ message: "Failed to validate signup code" });
+      return sendResponse(500, { message: "Failed to validate signup code" });
     }
   });
+  
+  // Separate rate limit for registration to prevent brute-force on registration
+  const registrationRateLimits = new Map<string, RateLimitEntry>();
+  
+  function checkRegistrationRateLimit(ip: string): { allowed: boolean; retryAfter?: number } {
+    const now = Date.now();
+    const entry = registrationRateLimits.get(ip);
+    
+    if (!entry) {
+      registrationRateLimits.set(ip, { attempts: 1, firstAttempt: now });
+      return { allowed: true };
+    }
+    
+    if (entry.blockedUntil && entry.blockedUntil > now) {
+      return { allowed: false, retryAfter: Math.ceil((entry.blockedUntil - now) / 1000) };
+    }
+    
+    if (now - entry.firstAttempt > RATE_LIMIT_WINDOW) {
+      registrationRateLimits.set(ip, { attempts: 1, firstAttempt: now });
+      return { allowed: true };
+    }
+    
+    entry.attempts++;
+    
+    // More strict limit for registration: 5 attempts
+    if (entry.attempts > 5) {
+      entry.blockedUntil = now + BLOCK_DURATION;
+      return { allowed: false, retryAfter: Math.ceil(BLOCK_DURATION / 1000) };
+    }
+    
+    return { allowed: true };
+  }
 
   app.post("/api/auth/register", async (req, res) => {
+    // All paths get consistent timing to prevent enumeration
+    const startTime = Date.now();
+    const MIN_RESPONSE_TIME = 150; // Minimum response time in ms
+    
+    async function sendResponse(status: number, body: object) {
+      const elapsed = Date.now() - startTime;
+      if (elapsed < MIN_RESPONSE_TIME) {
+        await new Promise(r => setTimeout(r, MIN_RESPONSE_TIME - elapsed + Math.random() * 50));
+      }
+      return res.status(status).json(body);
+    }
+    
     try {
+      // Get client info for audit log
+      const clientIp = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || 
+                       req.socket.remoteAddress || 
+                       "unknown";
+      const userAgent = req.headers["user-agent"] || null;
+      
+      // Rate limit registration attempts
+      const rateCheck = checkRegistrationRateLimit(clientIp);
+      if (!rateCheck.allowed) {
+        res.set("Retry-After", String(rateCheck.retryAfter));
+        return sendResponse(429, { 
+          message: "Too many registration attempts. Please try again later.",
+          retryAfter: rateCheck.retryAfter
+        });
+      }
+      
       const result = registerSchema.safeParse(req.body);
       if (!result.success) {
-        return res.status(400).json({ 
+        return sendResponse(400, { 
           message: result.error.errors[0]?.message || "Invalid input" 
         });
       }
 
       const { email, password, firstName, lastName, signupCode } = result.data;
+      const normalizedCode = signupCode.toUpperCase();
 
-      const firmWithTier = await storage.getFirmBySignupCode(signupCode.toUpperCase());
+      const firmWithTier = await storage.getFirmBySignupCode(normalizedCode);
       if (!firmWithTier) {
-        return res.status(400).json({ message: "Invalid signup code" });
+        return sendResponse(400, { message: "Invalid signup code" });
       }
 
       if (!firmWithTier.tierId) {
-        return res.status(400).json({ message: "This firm does not have an active subscription" });
+        return sendResponse(400, { message: "This firm does not have an active subscription" });
       }
 
       const existingUser = await storage.getUserByEmail(email);
       if (existingUser) {
-        return res.status(400).json({ message: "Email already registered" });
+        return sendResponse(400, { message: "Email already registered" });
       }
 
       const passwordHash = await hashPassword(password);
@@ -172,9 +326,24 @@ export async function setupAuth(app: Express) {
         role: "user",
       });
 
+      // Record signup in audit log
+      try {
+        await db.insert(signupAuditLogs).values({
+          userId: user.id,
+          firmId: firmWithTier.id,
+          signupCode: normalizedCode,
+          ipAddress: clientIp,
+          userAgent: userAgent,
+        });
+        console.log(`[SIGNUP AUDIT] User ${user.email} signed up with code ${normalizedCode} for firm ${firmWithTier.name}`);
+      } catch (auditError) {
+        console.error("Failed to log signup audit:", auditError);
+        // Don't fail registration if audit log fails
+      }
+
       req.session.userId = user.id;
       
-      res.json({
+      return sendResponse(200, {
         id: user.id,
         email: user.email,
         firstName: user.firstName,
@@ -185,7 +354,7 @@ export async function setupAuth(app: Express) {
       });
     } catch (error) {
       console.error("Registration error:", error);
-      res.status(500).json({ message: "Registration failed" });
+      return sendResponse(500, { message: "Registration failed" });
     }
   });
 

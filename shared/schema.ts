@@ -734,6 +734,27 @@ export const insertBulkEnrichmentResultSchema = createInsertSchema(bulkEnrichmen
 export type InsertBulkEnrichmentResult = z.infer<typeof insertBulkEnrichmentResultSchema>;
 export type BulkEnrichmentResult = typeof bulkEnrichmentResults.$inferSelect;
 
+// Signup audit logs - track signups with code used
+export const signupAuditLogs = pgTable("signup_audit_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id),
+  firmId: varchar("firm_id").references(() => firms.id),
+  signupCode: varchar("signup_code").notNull(),
+  ipAddress: varchar("ip_address"),
+  userAgent: varchar("user_agent"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_signup_audit_firm").on(table.firmId),
+  index("idx_signup_audit_code").on(table.signupCode),
+]);
+
+export const insertSignupAuditLogSchema = createInsertSchema(signupAuditLogs).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertSignupAuditLog = z.infer<typeof insertSignupAuditLogSchema>;
+export type SignupAuditLog = typeof signupAuditLogs.$inferSelect;
+
 // Provider usage metrics - persisted to survive server restarts
 export const providerUsageMetrics = pgTable("provider_usage_metrics", {
   id: serial("id").primaryKey(),
