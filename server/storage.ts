@@ -10,8 +10,12 @@ import {
   dossierCache,
   llcs,
   llcOwnershipChains,
+  firms,
+  tiers,
   type User,
   type UpsertUser,
+  type Firm,
+  type Tier,
   type Owner,
   type InsertOwner,
   type Property,
@@ -49,10 +53,13 @@ export interface IStorage {
   // User operations
   getUser(id: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
-  createUser(user: { email: string; passwordHash: string; firstName?: string | null; lastName?: string | null; role?: string }): Promise<User>;
+  createUser(user: { email: string; passwordHash: string; firstName?: string | null; lastName?: string | null; role?: string; firmId?: string | null }): Promise<User>;
   updateUserPassword(email: string, passwordHash: string): Promise<void>;
   upsertUser(user: UpsertUser): Promise<User>;
   deleteUserAccount(userId: string): Promise<{ deletedSearchHistory: number; deletedDossierExports: number }>;
+  
+  // Firm operations
+  getFirmBySignupCode(signupCode: string): Promise<(Firm & { tier: Tier | null }) | undefined>;
 
   // Owner operations
   getOwner(id: string): Promise<Owner | undefined>;
@@ -144,7 +151,7 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
-  async createUser(userData: { email: string; passwordHash: string; firstName?: string | null; lastName?: string | null; role?: string }): Promise<User> {
+  async createUser(userData: { email: string; passwordHash: string; firstName?: string | null; lastName?: string | null; role?: string; firmId?: string | null }): Promise<User> {
     const [user] = await db
       .insert(users)
       .values({
@@ -152,10 +159,29 @@ export class DatabaseStorage implements IStorage {
         passwordHash: userData.passwordHash,
         firstName: userData.firstName,
         lastName: userData.lastName,
-        role: userData.role || "broker",
+        role: userData.role || "user",
+        firmId: userData.firmId || null,
       })
       .returning();
     return user;
+  }
+  
+  async getFirmBySignupCode(signupCode: string): Promise<(Firm & { tier: Tier | null }) | undefined> {
+    const [result] = await db
+      .select({
+        firm: firms,
+        tier: tiers,
+      })
+      .from(firms)
+      .leftJoin(tiers, eq(firms.tierId, tiers.id))
+      .where(eq(firms.signupCode, signupCode));
+    
+    if (!result) return undefined;
+    
+    return {
+      ...result.firm,
+      tier: result.tier,
+    };
   }
 
   async updateUserPassword(email: string, passwordHash: string): Promise<void> {
