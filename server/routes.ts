@@ -2233,6 +2233,240 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ============================================
+  // ADMIN TESTING DASHBOARD
+  // ============================================
+
+  // GET /api/admin/test-cases - get all test cases
+  app.get("/api/admin/test-cases", isAuthenticated, adminRateLimit, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "User not found" });
+      
+      const user = await storage.getUser(userId);
+      if (user?.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const testCases = await storage.getTestCases();
+      res.json(testCases);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get test cases", error: String(error) });
+    }
+  });
+
+  // POST /api/admin/test-cases - create a new test case
+  app.post("/api/admin/test-cases", isAuthenticated, adminRateLimit, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "User not found" });
+      
+      const user = await storage.getUser(userId);
+      if (user?.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const { address, expectedOwnerName, expectedOwnerType, expectedContacts, notes, source } = req.body;
+      
+      if (!address || !expectedOwnerName || !expectedOwnerType) {
+        return res.status(400).json({ message: "Address, expected owner name, and type are required" });
+      }
+
+      const testCase = await storage.createTestCase({
+        address,
+        expectedOwnerName,
+        expectedOwnerType,
+        expectedContacts: expectedContacts || null,
+        notes: notes || null,
+        source: source || null,
+        isActive: true,
+      });
+
+      res.json(testCase);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to create test case", error: String(error) });
+    }
+  });
+
+  // DELETE /api/admin/test-cases/:id - soft delete a test case
+  app.delete("/api/admin/test-cases/:id", isAuthenticated, adminRateLimit, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "User not found" });
+      
+      const user = await storage.getUser(userId);
+      if (user?.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      await storage.deleteTestCase(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete test case", error: String(error) });
+    }
+  });
+
+  // POST /api/admin/test-cases/run - run all test cases
+  app.post("/api/admin/test-cases/run", isAuthenticated, adminRateLimit, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "User not found" });
+      
+      const user = await storage.getUser(userId);
+      if (user?.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const testCases = await storage.getTestCases();
+      const results: any[] = [];
+      let totalCost = 0;
+      let cacheHits = 0;
+      let exactMatches = 0;
+      let partialMatches = 0;
+      let mismatches = 0;
+      let errors = 0;
+
+      for (const testCase of testCases) {
+        const startTime = Date.now();
+        try {
+          // Call the internal search logic directly via a mock request
+          const searchResponse = await fetch(`http://localhost:5000/api/search/external`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Cookie": req.headers.cookie || "",
+            },
+            body: JSON.stringify({ query: testCase.address, type: "address" }),
+          });
+
+          const searchResult = await searchResponse.json();
+          const executionTime = Date.now() - startTime;
+
+          // Extract owner from result
+          let actualOwnerName = "";
+          if (searchResult.properties && searchResult.properties.length > 0) {
+            const prop = searchResult.properties[0];
+            actualOwnerName = prop.ownership?.ownerName || prop.owner?.name || "";
+          }
+
+          // Determine match status
+          const expectedNorm = (testCase.expectedOwnerName || "").toLowerCase().trim();
+          const actualNorm = (actualOwnerName || "").toLowerCase().trim();
+          
+          let matchStatus: string;
+          if (!actualOwnerName) {
+            matchStatus = "mismatch";
+            mismatches++;
+          } else if (expectedNorm === actualNorm) {
+            matchStatus = "exact";
+            exactMatches++;
+          } else if (actualNorm.includes(expectedNorm) || expectedNorm.includes(actualNorm)) {
+            matchStatus = "partial";
+            partialMatches++;
+          } else {
+            matchStatus = "mismatch";
+            mismatches++;
+          }
+
+          const cacheHit = searchResult.fromCache || false;
+          if (cacheHit) cacheHits++;
+
+          const cost = searchResult.searchCost?.estimatedCost || 0;
+          totalCost += cost;
+
+          const testRun = await storage.createTestRun({
+            testCaseId: testCase.id,
+            actualOwnerName,
+            matchStatus,
+            providersUsed: searchResult.sources || [],
+            cost,
+            cacheHit,
+            executionTimeMs: executionTime,
+            rawResponse: searchResult,
+            errorMessage: null,
+          });
+
+          results.push({
+            testCaseId: testCase.id,
+            address: testCase.address,
+            expectedOwner: testCase.expectedOwnerName,
+            actualOwner: actualOwnerName,
+            matchStatus,
+            providers: searchResult.sources || [],
+            cost,
+            cacheHit,
+            executionTimeMs: executionTime,
+          });
+        } catch (err: any) {
+          errors++;
+          const testRun = await storage.createTestRun({
+            testCaseId: testCase.id,
+            actualOwnerName: null,
+            matchStatus: "error",
+            providersUsed: [],
+            cost: 0,
+            cacheHit: false,
+            executionTimeMs: Date.now() - startTime,
+            rawResponse: null,
+            errorMessage: err?.message || String(err),
+          });
+
+          results.push({
+            testCaseId: testCase.id,
+            address: testCase.address,
+            expectedOwner: testCase.expectedOwnerName,
+            actualOwner: null,
+            matchStatus: "error",
+            providers: [],
+            cost: 0,
+            cacheHit: false,
+            error: err?.message || String(err),
+          });
+        }
+      }
+
+      const totalTests = testCases.length;
+      const metrics = {
+        totalTests,
+        exactMatches,
+        partialMatches,
+        mismatches,
+        errors,
+        exactMatchRate: totalTests > 0 ? (exactMatches / totalTests * 100).toFixed(1) : "0",
+        partialMatchRate: totalTests > 0 ? (partialMatches / totalTests * 100).toFixed(1) : "0",
+        mismatchRate: totalTests > 0 ? (mismatches / totalTests * 100).toFixed(1) : "0",
+        errorRate: totalTests > 0 ? (errors / totalTests * 100).toFixed(1) : "0",
+        totalCost: totalCost.toFixed(2),
+        avgCostPerTest: totalTests > 0 ? (totalCost / totalTests).toFixed(4) : "0",
+        cacheHits,
+        cacheHitRate: totalTests > 0 ? (cacheHits / totalTests * 100).toFixed(1) : "0",
+      };
+
+      res.json({ results, metrics });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to run test cases", error: String(error) });
+    }
+  });
+
+  // GET /api/admin/test-runs - get latest test runs
+  app.get("/api/admin/test-runs", isAuthenticated, adminRateLimit, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "User not found" });
+      
+      const user = await storage.getUser(userId);
+      if (user?.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const limit = parseInt(req.query.limit as string) || 100;
+      const testRuns = await storage.getLatestTestRuns(limit);
+      res.json(testRuns);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get test runs", error: String(error) });
+    }
+  });
+
+  // ============================================
   // FIRM ADMIN ENDPOINTS (Firm Admin Role)
   // ============================================
   

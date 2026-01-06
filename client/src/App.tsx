@@ -33,6 +33,7 @@ import AdminBugReportsPage from "@/pages/admin-bug-reports";
 import AdminApiUsagePage from "@/pages/admin-api-usage";
 import AdminFirmsTiersPage from "@/pages/admin-firms-tiers";
 import AdminProviderHealthPage from "@/pages/admin-provider-health";
+import AdminTestingPage from "@/pages/admin-testing";
 import SignupPage from "@/pages/signup";
 import MapView from "@/pages/map-view";
 import BulkEnrichmentPage from "@/pages/bulk-enrichment";
@@ -139,6 +140,7 @@ function Router() {
             <Route path="/admin/api-usage" component={AdminApiUsagePage} />
             <Route path="/admin/firms-tiers" component={AdminFirmsTiersPage} />
             <Route path="/admin/provider-health" component={AdminProviderHealthPage} />
+            <Route path="/admin/testing" component={AdminTestingPage} />
             <Route path="/map" component={MapView} />
             <Route path="/bulk-enrichment" component={BulkEnrichmentPage} />
             <Route path="/privacy" component={PrivacyPolicyPage} />
