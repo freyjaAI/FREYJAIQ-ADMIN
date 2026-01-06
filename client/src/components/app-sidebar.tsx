@@ -15,6 +15,7 @@ import {
   Layers,
   HeartPulse,
   UsersRound,
+  FlaskConical,
 } from "lucide-react";
 import {
   Sidebar,
@@ -94,6 +95,11 @@ const adminItems = [
     title: "Provider Health",
     url: "/admin/provider-health",
     icon: HeartPulse,
+  },
+  {
+    title: "Search Testing",
+    url: "/admin/testing",
+    icon: FlaskConical,
   },
   {
     title: "Firms & Tiers",
