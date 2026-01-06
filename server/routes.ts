@@ -2305,8 +2305,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  // POST /api/admin/test-cases/run - run all test cases
+  // POST /api/admin/test-cases/run - run all test cases (parallel execution)
   app.post("/api/admin/test-cases/run", isAuthenticated, adminRateLimit, async (req: any, res) => {
+    // Set a longer timeout for this request (10 minutes)
+    res.setTimeout(600000);
+    
     try {
       const userId = getUserId(req);
       if (!userId) return res.status(401).json({ message: "User not found" });
@@ -2317,18 +2320,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
 
       const testCases = await storage.getTestCases();
-      const results: any[] = [];
-      let totalCost = 0;
-      let cacheHits = 0;
-      let exactMatches = 0;
-      let partialMatches = 0;
-      let mismatches = 0;
-      let errors = 0;
+      console.log(`[TEST RUNNER] Starting ${testCases.length} test cases with parallel execution...`);
+      
+      // Run tests in parallel with concurrency limit of 5
+      const pLimit = (await import("p-limit")).default;
+      const limit = pLimit(5);
 
-      for (const testCase of testCases) {
+      const runSingleTest = async (testCase: any) => {
         const startTime = Date.now();
         try {
-          // Call the internal search logic directly via a mock request
+          console.log(`[TEST RUNNER] Testing: "${testCase.address}"`);
+          
+          // Call the internal search with a timeout
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minute timeout per test
+          
           const searchResponse = await fetch(`http://localhost:5000/api/search/external`, {
             method: "POST",
             headers: {
@@ -2336,7 +2342,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               "Cookie": req.headers.cookie || "",
             },
             body: JSON.stringify({ query: testCase.address, type: "address" }),
+            signal: controller.signal,
           });
+          clearTimeout(timeoutId);
 
           const searchResult = await searchResponse.json();
           const executionTime = Date.now() - startTime;
@@ -2355,25 +2363,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           let matchStatus: string;
           if (!actualOwnerName) {
             matchStatus = "mismatch";
-            mismatches++;
           } else if (expectedNorm === actualNorm) {
             matchStatus = "exact";
-            exactMatches++;
           } else if (actualNorm.includes(expectedNorm) || expectedNorm.includes(actualNorm)) {
             matchStatus = "partial";
-            partialMatches++;
           } else {
             matchStatus = "mismatch";
-            mismatches++;
           }
 
           const cacheHit = searchResult.fromCache || false;
-          if (cacheHit) cacheHits++;
-
           const cost = searchResult.searchCost?.estimatedCost || 0;
-          totalCost += cost;
 
-          const testRun = await storage.createTestRun({
+          await storage.createTestRun({
             testCaseId: testCase.id,
             actualOwnerName,
             matchStatus,
@@ -2385,7 +2386,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             errorMessage: null,
           });
 
-          results.push({
+          console.log(`[TEST RUNNER] Completed: "${testCase.address}" -> ${matchStatus} (${actualOwnerName || "no owner"})`);
+          
+          return {
             testCaseId: testCase.id,
             address: testCase.address,
             expectedOwner: testCase.expectedOwnerName,
@@ -2395,22 +2398,24 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             cost,
             cacheHit,
             executionTimeMs: executionTime,
-          });
+          };
         } catch (err: any) {
-          errors++;
-          const testRun = await storage.createTestRun({
+          const executionTime = Date.now() - startTime;
+          console.log(`[TEST RUNNER] Error: "${testCase.address}" - ${err?.message}`);
+          
+          await storage.createTestRun({
             testCaseId: testCase.id,
             actualOwnerName: null,
             matchStatus: "error",
             providersUsed: [],
             cost: 0,
             cacheHit: false,
-            executionTimeMs: Date.now() - startTime,
+            executionTimeMs: executionTime,
             rawResponse: null,
             errorMessage: err?.message || String(err),
           });
 
-          results.push({
+          return {
             testCaseId: testCase.id,
             address: testCase.address,
             expectedOwner: testCase.expectedOwnerName,
@@ -2420,8 +2425,30 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             cost: 0,
             cacheHit: false,
             error: err?.message || String(err),
-          });
+          };
         }
+      };
+
+      // Execute all tests with concurrency limit
+      const results = await Promise.all(
+        testCases.map(testCase => limit(() => runSingleTest(testCase)))
+      );
+
+      // Calculate metrics from results
+      let totalCost = 0;
+      let cacheHits = 0;
+      let exactMatches = 0;
+      let partialMatches = 0;
+      let mismatches = 0;
+      let errors = 0;
+
+      for (const result of results) {
+        totalCost += result.cost || 0;
+        if (result.cacheHit) cacheHits++;
+        if (result.matchStatus === "exact") exactMatches++;
+        else if (result.matchStatus === "partial") partialMatches++;
+        else if (result.matchStatus === "error") errors++;
+        else mismatches++;
       }
 
       const totalTests = testCases.length;
@@ -2441,8 +2468,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         cacheHitRate: totalTests > 0 ? (cacheHits / totalTests * 100).toFixed(1) : "0",
       };
 
+      console.log(`[TEST RUNNER] Complete: ${exactMatches}/${totalTests} exact matches (${metrics.exactMatchRate}%)`);
       res.json({ results, metrics });
     } catch (error) {
+      console.error(`[TEST RUNNER] Failed:`, error);
       res.status(500).json({ message: "Failed to run test cases", error: String(error) });
     }
   });
