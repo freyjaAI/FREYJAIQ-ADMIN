@@ -36,7 +36,15 @@ import {
 import { setLlcLookupFunction, setPersonVerifyFunction } from "./llcChainResolver";
 import { apiUsageTracker, checkTierLimits, recordUserUsage, getCurrentBillingPeriod } from "./apiUsageTracker";
 import { enforceQuota, recordUsageAfterCall } from "./quotaEnforcement";
-import { getFullCacheStats, resetCacheMetrics } from "./cacheService";
+import { 
+  getFullCacheStats, 
+  resetCacheMetrics, 
+  getCachedResult, 
+  setCachedResult, 
+  generateCacheKey, 
+  CachePrefix, 
+  CacheTTL 
+} from "./cacheService";
 import { getAllProviderHealth, resetProviderHealth, getDownProviders, getDegradedProviders } from "./providerHealthService";
 import { startHealthMonitorScheduler } from "./healthMonitorScheduler";
 
@@ -5500,6 +5508,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(400).json({ message: "Search query required" });
       }
 
+      // Check cache first - return cached results within 12-hour TTL to prevent duplicate charges
+      const searchCacheKey = generateCacheKey(CachePrefix.PROPERTY, 'search', query, type || 'all');
+      const cachedSearchResult = await getCachedResult<any>('search', searchCacheKey, 0);
+      
+      if (cachedSearchResult) {
+        console.log(`[SEARCH CACHE HIT] Returning cached result for query: "${query.substring(0, 50)}..."`);
+        // Mark as cache hit - no cost to user
+        return res.json({
+          ...cachedSearchResult,
+          fromCache: true,
+          cacheSavedCost: cachedSearchResult.searchCost?.estimatedCost || 0,
+        });
+      }
+      
+      console.log(`[SEARCH CACHE MISS] No cached result for query: "${query.substring(0, 50)}..."`);
+
       const results: any = {
         properties: [],
         owners: [],
@@ -5886,14 +5910,25 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       // Record usage for tier-based tracking
       await recordUserUsage(firmId, userId, storage);
 
-      res.json({
+      // Prepare the final response
+      const finalResponse = {
         ...results,
         sources: Array.from(new Set(results.sources as string[])),
         total:
           results.properties.length +
           results.llcs.length +
           results.contacts.length,
-      });
+        searchCost: {
+          estimatedCost: costSummary.estimatedCost,
+          providerCalls,
+        },
+      };
+      
+      // Cache the result for 12 hours to prevent duplicate charges
+      await setCachedResult(searchCacheKey, finalResponse, CacheTTL.PROPERTY_DEFAULT);
+      console.log(`[SEARCH CACHE SET] Cached result for query: "${query.substring(0, 50)}..." (TTL: 12h)`);
+
+      res.json(finalResponse);
     } catch (error) {
       console.error("Error in external search:", error);
       res.status(500).json({ message: "External search failed" });
