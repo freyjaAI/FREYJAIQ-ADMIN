@@ -47,6 +47,12 @@ import {
   type InsertBulkEnrichmentTarget,
   type BulkEnrichmentResult,
   type InsertBulkEnrichmentResult,
+  testCases,
+  testRuns,
+  type TestCase,
+  type InsertTestCase,
+  type TestRun,
+  type InsertTestRun,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, ilike, or, and, desc, sql } from "drizzle-orm";
@@ -152,6 +158,16 @@ export interface IStorage {
   createBulkEnrichmentResult(result: InsertBulkEnrichmentResult): Promise<BulkEnrichmentResult>;
   getBulkEnrichmentResults(jobId: string): Promise<BulkEnrichmentResult[]>;
   updateBulkEnrichmentResult(id: string, updates: Partial<InsertBulkEnrichmentResult>): Promise<BulkEnrichmentResult | undefined>;
+
+  // Test case operations
+  getTestCases(): Promise<TestCase[]>;
+  getTestCase(id: string): Promise<TestCase | undefined>;
+  createTestCase(testCase: InsertTestCase): Promise<TestCase>;
+  updateTestCase(id: string, updates: Partial<InsertTestCase>): Promise<TestCase | undefined>;
+  deleteTestCase(id: string): Promise<void>;
+  createTestRun(run: InsertTestRun): Promise<TestRun>;
+  getTestRuns(testCaseId?: string): Promise<TestRun[]>;
+  getLatestTestRuns(limit?: number): Promise<Array<TestRun & { testCase: TestCase | null }>>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -867,6 +883,71 @@ export class DatabaseStorage implements IStorage {
       .where(eq(bulkEnrichmentResults.id, id))
       .returning();
     return updated;
+  }
+
+  // Test case operations
+  async getTestCases(): Promise<TestCase[]> {
+    return await db
+      .select()
+      .from(testCases)
+      .where(eq(testCases.isActive, true))
+      .orderBy(desc(testCases.createdAt));
+  }
+
+  async getTestCase(id: string): Promise<TestCase | undefined> {
+    const [testCase] = await db.select().from(testCases).where(eq(testCases.id, id));
+    return testCase;
+  }
+
+  async createTestCase(testCase: InsertTestCase): Promise<TestCase> {
+    const [newTestCase] = await db.insert(testCases).values(testCase).returning();
+    return newTestCase;
+  }
+
+  async updateTestCase(id: string, updates: Partial<InsertTestCase>): Promise<TestCase | undefined> {
+    const [updated] = await db
+      .update(testCases)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(testCases.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteTestCase(id: string): Promise<void> {
+    await db.update(testCases).set({ isActive: false, updatedAt: new Date() }).where(eq(testCases.id, id));
+  }
+
+  async createTestRun(run: InsertTestRun): Promise<TestRun> {
+    const [newRun] = await db.insert(testRuns).values(run).returning();
+    return newRun;
+  }
+
+  async getTestRuns(testCaseId?: string): Promise<TestRun[]> {
+    if (testCaseId) {
+      return await db
+        .select()
+        .from(testRuns)
+        .where(eq(testRuns.testCaseId, testCaseId))
+        .orderBy(desc(testRuns.createdAt));
+    }
+    return await db.select().from(testRuns).orderBy(desc(testRuns.createdAt));
+  }
+
+  async getLatestTestRuns(limit: number = 100): Promise<Array<TestRun & { testCase: TestCase | null }>> {
+    const results = await db
+      .select({
+        testRun: testRuns,
+        testCase: testCases,
+      })
+      .from(testRuns)
+      .leftJoin(testCases, eq(testRuns.testCaseId, testCases.id))
+      .orderBy(desc(testRuns.createdAt))
+      .limit(limit);
+    
+    return results.map((r) => ({
+      ...r.testRun,
+      testCase: r.testCase,
+    }));
   }
 }
 

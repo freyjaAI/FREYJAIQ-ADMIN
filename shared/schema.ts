@@ -806,6 +806,57 @@ export interface IntentSignal {
   source: string;
 }
 
+// Test cases for validating property search accuracy
+export const testCases = pgTable("test_cases", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  address: varchar("address").notNull(),
+  expectedOwnerName: varchar("expected_owner_name").notNull(),
+  expectedOwnerType: varchar("expected_owner_type").notNull(), // individual, llc, corporation
+  expectedContacts: jsonb("expected_contacts"), // { phone?: string, email?: string }
+  notes: text("notes"),
+  source: varchar("source"), // where we verified the data
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertTestCaseSchema = createInsertSchema(testCases).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertTestCase = z.infer<typeof insertTestCaseSchema>;
+export type TestCase = typeof testCases.$inferSelect;
+
+// Test run results
+export const testRuns = pgTable("test_runs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  testCaseId: varchar("test_case_id").references(() => testCases.id),
+  actualOwnerName: varchar("actual_owner_name"),
+  matchStatus: varchar("match_status").notNull(), // exact, partial, mismatch, error
+  providersUsed: jsonb("providers_used"), // array of provider names
+  cost: real("cost").default(0),
+  cacheHit: boolean("cache_hit").default(false),
+  executionTimeMs: integer("execution_time_ms"),
+  rawResponse: jsonb("raw_response"),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const testRunsRelations = relations(testRuns, ({ one }) => ({
+  testCase: one(testCases, {
+    fields: [testRuns.testCaseId],
+    references: [testCases.id],
+  }),
+}));
+
+export const insertTestRunSchema = createInsertSchema(testRuns).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertTestRun = z.infer<typeof insertTestRunSchema>;
+export type TestRun = typeof testRuns.$inferSelect;
+
 export interface TargetingConfig {
   // Geographic filters
   states?: string[];
