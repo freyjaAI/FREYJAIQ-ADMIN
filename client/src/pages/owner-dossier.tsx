@@ -30,6 +30,7 @@ import {
   Clock,
   Loader2,
   DollarSign,
+  Star,
 } from "lucide-react";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -875,8 +876,7 @@ export default function OwnerDossierPage() {
         </div>
       </FadeIn>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2 space-y-6">
+      <div className="space-y-6">
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="glass-card-static p-4">
               <div className="flex items-start justify-between gap-3">
@@ -1584,63 +1584,49 @@ export default function OwnerDossierPage() {
           )}
 
           {/* Linked Individuals Section - for LLC/entity owners, shows individuals connected to this entity */}
-          {owner.type === "entity" && (
+          {/* Only show when we have data */}
+          {owner.type === "entity" && linkedIndividualsQuery.data && linkedIndividualsQuery.data.linkedIndividuals.length > 0 && (
             <Card data-testid="card-linked-individuals" role="region" aria-labelledby="linked-individuals-heading">
               <CardHeader className="pb-3">
                 <CardTitle id="linked-individuals-heading" className="text-base flex items-center gap-2">
                   <Users className="h-4 w-4" aria-hidden="true" />
                   Linked Individuals
-                  {linkedIndividualsQuery.data && linkedIndividualsQuery.data.linkedIndividuals.length > 0 && (
-                    <Badge variant="secondary" className="text-xs">
-                      {linkedIndividualsQuery.data.linkedIndividuals.length} people
-                    </Badge>
-                  )}
+                  <Badge variant="secondary" className="text-xs">
+                    {linkedIndividualsQuery.data.linkedIndividuals.length} people
+                  </Badge>
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {linkedIndividualsQuery.isLoading ? (
-                  <InlineListSkeleton count={3} />
-                ) : linkedIndividualsQuery.data && linkedIndividualsQuery.data.linkedIndividuals.length > 0 ? (
-                  <div className="space-y-2">
-                    {linkedIndividualsQuery.data.linkedIndividuals.map((person, idx) => (
-                      <Link 
-                        key={idx}
-                        href={`/owners/${person.id}`}
-                        className="flex items-center justify-between p-3 rounded-md border bg-muted/30 hover-elevate"
-                        data-testid={`linked-individual-${idx}`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10">
-                            <User className="h-4 w-4 text-primary" />
-                          </div>
-                          <div>
-                            <div className="font-medium text-sm">{person.name}</div>
-                            {person.primaryAddress && (
-                              <div className="text-xs text-muted-foreground truncate max-w-[200px]">
-                                {person.primaryAddress}
-                              </div>
-                            )}
-                          </div>
+                <div className="space-y-2">
+                  {linkedIndividualsQuery.data.linkedIndividuals.map((person, idx) => (
+                    <Link 
+                      key={idx}
+                      href={`/owners/${person.id}`}
+                      className="flex items-center justify-between p-3 rounded-md border bg-muted/30 hover-elevate"
+                      data-testid={`linked-individual-${idx}`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10">
+                          <User className="h-4 w-4 text-primary" />
                         </div>
-                        <div className="flex items-center gap-2">
-                          <Badge variant="outline" className="text-xs capitalize">
-                            {person.relationship}
-                          </Badge>
-                          <Badge variant="secondary" className="text-xs">
-                            {person.confidence}% match
-                          </Badge>
-                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                        <div>
+                          <div className="font-medium text-sm">{person.name}</div>
+                          {person.primaryAddress && (
+                            <div className="text-xs text-muted-foreground truncate max-w-[200px]">
+                              {person.primaryAddress}
+                            </div>
+                          )}
                         </div>
-                      </Link>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-4">
-                    <p className="text-sm text-muted-foreground">
-                      No linked individuals found. Run LLC unmasking to discover connected people.
-                    </p>
-                  </div>
-                )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="text-xs capitalize">
+                          {person.relationship}
+                        </Badge>
+                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                    </Link>
+                  ))}
+                </div>
               </CardContent>
             </Card>
           )}
@@ -1692,7 +1678,9 @@ export default function OwnerDossierPage() {
                               <Badge variant="outline" className="text-xs capitalize">{dial.type}</Badge>
                             )}
                           </div>
-                          <Badge variant="secondary" className="text-xs shrink-0">{dial.confidence}%</Badge>
+                          {idx === 0 && (
+                            <Star className="h-4 w-4 text-yellow-500 fill-yellow-500 shrink-0" aria-label="Primary" />
+                          )}
                         </div>
                       ))}
                     </div>
@@ -1712,14 +1700,13 @@ export default function OwnerDossierPage() {
                         {contactEnrichment.companyEmails.slice(0, 5).map((email, idx) => (
                           <div 
                             key={idx} 
-                            className="flex items-center justify-between p-2 rounded-md bg-muted/50"
+                            className="flex items-center p-2 rounded-md bg-muted/50"
                             data-testid={`text-email-${idx}`}
                           >
                             <div className="flex items-center gap-2 min-w-0">
                               <AtSign className="h-4 w-4 text-muted-foreground shrink-0" />
                               <span className="font-mono text-sm truncate">{email.email}</span>
                             </div>
-                            <Badge variant="secondary" className="text-xs shrink-0">{email.confidence}%</Badge>
                           </div>
                         ))}
                       </div>
@@ -1727,31 +1714,39 @@ export default function OwnerDossierPage() {
                   </>
                 )}
 
-                {/* Employee/Contact Profiles - only show if we have them */}
+                {/* Associated Contacts - only show if we have them */}
                 {contactEnrichment.employeeProfiles && contactEnrichment.employeeProfiles.length > 0 && (
                   <>
                     <Separator />
                     <div className="space-y-2">
                       <div className="flex items-center gap-2 text-sm font-medium">
                         <User className="h-4 w-4" />
-                        Contact Profiles
+                        Associated Contacts
                       </div>
                       <div className="space-y-2">
                         {contactEnrichment.employeeProfiles.slice(0, 3).map((profile, idx) => (
-                          <div 
-                            key={idx} 
-                            className="p-2 rounded-md bg-muted/50"
-                            data-testid={`text-profile-${idx}`}
+                          <Link
+                            key={idx}
+                            href={`/search?q=${encodeURIComponent(profile.name)}&type=owner`}
+                            className="block p-3 rounded-md bg-muted/50 hover-elevate cursor-pointer"
+                            data-testid={`link-profile-${idx}`}
                           >
                             <div className="flex items-center justify-between">
-                              <div className="font-medium text-sm">{profile.name}</div>
-                              <Badge variant="secondary" className="text-xs">{profile.confidence}%</Badge>
+                              <div className="flex items-center gap-2">
+                                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
+                                  <User className="h-4 w-4 text-primary" />
+                                </div>
+                                <div>
+                                  <div className="font-medium text-sm">{profile.name}</div>
+                                  {profile.title && (
+                                    <div className="text-xs text-muted-foreground">{profile.title}</div>
+                                  )}
+                                </div>
+                              </div>
+                              <ChevronRight className="h-4 w-4 text-muted-foreground" />
                             </div>
-                            {profile.title && (
-                              <div className="text-xs text-muted-foreground">{profile.title}</div>
-                            )}
                             {(profile.email || profile.phone || profile.address) && (
-                              <div className="flex flex-col gap-1 mt-1 text-xs">
+                              <div className="flex flex-col gap-1 mt-2 text-xs pl-10">
                                 {profile.phone && (
                                   <div className="flex items-center gap-1 font-mono">
                                     <Phone className="h-3 w-3 text-muted-foreground" />
@@ -1772,7 +1767,7 @@ export default function OwnerDossierPage() {
                                 )}
                               </div>
                             )}
-                          </div>
+                          </Link>
                         ))}
                       </div>
                     </div>
@@ -2008,135 +2003,7 @@ export default function OwnerDossierPage() {
               />
             }
           />
-
-          <LegalEventsTimeline events={legalEvents} />
         </div>
-
-        <div className="space-y-6">
-          {owner.sellerIntentScore !== null &&
-            owner.sellerIntentScore !== undefined && (
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    Seller Intent Score
-                    <AIDisclosureBadge />
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-center">
-                    <div className="relative flex h-24 w-24 items-center justify-center rounded-full border-4 border-primary">
-                      <span className="text-3xl font-bold">
-                        {owner.sellerIntentScore}
-                      </span>
-                    </div>
-                  </div>
-                  {scoreBreakdown && (
-                    <div className="space-y-2 pt-2">
-                      <ProgressScore
-                        score={Math.min(100, scoreBreakdown.yearsOwned * 10)}
-                        label={`Years Owned: ${scoreBreakdown.yearsOwned}`}
-                      />
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">Tax Delinquent</span>
-                        <Badge
-                          variant={
-                            scoreBreakdown.taxDelinquent
-                              ? "destructive"
-                              : "secondary"
-                          }
-                        >
-                          {scoreBreakdown.taxDelinquent ? "Yes" : "No"}
-                        </Badge>
-                      </div>
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">Absentee Owner</span>
-                        <Badge
-                          variant={
-                            scoreBreakdown.absenteeOwner ? "default" : "secondary"
-                          }
-                        >
-                          {scoreBreakdown.absenteeOwner ? "Yes" : "No"}
-                        </Badge>
-                      </div>
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">Has Liens</span>
-                        <Badge
-                          variant={
-                            scoreBreakdown.hasLiens ? "destructive" : "secondary"
-                          }
-                        >
-                          {scoreBreakdown.hasLiens ? "Yes" : "No"}
-                        </Badge>
-                      </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-
-
-          {aiOutreach && (
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Sparkles className="h-4 w-4 text-primary" />
-                  AI Outreach Suggestion
-                  <AIDisclosureBadge />
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <AIDisclaimer className="mb-4" />
-                <div className="relative">
-                  <p className="text-sm text-muted-foreground whitespace-pre-wrap">
-                    {aiOutreach}
-                  </p>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="absolute top-0 right-0 min-h-[44px] min-w-[44px]"
-                    onClick={() => handleCopy(aiOutreach)}
-                    data-testid="button-copy-outreach"
-                  >
-                    {copiedText === aiOutreach ? (
-                      <CheckCircle className="h-4 w-4 text-green-500" />
-                    ) : (
-                      <Copy className="h-4 w-4" />
-                    )}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Quick Actions</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {contacts.find((c) => c.kind === "phone") && (
-                <Button variant="outline" className="w-full justify-start" asChild>
-                  <a
-                    href={`tel:${contacts.find((c) => c.kind === "phone")?.value}`}
-                  >
-                    <Phone className="h-4 w-4 mr-2" />
-                    Call Primary Phone
-                  </a>
-                </Button>
-              )}
-              {contacts.find((c) => c.kind === "email") && (
-                <Button variant="outline" className="w-full justify-start" asChild>
-                  <a
-                    href={`mailto:${contacts.find((c) => c.kind === "email")?.value}`}
-                  >
-                    <Mail className="h-4 w-4 mr-2" />
-                    Send Email
-                  </a>
-                </Button>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </div>
     </div>
   );
 }
