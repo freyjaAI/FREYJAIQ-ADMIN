@@ -15,19 +15,9 @@ export function LlcNetwork({
   linkedLlcs,
   title = "LLC Connections",
 }: LlcNetworkProps) {
+  // Hide section entirely when no LLC connections
   if (linkedLlcs.length === 0) {
-    return (
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">{title}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-sm text-muted-foreground text-center py-4">
-            No LLC connections found
-          </div>
-        </CardContent>
-      </Card>
-    );
+    return null;
   }
 
   return (

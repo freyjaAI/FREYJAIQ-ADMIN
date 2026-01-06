@@ -1308,7 +1308,8 @@ export default function OwnerDossierPage() {
           )}
 
           {/* Ownership Chain Visualization - shows nested LLC structure */}
-          {owner.type === "entity" && (
+          {/* Only show when we have actual chain data */}
+          {owner.type === "entity" && ownershipChainQuery.data && (ownershipChainQuery.data.levels?.length || 0) > 0 && (
             <Card data-testid="card-ownership-chain" role="region" aria-labelledby="ownership-chain-heading">
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between gap-2">
@@ -1333,155 +1334,139 @@ export default function OwnerDossierPage() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
-                {ownershipChainQuery.isLoading ? (
-                  <InlineListSkeleton count={2} />
-                ) : ownershipChainQuery.data ? (
-                  <>
-                    <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground mb-3">
-                      <span>
-                        Traced through {ownershipChainQuery.data.levels?.length || 0} layers
-                        {ownershipChainQuery.data.maxDepthReached && " (max depth reached)"}
-                        {ownershipChainQuery.data.fromCache && ` • Cached ${ownershipChainQuery.data.cacheAge}h ago`}
-                      </span>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => clearOwnershipCacheMutation.mutate()}
-                        disabled={clearOwnershipCacheMutation.isPending}
-                        className="h-6 text-xs gap-1"
-                        data-testid="button-refresh-ownership"
-                      >
-                        <RefreshCw className={`h-3 w-3 ${clearOwnershipCacheMutation.isPending ? "animate-spin" : ""}`} />
-                        {clearOwnershipCacheMutation.isPending ? "Refreshing..." : "Refresh"}
-                      </Button>
-                    </div>
-                    
-                    {/* Chain Visualization */}
-                    <div className="space-y-2">
-                      {ownershipChainQuery.data.levels?.map((level, levelIdx) => (
-                        <div key={levelIdx} className="relative">
-                          {levelIdx > 0 && (
-                            <div className="absolute left-3 -top-2 h-2 w-px bg-border" />
+                <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground mb-3">
+                  <span>
+                    Traced through {ownershipChainQuery.data.levels?.length || 0} layers
+                    {ownershipChainQuery.data.maxDepthReached && " (max depth reached)"}
+                    {ownershipChainQuery.data.fromCache && ` • Cached ${ownershipChainQuery.data.cacheAge}h ago`}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => clearOwnershipCacheMutation.mutate()}
+                    disabled={clearOwnershipCacheMutation.isPending}
+                    className="h-6 text-xs gap-1"
+                    data-testid="button-refresh-ownership"
+                  >
+                    <RefreshCw className={`h-3 w-3 ${clearOwnershipCacheMutation.isPending ? "animate-spin" : ""}`} />
+                    {clearOwnershipCacheMutation.isPending ? "Refreshing..." : "Refresh"}
+                  </Button>
+                </div>
+                
+                {/* Chain Visualization */}
+                <div className="space-y-2">
+                  {ownershipChainQuery.data.levels?.map((level, levelIdx) => (
+                    <div key={levelIdx} className="relative">
+                      {levelIdx > 0 && (
+                        <div className="absolute left-3 -top-2 h-2 w-px bg-border" />
+                      )}
+                      <div className="flex items-start gap-2">
+                        <div className="flex flex-col items-center">
+                          <div className={`h-6 w-6 rounded-full flex items-center justify-center text-xs font-medium
+                            ${level.depth === 0 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+                            {level.depth}
+                          </div>
+                          {levelIdx < (ownershipChainQuery.data.levels?.length || 0) - 1 && (
+                            <div className="h-full w-px bg-border flex-1 min-h-4" />
                           )}
-                          <div className="flex items-start gap-2">
-                            <div className="flex flex-col items-center">
-                              <div className={`h-6 w-6 rounded-full flex items-center justify-center text-xs font-medium
-                                ${level.depth === 0 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
-                                {level.depth}
-                              </div>
-                              {levelIdx < (ownershipChainQuery.data.levels?.length || 0) - 1 && (
-                                <div className="h-full w-px bg-border flex-1 min-h-4" />
-                              )}
-                            </div>
-                            <div className="flex-1 space-y-1 pb-2">
-                              {level.entities.map((entity, entityIdx) => (
-                                <div 
-                                  key={entityIdx}
-                                  className={`p-2 rounded-md text-sm ${
-                                    entity.type === "individual" 
-                                      ? "bg-green-500/10 border border-green-500/20" 
-                                      : "bg-muted/50"
-                                  }`}
-                                  data-testid={`chain-node-${level.depth}-${entityIdx}`}
-                                >
-                                  <div className="flex items-center justify-between gap-2">
-                                    <ClickableEntityName 
-                                      name={entity.name} 
-                                      type={entity.type}
-                                      addressHint={owner.primaryAddress || undefined}
-                                    />
-                                    {entity.role && (
-                                      <Badge 
-                                        variant="outline" 
-                                        className="text-xs capitalize max-w-[180px] truncate"
-                                        title={entity.role}
-                                      >
-                                        {entity.role}
-                                      </Badge>
-                                    )}
-                                  </div>
-                                  {entity.jurisdiction && (
-                                    <div className="text-xs text-muted-foreground mt-1">
-                                      {entity.jurisdiction.toUpperCase().replace("US_", "")}
-                                    </div>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
                         </div>
-                      ))}
-                    </div>
-
-                    {/* Ultimate Beneficial Owners Summary */}
-                    {ownershipChainQuery.data.ultimateBeneficialOwners?.length > 0 && (
-                      <>
-                        <Separator />
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2 text-sm font-medium">
-                            <Users className="h-4 w-4 text-green-600" />
-                            Ultimate Beneficial Owners
-                          </div>
-                          <div className="grid gap-2">
-                            {ownershipChainQuery.data.ultimateBeneficialOwners.map((ubo, idx) => (
-                              <div 
-                                key={idx}
-                                className="p-2 rounded-md bg-green-500/10 border border-green-500/20 flex items-center justify-between gap-2 min-w-0"
-                                data-testid={`ubo-${idx}`}
-                              >
-                                <div className="min-w-0 flex-1">
-                                  <ClickableEntityName 
-                                    name={ubo.name} 
-                                    type={ubo.type}
-                                    addressHint={owner.primaryAddress || undefined}
-                                  />
-                                </div>
-                                {ubo.role && (
+                        <div className="flex-1 space-y-1 pb-2">
+                          {level.entities.map((entity, entityIdx) => (
+                            <div 
+                              key={entityIdx}
+                              className={`p-2 rounded-md text-sm ${
+                                entity.type === "individual" 
+                                  ? "bg-green-500/10 border border-green-500/20" 
+                                  : "bg-muted/50"
+                              }`}
+                              data-testid={`chain-node-${level.depth}-${entityIdx}`}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <ClickableEntityName 
+                                  name={entity.name} 
+                                  type={entity.type}
+                                  addressHint={owner.primaryAddress || undefined}
+                                />
+                                {entity.role && (
                                   <Badge 
                                     variant="outline" 
-                                    className="text-xs capitalize max-w-[180px] truncate shrink-0"
-                                    title={ubo.role}
+                                    className="text-xs capitalize max-w-[180px] truncate"
+                                    title={entity.role}
                                   >
-                                    {ubo.role}
+                                    {entity.role}
                                   </Badge>
                                 )}
                               </div>
-                            ))}
-                          </div>
+                              {entity.jurisdiction && (
+                                <div className="text-xs text-muted-foreground mt-1">
+                                  {entity.jurisdiction.toUpperCase().replace("US_", "")}
+                                </div>
+                              )}
+                            </div>
+                          ))}
                         </div>
-                      </>
-                    )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Ultimate Beneficial Owners Summary */}
+                {ownershipChainQuery.data.ultimateBeneficialOwners?.length > 0 && (
+                  <>
+                    <Separator />
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-sm font-medium">
+                        <Users className="h-4 w-4 text-green-600" />
+                        Ultimate Beneficial Owners
+                      </div>
+                      <div className="grid gap-2">
+                        {ownershipChainQuery.data.ultimateBeneficialOwners.map((ubo, idx) => (
+                          <div 
+                            key={idx}
+                            className="p-2 rounded-md bg-green-500/10 border border-green-500/20 flex items-center justify-between gap-2 min-w-0"
+                            data-testid={`ubo-${idx}`}
+                          >
+                            <div className="min-w-0 flex-1">
+                              <ClickableEntityName 
+                                name={ubo.name} 
+                                type={ubo.type}
+                                addressHint={owner.primaryAddress || undefined}
+                              />
+                            </div>
+                            {ubo.role && (
+                              <Badge 
+                                variant="outline" 
+                                className="text-xs capitalize max-w-[180px] truncate shrink-0"
+                                title={ubo.role}
+                              >
+                                {ubo.role}
+                              </Badge>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   </>
-                ) : (
-                  <div className="text-center py-4">
-                    <p className="text-sm text-muted-foreground">
-                      Ownership chain not yet resolved. This feature traces ownership through nested LLCs.
-                    </p>
-                  </div>
                 )}
               </CardContent>
             </Card>
           )}
 
           {/* Related Holdings Section - for individual owners, shows other properties they own through LLCs */}
-          {owner.type === "individual" && (
+          {/* Only show when we have actual holdings data */}
+          {owner.type === "individual" && relatedHoldingsQuery.data && (relatedHoldingsQuery.data.llcHoldings.length > 0 || relatedHoldingsQuery.data.directProperties.length > 0) && (
             <Card data-testid="card-related-holdings" role="region" aria-labelledby="related-holdings-heading">
               <CardHeader className="pb-3">
                 <CardTitle id="related-holdings-heading" className="text-base flex items-center gap-2">
                   <Home className="h-4 w-4" aria-hidden="true" />
                   Related Holdings
-                  {relatedHoldingsQuery.data && (
-                    <Badge variant="secondary" className="text-xs">
-                      {relatedHoldingsQuery.data.totalProperties} properties via {relatedHoldingsQuery.data.totalLlcs} LLCs
-                    </Badge>
-                  )}
+                  <Badge variant="secondary" className="text-xs">
+                    {relatedHoldingsQuery.data.totalProperties} properties via {relatedHoldingsQuery.data.totalLlcs} LLCs
+                  </Badge>
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {relatedHoldingsQuery.isLoading ? (
-                  <InlineListSkeleton count={3} />
-                ) : relatedHoldingsQuery.data && (relatedHoldingsQuery.data.llcHoldings.length > 0 || relatedHoldingsQuery.data.directProperties.length > 0) ? (
-                  <>
+                <>
                     {/* LLC Holdings */}
                     {relatedHoldingsQuery.data.llcHoldings.length > 0 && (
                       <div className="space-y-3">
@@ -1571,14 +1556,7 @@ export default function OwnerDossierPage() {
                         </div>
                       </>
                     )}
-                  </>
-                ) : (
-                  <div className="text-center py-4">
-                    <p className="text-sm text-muted-foreground">
-                      No additional holdings found for this person across other LLCs or properties.
-                    </p>
-                  </div>
-                )}
+                </>
               </CardContent>
             </Card>
           )}
