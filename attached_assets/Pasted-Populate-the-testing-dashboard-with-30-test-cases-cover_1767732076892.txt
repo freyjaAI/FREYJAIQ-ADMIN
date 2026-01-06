@@ -1,0 +1,47 @@
+Populate the testing dashboard with 30 test cases covering diverse scenarios:
+
+Test Case Format:
+address | expected_owner_name | expected_owner_type | notes | source
+
+CORPORATE HEADQUARTERS (10 cases):
+1. 1 Apple Park Way, Cupertino, CA 95014 | Apple Inc. | corporation | Apple headquarters | Public record
+2. 1600 Amphitheatre Parkway, Mountain View, CA 94043 | Google LLC | llc | Google headquarters | Public record
+3. 410 Terry Avenue North, Seattle, WA 98109 | Amazon.com Inc. | corporation | Amazon headquarters | Public record
+4. 1 Microsoft Way, Redmond, WA 98052 | Microsoft Corporation | corporation | Microsoft campus | Public record
+5. 1 Hacker Way, Menlo Park, CA 94025 | Meta Platforms Inc. | corporation | Meta/Facebook HQ | Public record
+6. 1 Tesla Road, Austin, TX 78725 | Tesla Inc. | corporation | Tesla Gigafactory | Public record
+7. 500 Oracle Parkway, Redwood City, CA 94065 | Oracle Corporation | corporation | Oracle HQ | Public record
+8. 2211 Mission College Blvd, Santa Clara, CA 95054 | Intel Corporation | corporation | Intel HQ | Public record
+9. 100 Oracle Parkway, Redwood City, CA 94065 | Oracle Corporation | corporation | Oracle campus | Public record
+10. 1 BMW Parkway, Woodcliff Lake, NJ 07677 | BMW of North America LLC | llc | BMW USA HQ | Public record
+
+FLORIDA COMMERCIAL (10 cases):
+11. 200 S Biscayne Blvd, Miami, FL 33131 | Wachovia Financial Center Owner LLC | llc | Downtown Miami tower | Public record
+12. 1 Las Olas Circle, Fort Lauderdale, FL 33316 | Las Olas Riverfront LLC | llc | Las Olas complex | Public record
+13. 100 SE 2nd St, Miami, FL 33131 | Miami Tower Associates LLC | llc | Historic Miami Tower | Public record
+14. 1395 Brickell Ave, Miami, FL 33131 | Four Seasons Hotel Miami | corporation | Four Seasons property | Public record
+15. 801 Brickell Ave, Miami, FL 33131 | 801 Brickell Owner LLC | llc | Brickell office tower | Public record
+16. 333 SE 2nd Ave, Miami, FL 33131 | Flagler Street Properties LLC | llc | Downtown Miami | Public record
+17. 1 E Broward Blvd, Fort Lauderdale, FL 33301 | Broward Financial Centre LLC | llc | Fort Lauderdale tower | Public record
+18. 2450 Hollywood Blvd, Hollywood, FL 33020 | Hollywood Circle Associates | llc | Hollywood commercial | Public record
+19. 515 E Las Olas Blvd, Fort Lauderdale, FL 33301 | Las Olas Centre LLC | llc | Las Olas retail | Public record
+20. 1200 Brickell Ave, Miami, FL 33131 | 1200 Brickell Owner LLC | llc | Brickell office | Public record
+
+MAJOR RETAIL/LANDMARKS (10 cases):
+21. 350 Fifth Avenue, New York, NY 10118 | Empire State Realty Trust | reit | Empire State Building | Public SEC filing
+22. 1 Grand Central Terminal, New York, NY 10017 | MTA Metro-North Railroad | government | Grand Central | Public record
+23. 1101 S Canal St, Chicago, IL 60607 | Willis Tower LLC | llc | Willis/Sears Tower | Public record
+24. 30 Rockefeller Plaza, New York, NY 10112 | Tishman Speyer Properties | llc | Rockefeller Center | Public record
+25. 233 S Wacker Dr, Chicago, IL 60606 | Equity Office Properties | reit | Wacker office tower | Public SEC filing
+26. 111 8th Ave, New York, NY 10011 | Google LLC | llc | Google NYC office | Public record
+27. 1271 Avenue of the Americas, New York, NY 10020 | Rockefeller Center Properties | llc | Radio City area | Public record
+28. 1 World Trade Center, New York, NY 10007 | Port Authority of NY and NJ | government | One WTC | Public record
+29. 301 Mission St, San Francisco, CA 94105 | Salesforce Tower LLC | llc | Salesforce Tower | Public record
+30. 633 W 5th St, Los Angeles, CA 90071 | US Bank Tower Owner LLC | llc | US Bank Tower LA | Public record
+
+Add all 30 cases to the database, then click "Run All Tests" and show me:
+- Overall accuracy %
+- Which providers were used most
+- Average cost per test
+- Cache hit rate
+- Any mismatches that need investigation
