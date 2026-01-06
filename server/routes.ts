@@ -4827,7 +4827,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       });
 
       // Create properties
-      await storage.createProperty({
+      await storage.upsertProperty({
         address: "100 Commercial Blvd",
         city: "New York",
         state: "NY",
@@ -4843,7 +4843,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         ownerId: owner1.id,
       });
 
-      await storage.createProperty({
+      await storage.upsertProperty({
         address: "555 Industrial Way",
         city: "Los Angeles",
         state: "CA",
@@ -4859,7 +4859,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         ownerId: owner2.id,
       });
 
-      await storage.createProperty({
+      await storage.upsertProperty({
         address: "222 Retail Plaza",
         city: "San Francisco",
         state: "CA",
@@ -5030,7 +5030,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         const existingProps = await storage.searchProperties(address);
         if (existingProps.length === 0) {
           console.log(`[CACHE NEW] Storing property "${address}" in cache`);
-          await storage.createProperty({
+          await storage.upsertProperty({
             address: result.address?.line1 || address,
             city: result.address?.city,
             state: result.address?.state,
@@ -5752,7 +5752,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             if (ownerId) {
               const existingProperty = (await storage.searchProperties(property.address.line1))[0];
               if (!existingProperty) {
-                await storage.createProperty({
+                await storage.upsertProperty({
                   address: property.address.line1,
                   city: property.address.city,
                   state: property.address.state,
@@ -5944,7 +5944,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
 
       // Create property
-      const newProperty = await storage.createProperty({
+      const newProperty = await storage.upsertProperty({
         address: property.address.line1 || property.address,
         city: property.address.city || "",
         state: property.address.state || "",
@@ -6044,7 +6044,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       for (const prop of properties) {
         const existing = (await storage.searchProperties(prop.address.line1))[0];
         if (!existing) {
-          await storage.createProperty({
+          await storage.upsertProperty({
             address: prop.address.line1,
             city: prop.address.city,
             state: prop.address.state,

@@ -84,7 +84,10 @@ export interface IStorage {
   getProperty(id: string): Promise<Property | undefined>;
   getProperties(): Promise<Property[]>;
   getPropertiesByOwner(ownerId: string): Promise<Property[]>;
+  getPropertyByApn(apn: string, ownerId: string): Promise<Property | undefined>;
+  getPropertyByAddress(address: string, city: string | null, state: string | null, ownerId: string): Promise<Property | undefined>;
   createProperty(property: InsertProperty): Promise<Property>;
+  upsertProperty(property: InsertProperty): Promise<Property>;
   updateProperty(id: string, property: Partial<InsertProperty>): Promise<Property | undefined>;
   searchProperties(query: string): Promise<Property[]>;
 
@@ -424,12 +427,103 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getPropertiesByOwner(ownerId: string): Promise<Property[]> {
-    return await db.select().from(properties).where(eq(properties.ownerId, ownerId));
+    const results = await db.select().from(properties).where(eq(properties.ownerId, ownerId));
+    return this.deduplicateProperties(results);
+  }
+
+  async getPropertyByApn(apn: string, ownerId: string): Promise<Property | undefined> {
+    const [property] = await db.select().from(properties)
+      .where(and(
+        eq(properties.apn, apn),
+        eq(properties.ownerId, ownerId)
+      ));
+    return property;
+  }
+
+  async getPropertyByAddress(address: string, city: string | null, state: string | null, ownerId: string): Promise<Property | undefined> {
+    const normalizedAddress = address.toLowerCase().trim();
+    const results = await db.select().from(properties)
+      .where(eq(properties.ownerId, ownerId));
+    
+    return results.find(p => {
+      const propAddress = (p.address || '').toLowerCase().trim();
+      const propCity = (p.city || '').toLowerCase().trim();
+      const propState = (p.state || '').toLowerCase().trim();
+      const inputCity = (city || '').toLowerCase().trim();
+      const inputState = (state || '').toLowerCase().trim();
+      
+      return propAddress === normalizedAddress &&
+             (!inputCity || propCity === inputCity) &&
+             (!inputState || propState === inputState);
+    });
+  }
+
+  private deduplicateProperties(props: Property[]): Property[] {
+    const seen = new Map<string, Property>();
+    
+    for (const prop of props) {
+      const apnKey = prop.apn ? `apn:${prop.apn}` : null;
+      const addressKey = this.normalizeAddressKey(prop);
+      
+      const key = apnKey || addressKey;
+      if (!key) {
+        seen.set(`id:${prop.id}`, prop);
+        continue;
+      }
+      
+      const existing = seen.get(key);
+      if (!existing) {
+        seen.set(key, prop);
+      } else {
+        const existingDate = existing.updatedAt || existing.createdAt || new Date(0);
+        const propDate = prop.updatedAt || prop.createdAt || new Date(0);
+        if (propDate > existingDate) {
+          seen.set(key, prop);
+        }
+      }
+    }
+    
+    return Array.from(seen.values());
+  }
+
+  private normalizeAddressKey(prop: Property): string | null {
+    if (!prop.address) return null;
+    const addr = prop.address.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const city = (prop.city || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const state = (prop.state || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    return `addr:${addr}:${city}:${state}`;
   }
 
   async createProperty(property: InsertProperty): Promise<Property> {
     const [newProperty] = await db.insert(properties).values(property).returning();
     return newProperty;
+  }
+
+  async upsertProperty(property: InsertProperty): Promise<Property> {
+    if (!property.ownerId) {
+      return this.createProperty(property);
+    }
+    
+    let existing: Property | undefined;
+    if (property.apn) {
+      existing = await this.getPropertyByApn(property.apn, property.ownerId);
+    }
+    
+    if (!existing && property.address) {
+      existing = await this.getPropertyByAddress(
+        property.address, 
+        property.city || null, 
+        property.state || null, 
+        property.ownerId
+      );
+    }
+    
+    if (existing) {
+      const updated = await this.updateProperty(existing.id, property);
+      return updated || existing;
+    }
+    
+    return this.createProperty(property);
   }
 
   async updateProperty(id: string, property: Partial<InsertProperty>): Promise<Property | undefined> {
