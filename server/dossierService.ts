@@ -655,6 +655,151 @@ export interface WaterfallResult {
 import { getProviderSequence, checkContactSufficiency, type ProviderConfig } from "./tierProviderConfig";
 import type { Tier } from "@shared/schema";
 
+/**
+ * Address context for verification during contact enrichment
+ */
+export interface AddressContext {
+  street?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  unit?: string;
+}
+
+/**
+ * Normalize city name for comparison (handles abbreviations, case)
+ */
+function normalizeCity(city: string | undefined): string {
+  if (!city) return "";
+  return city.trim().toUpperCase()
+    .replace(/\bST\.?\b/g, "SAINT")
+    .replace(/\bMT\.?\b/g, "MOUNT")
+    .replace(/\bFT\.?\b/g, "FORT")
+    .replace(/\bN\.?\b/g, "NORTH")
+    .replace(/\bS\.?\b/g, "SOUTH")
+    .replace(/\bE\.?\b/g, "EAST")
+    .replace(/\bW\.?\b/g, "WEST");
+}
+
+/**
+ * Normalize state for comparison
+ */
+function normalizeState(state: string | undefined): string {
+  if (!state) return "";
+  const stateUpper = state.trim().toUpperCase();
+  // Handle common full state names
+  const stateAbbrevs: Record<string, string> = {
+    "FLORIDA": "FL", "CALIFORNIA": "CA", "NEW YORK": "NY", "TEXAS": "TX",
+    "GEORGIA": "GA", "ILLINOIS": "IL", "OHIO": "OH", "PENNSYLVANIA": "PA",
+    "NORTH CAROLINA": "NC", "SOUTH CAROLINA": "SC", "MICHIGAN": "MI",
+    "NEW JERSEY": "NJ", "VIRGINIA": "VA", "WASHINGTON": "WA", "ARIZONA": "AZ",
+    "MASSACHUSETTS": "MA", "TENNESSEE": "TN", "INDIANA": "IN", "MISSOURI": "MO",
+    "MARYLAND": "MD", "WISCONSIN": "WI", "COLORADO": "CO", "MINNESOTA": "MN",
+    "ALABAMA": "AL", "LOUISIANA": "LA", "KENTUCKY": "KY", "OREGON": "OR",
+    "OKLAHOMA": "OK", "CONNECTICUT": "CT", "IOWA": "IA", "UTAH": "UT",
+    "NEVADA": "NV", "ARKANSAS": "AR", "MISSISSIPPI": "MS", "KANSAS": "KS",
+    "NEW MEXICO": "NM", "NEBRASKA": "NE", "WEST VIRGINIA": "WV", "IDAHO": "ID",
+    "HAWAII": "HI", "MAINE": "ME", "NEW HAMPSHIRE": "NH", "MONTANA": "MT",
+    "RHODE ISLAND": "RI", "DELAWARE": "DE", "SOUTH DAKOTA": "SD",
+    "NORTH DAKOTA": "ND", "ALASKA": "AK", "VERMONT": "VT", "WYOMING": "WY",
+    "DISTRICT OF COLUMBIA": "DC",
+  };
+  return stateAbbrevs[stateUpper] || stateUpper;
+}
+
+/**
+ * Known metro area aliases - cities that are considered part of the same metro
+ */
+const METRO_ALIASES: Record<string, string[]> = {
+  "MIAMI": ["MIAMI BEACH", "NORTH MIAMI", "SOUTH MIAMI", "MIAMI GARDENS", "MIAMI SHORES", "MIAMI SPRINGS", "MIAMI LAKES", "KEY BISCAYNE", "CORAL GABLES", "HIALEAH", "DORAL"],
+  "NEW YORK": ["MANHATTAN", "BROOKLYN", "QUEENS", "BRONX", "STATEN ISLAND", "NEW YORK CITY", "NYC"],
+  "LOS ANGELES": ["LA", "BEVERLY HILLS", "WEST HOLLYWOOD", "HOLLYWOOD", "SANTA MONICA", "CULVER CITY"],
+  "FORT LAUDERDALE": ["FT LAUDERDALE", "FORT LAUDERDALE BEACH", "LAUDERDALE BY THE SEA", "POMPANO BEACH", "DEERFIELD BEACH"],
+  "WEST PALM BEACH": ["PALM BEACH", "PALM BEACH GARDENS", "JUPITER", "LAKE WORTH"],
+  "JACKSONVILLE": ["JACKSONVILLE BEACH", "ATLANTIC BEACH", "NEPTUNE BEACH"],
+  "TAMPA": ["TAMPA BAY", "ST PETERSBURG", "SAINT PETERSBURG", "CLEARWATER"],
+  "ORLANDO": ["KISSIMMEE", "WINTER PARK"],
+  "SAN FRANCISCO": ["SF", "DALY CITY", "SOUTH SAN FRANCISCO"],
+  "CHICAGO": ["EVANSTON", "OAK PARK"],
+  "HOUSTON": ["HOUSTON HEIGHTS"],
+  "DALLAS": ["FORT WORTH", "FT WORTH", "ARLINGTON"],
+  "PHOENIX": ["SCOTTSDALE", "TEMPE", "MESA"],
+};
+
+/**
+ * Check if two cities are in the same metro area
+ */
+function areCitiesInSameMetro(city1: string, city2: string): boolean {
+  if (city1 === city2) return true;
+  
+  // Check if either city is the primary metro and the other is an alias
+  for (const [primary, aliases] of Object.entries(METRO_ALIASES)) {
+    const allMetroCities = [primary, ...aliases];
+    if (allMetroCities.includes(city1) && allMetroCities.includes(city2)) {
+      return true;
+    }
+  }
+  
+  // Allow if one city fully contains the other (e.g., "MIAMI" in "MIAMI BEACH")
+  // but only if the base city has at least 4 characters to avoid false matches
+  if (city1.length >= 4 && city2.startsWith(city1 + " ")) return true;
+  if (city2.length >= 4 && city1.startsWith(city2 + " ")) return true;
+  
+  return false;
+}
+
+/**
+ * Check if enriched person's address matches property location
+ * Returns true if match, false if definite mismatch
+ */
+export function verifyAddressMatch(
+  propertyContext: AddressContext,
+  enrichedAddress: { city?: string; state?: string; zip?: string } | undefined
+): { matches: boolean; reason?: string } {
+  if (!enrichedAddress) {
+    // If no address returned, we can't verify - be conservative and accept
+    return { matches: true, reason: "no_address_returned" };
+  }
+
+  const propCity = normalizeCity(propertyContext.city);
+  const propState = normalizeState(propertyContext.state);
+  const enrichedCity = normalizeCity(enrichedAddress.city);
+  const enrichedState = normalizeState(enrichedAddress.state);
+
+  // State mismatch is a CRITICAL rejection
+  if (propState && enrichedState && propState !== enrichedState) {
+    return { 
+      matches: false, 
+      reason: `State mismatch: property in ${propState}, contact in ${enrichedState}` 
+    };
+  }
+
+  // City mismatch check - use metro area awareness
+  if (propCity && enrichedCity && propCity !== enrichedCity) {
+    // Check if cities are in the same metro area
+    if (!areCitiesInSameMetro(propCity, enrichedCity)) {
+      return { 
+        matches: false, 
+        reason: `City mismatch: property in ${propCity}, contact in ${enrichedCity}` 
+      };
+    }
+  }
+
+  // ZIP code first 3 digits should match (same region)
+  if (propertyContext.zip && enrichedAddress.zip) {
+    const propZip3 = propertyContext.zip.substring(0, 3);
+    const enrichedZip3 = enrichedAddress.zip.substring(0, 3);
+    if (propZip3 !== enrichedZip3) {
+      return { 
+        matches: false, 
+        reason: `ZIP region mismatch: property in ${propZip3}xx, contact in ${enrichedZip3}xx` 
+      };
+    }
+  }
+
+  return { matches: true };
+}
+
 export async function runContactWaterfall(name: string, address?: string, tier?: Tier | null): Promise<WaterfallResult> {
   const result: WaterfallResult = {
     contacts: [],
@@ -683,6 +828,14 @@ export async function runContactWaterfall(name: string, address?: string, tier?:
   const providerSequence = getProviderSequence(tier, 'contactEnrichment');
   console.log(`[Waterfall] Using tier ${tier || 'default'} with ${providerSequence.length} providers`);
 
+  // Build property address context for verification
+  const propertyContext: AddressContext = { 
+    street: address?.split(",")[0]?.trim(),
+    city, 
+    state, 
+    zip 
+  };
+
   // Run waterfall through tier-ordered providers
   for (const provider of providerSequence) {
     console.log(`[Waterfall] Trying ${provider.name} (cost: $${provider.costPerCall})`);
@@ -694,6 +847,18 @@ export async function runContactWaterfall(name: string, address?: string, tier?:
       );
       
       if (providerResult) {
+        // CRITICAL: Verify the returned person matches the property location
+        if (providerResult.enrichedAddress) {
+          const addressCheck = verifyAddressMatch(propertyContext, providerResult.enrichedAddress);
+          if (!addressCheck.matches) {
+            console.warn(`[Waterfall] REJECTED ${provider.name} result - ${addressCheck.reason}`);
+            console.warn(`[Waterfall] Property: ${city}, ${state} ${zip} | Enriched: ${providerResult.enrichedAddress.city}, ${providerResult.enrichedAddress.state}`);
+            // Skip this provider's results - wrong person!
+            result.providersUsed.push(provider.key); // Track that we tried
+            continue;
+          }
+        }
+        
         result.providersUsed.push(provider.key);
         trackProviderCall(provider.key);
         
@@ -762,6 +927,8 @@ interface ProviderInput {
 interface ProviderOutput {
   contacts: Array<{ type: "phone" | "email"; value: string; source: string; confidence: number }>;
   personData?: WaterfallResult["personData"];
+  /** Address returned by provider - used for verification against property location */
+  enrichedAddress?: { city?: string; state?: string; zip?: string };
 }
 
 async function runSingleContactProvider(
@@ -816,6 +983,12 @@ async function runSingleContactProvider(
             zip: a.postalCode,
           })),
         },
+        // Include enriched person's address for verification
+        enrichedAddress: apifyResult.currentAddress ? {
+          city: apifyResult.currentAddress.city,
+          state: apifyResult.currentAddress.state,
+          zip: apifyResult.currentAddress.postalCode,
+        } : undefined,
       };
     }
     
@@ -842,13 +1015,20 @@ async function runSingleContactProvider(
           confidence: dataAxleResult.confidenceScore || 70,
         });
       }
-      return { contacts };
+      return { 
+        contacts,
+        enrichedAddress: dataAxleResult.city || dataAxleResult.state ? {
+          city: dataAxleResult.city,
+          state: dataAxleResult.state,
+          zip: dataAxleResult.zip,
+        } : undefined,
+      };
     }
     
     case 'a_leads':
     case 'aleads': {
-      // A-Leads - $0.01/call
-      const aleadsResult = await dataProviders.searchALeadsByName(name);
+      // A-Leads - $0.01/call - pass address context for filtering
+      const aleadsResult = await dataProviders.searchALeadsByName(name, { city, state });
       if (!aleadsResult || aleadsResult.length === 0) return null;
       
       const contacts: ProviderOutput["contacts"] = [];
@@ -869,7 +1049,23 @@ async function runSingleContactProvider(
           confidence: 55,
         });
       }
-      return { contacts };
+      // Parse location for verification (A-Leads returns "City, ST" format)
+      let enrichedCity: string | undefined;
+      let enrichedState: string | undefined;
+      if (first.location) {
+        const locParts = first.location.split(",").map((s: string) => s.trim());
+        if (locParts.length >= 2) {
+          enrichedCity = locParts[0];
+          enrichedState = locParts[1];
+        }
+      }
+      return { 
+        contacts,
+        enrichedAddress: enrichedCity || enrichedState ? {
+          city: enrichedCity,
+          state: enrichedState,
+        } : undefined,
+      };
     }
     
     case 'pacific_east':
