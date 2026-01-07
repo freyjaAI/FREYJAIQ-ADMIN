@@ -57,6 +57,7 @@ import { FadeIn, StaggerContainer, StaggerItem, HighlightOnUpdate, AnimatedList 
 import { FullDossierSkeleton, ContactsSectionSkeleton, PropertiesSectionSkeleton, LlcCardSkeleton, InlineListSkeleton } from "@/components/dossier-skeletons";
 import { FreyjaLoader, FreyjaFullPageLoader } from "@/components/freyja-loader";
 import { AIDisclosureBadge, AIDisclaimer } from "@/components/ai-disclosure-badge";
+import { EnrichmentStatusCard } from "@/components/enrichment-status-card";
 import type { Owner, Property, ContactInfo, LegalEvent, OwnerLlcLink, ProviderSource } from "@shared/schema";
 
 interface LlcUnmaskingData {
@@ -494,6 +495,38 @@ export default function OwnerDossierPage() {
     },
   });
 
+  const reEnrichMutation = useMutation({
+    mutationFn: async () => {
+      return await apiRequest("POST", `/api/owners/${ownerId}/enrich`, { forceRefresh: true });
+    },
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/owners", ownerId] });
+      refetch();
+      toast({ 
+        title: "Re-enrichment complete", 
+        description: "Fresh data has been retrieved from all providers." 
+      });
+    },
+    onError: (error) => {
+      if (isUnauthorizedError(error)) {
+        toast({
+          title: "Unauthorized",
+          description: "You are logged out. Logging in again...",
+          variant: "destructive",
+        });
+        setTimeout(() => {
+          window.location.href = "/api/login";
+        }, 500);
+        return;
+      }
+      toast({
+        title: "Re-enrichment failed",
+        description: "Could not fetch fresh data. Please try again later.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const exportPdfMutation = useMutation({
     mutationFn: async () => {
       const response = await fetch(`/api/owners/${ownerId}/export-pdf`, {
@@ -692,6 +725,17 @@ export default function OwnerDossierPage() {
                 />
               </div>
             )}
+            
+            <div className="mt-3">
+              <EnrichmentStatusCard
+                enrichmentUpdatedAt={owner.enrichmentUpdatedAt}
+                enrichmentSource={owner.enrichmentSource}
+                onReEnrich={() => reEnrichMutation.mutate()}
+                isReEnriching={reEnrichMutation.isPending}
+                entityName={owner.name}
+                entityType={owner.type as "individual" | "entity"}
+              />
+            </div>
             
             {/* Person Details for Individual Owners - uses owner record data or skipTraceData fallback */}
             {owner.type === "individual" && (
