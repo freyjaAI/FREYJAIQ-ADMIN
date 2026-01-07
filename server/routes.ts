@@ -5801,11 +5801,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
 
       // Check cache first - return cached results within 12-hour TTL to prevent duplicate charges
-      const searchCacheKey = generateCacheKey(CachePrefix.PROPERTY, 'search', query, type || 'all');
+      // Include unit in cache key so unit-specific searches get separate cache entries
+      const searchCacheKey = generateCacheKey(CachePrefix.PROPERTY, 'search', searchQueryWithUnit, type || 'all', normalizedUnit || '');
       const cachedSearchResult = await getCachedResult<any>('search', searchCacheKey, 0);
       
       if (cachedSearchResult) {
-        console.log(`[SEARCH CACHE HIT] Returning cached result for query: "${query.substring(0, 50)}..."`);
+        console.log(`[SEARCH CACHE HIT] Returning cached result for query: "${searchQueryWithUnit.substring(0, 50)}..." unit: "${normalizedUnit || 'none'}"`);
         // Mark as cache hit - no cost to user
         return res.json({
           ...cachedSearchResult,
@@ -5814,7 +5815,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         });
       }
       
-      console.log(`[SEARCH CACHE MISS] No cached result for query: "${query.substring(0, 50)}..."`);
+      console.log(`[SEARCH CACHE MISS] No cached result for query: "${searchQueryWithUnit.substring(0, 50)}..." unit: "${normalizedUnit || 'none'}"`);
 
       const results: any = {
         properties: [],
@@ -6236,7 +6237,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       
       // Cache the result for 12 hours to prevent duplicate charges
       await setCachedResult(searchCacheKey, finalResponse, CacheTTL.PROPERTY_DEFAULT);
-      console.log(`[SEARCH CACHE SET] Cached result for query: "${query.substring(0, 50)}..." (TTL: 12h)`);
+      console.log(`[SEARCH CACHE SET] Cached result for query: "${searchQueryWithUnit.substring(0, 50)}..." unit: "${normalizedUnit || 'none'}" (TTL: 12h)`);
 
       res.json(finalResponse);
     } catch (error) {
