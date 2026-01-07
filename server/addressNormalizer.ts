@@ -49,8 +49,14 @@ export function extractUnit(address: string): { unit: string | null; baseAddress
       extractedUnit = match[1].toUpperCase();
       // Remove the matched unit portion from the address
       workingAddress = workingAddress.replace(pattern, '').trim();
-      // Clean up any trailing commas or extra spaces
-      workingAddress = workingAddress.replace(/,\s*$/, '').replace(/\s{2,}/g, ' ').trim();
+      // Clean up any trailing/leading commas, double commas, extra spaces
+      workingAddress = workingAddress
+        .replace(/,\s*,/g, ',')           // Double commas → single
+        .replace(/\s+,/g, ',')            // Space before comma → just comma
+        .replace(/,\s*$/, '')             // Trailing comma
+        .replace(/^\s*,/, '')             // Leading comma
+        .replace(/\s{2,}/g, ' ')          // Multiple spaces → single
+        .trim();
       break;
     }
   }
