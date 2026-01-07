@@ -190,11 +190,17 @@ export default function SearchPage() {
   };
 
   useEffect(() => {
-    if (initialQuery) {
+    if (initialQuery && !externalSearchMutation.isPending) {
       setCurrentQuery(initialQuery);
       setCurrentType(initialType);
-      // Trigger external search on page load with initial query
-      externalSearchMutation.mutate({ query: initialQuery, type: initialType });
+      setCurrentUnit(params.get("unit") || "");
+      // Only trigger external search on page load if not already pending
+      // This prevents duplicate requests when navigating back to search results
+      externalSearchMutation.mutate({ 
+        query: initialQuery, 
+        type: initialType,
+        unit: initialType === "address" ? (params.get("unit") || undefined) : undefined
+      });
     }
   }, []);
 
