@@ -141,9 +141,7 @@ export function SearchBar({
     setQuery(suggestion.description);
     setShowSuggestions(false);
     setSuggestions([]);
-    // When selecting from suggestions, search immediately (unit can be added after)
-    const trimmedUnit = unit.trim() || undefined;
-    onSearch(suggestion.description, searchType, undefined, trimmedUnit);
+    // Don't search immediately - let user add unit/apt first, then click Search
   };
 
   const getPlaceholder = () => {
