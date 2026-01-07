@@ -347,21 +347,29 @@ export class AttomDataProvider {
     );
   }
 
-  async searchByAddress(address: string): Promise<AttomPropertyData | null> {
+  async searchByAddress(address: string, unit?: string): Promise<AttomPropertyData | null> {
     try {
       const parsed = parseFromDescription(address);
       let params: Record<string, string>;
       
       if (parsed && isValidForSearch(parsed)) {
         const split = toAttomSplitQuery(parsed);
+        // If unit is provided, append it to address1 for condo lookups
+        let address1 = split.address1;
+        if (unit) {
+          // Try different unit formats that ATTOM might recognize
+          address1 = `${split.address1} #${unit}`;
+        }
         params = {
-          address1: split.address1,
+          address1,
           address2: split.address2,
         };
-        console.log(`ATTOM using split format: address1="${split.address1}", address2="${split.address2}"`);
+        console.log(`ATTOM using split format: address1="${address1}", address2="${split.address2}"${unit ? ` (unit: ${unit})` : ''}`);
       } else {
-        params = { address };
-        console.log(`ATTOM using single address format: "${address}"`);
+        // Append unit to single-line address
+        const addressWithUnit = unit ? `${address} #${unit}` : address;
+        params = { address: addressWithUnit };
+        console.log(`ATTOM using single address format: "${addressWithUnit}"`);
       }
       
       const data = await this.request<any>("/propertyapi/v1.0.0/property/basicprofile", params);
@@ -2682,16 +2690,17 @@ export class DataProviderManager {
       .trim();
   }
 
-  async searchPropertyByAddress(address: string): Promise<AttomPropertyData | null> {
+  async searchPropertyByAddress(address: string, unit?: string): Promise<AttomPropertyData | null> {
     if (!this.attom) {
       console.warn("ATTOM provider not configured");
       return null;
     }
     const normalizedAddress = this.normalizeAddressForAttom(address);
-    console.log(`ATTOM search: "${address}" -> "${normalizedAddress}"`);
+    const normalizedUnit = unit?.replace(/[^a-zA-Z0-9]/g, '').toUpperCase() || undefined;
+    console.log(`ATTOM search: "${address}" -> "${normalizedAddress}"${normalizedUnit ? ` (unit: ${normalizedUnit})` : ''}`);
     
-    // Check cache first
-    const cacheKey = generateCacheKey(CachePrefix.PROPERTY, 'attom', normalizedAddress);
+    // Check cache first - include unit in cache key
+    const cacheKey = generateCacheKey(CachePrefix.PROPERTY, 'attom', normalizedAddress, normalizedUnit || '');
     const pricing = getProviderPricing('attom');
     
     return withCache<AttomPropertyData>(
@@ -2700,7 +2709,7 @@ export class DataProviderManager {
       CacheTTL.PROPERTY_DEFAULT,
       pricing?.costPerCall || 0.08,
       async () => {
-        return this.attom!.searchByAddress(normalizedAddress);
+        return this.attom!.searchByAddress(normalizedAddress, normalizedUnit);
       }
     );
   }

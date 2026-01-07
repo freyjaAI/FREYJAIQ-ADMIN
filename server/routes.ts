@@ -5897,8 +5897,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                 
               case 'attom':
                 console.log(`[PROPERTY SEARCH] Trying ATTOM (cost: $${provider.costPerCall})...`);
-                // Use address WITH unit for condos - ATTOM can find unit-specific owners
-                const attomResult = await dataProviders.searchPropertyByAddress(searchQueryWithUnit);
+                // Pass base address and unit separately for proper ATTOM unit lookup
+                const attomResult = await dataProviders.searchPropertyByAddress(searchQuery, normalizedUnit || undefined);
                 trackProviderCall('attom', false);
                 costTracker.trackCall("attom", false);
                 
