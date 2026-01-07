@@ -51,6 +51,7 @@ export default function SearchPage() {
 
   const [currentQuery, setCurrentQuery] = useState(initialQuery);
   const [currentType, setCurrentType] = useState(initialType);
+  const [currentUnit, setCurrentUnit] = useState(params.get("unit") || "");
   const [personData, setPersonData] = useState({
     name: initialPersonName,
     address: initialPersonAddress,
@@ -158,6 +159,7 @@ export default function SearchPage() {
   const handleSearch = (query: string, type: string, newPersonData?: { name: string; address: string; city: string; state: string }, unit?: string) => {
     setCurrentQuery(query);
     setCurrentType(type);
+    setCurrentUnit(unit || "");
     setExternalResults(null);
     
     if (type === "person" && newPersonData) {
@@ -224,7 +226,7 @@ export default function SearchPage() {
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs sm:text-sm text-muted-foreground">Results for:</span>
             <Badge variant="secondary" className="font-medium text-xs sm:text-sm max-w-[200px] truncate">
-              {currentQuery}
+              {currentQuery}{currentUnit ? ` Unit ${currentUnit}` : ""}
             </Badge>
             <Badge variant="outline" className="text-xs sm:text-sm">{currentType}</Badge>
             {results && (
