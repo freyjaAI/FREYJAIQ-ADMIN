@@ -15,16 +15,18 @@ export interface AddressComponents {
 
 // Unit designator patterns for apartment/condo parsing
 const UNIT_PATTERNS = [
-  // Standard designators with optional separator
-  /\b(?:apt|apartment|unit|ste|suite|#|no\.?|room|rm)\s*[#:]?\s*([A-Z0-9][-A-Z0-9/]*)/i,
-  // Penthouse variants
-  /\b(?:ph|penthouse)\s*[#:]?\s*([A-Z0-9][-A-Z0-9/]*)/i,
-  // Just "PH" followed by number
-  /\bph\s*(\d+[A-Z0-9]*)/i,
-  // Floor + unit format (e.g., "12A", "1401")
-  /\s+([A-Z]?\d{2,4}[A-Z]?)$/i,
-  // Hash or pound followed by unit
-  /#\s*([A-Z0-9][-A-Z0-9/]+)/i,
+  // Standard designators with optional separator (apt, unit, ste, etc.)
+  /\b(?:apt|apartment|unit|ste|suite|no\.?|room|rm)\s*[#:]?\s*([A-Z0-9][-A-Z0-9/]*)/i,
+  // Penthouse patterns - capture full PH+number as unit
+  /\b(?:penthouse)\s*[#:]?\s*([A-Z0-9][-A-Z0-9/]*)/i,
+  // Standalone PH followed by number (e.g., "PH004", "PH-101") - capture full PH+number
+  /\s+(PH[-]?\d+[A-Z0-9]*)$/i,
+  // Hash/pound followed by PH or alphanumeric (e.g., "#PH004", "#101")
+  /\s+#\s*((?:PH[-]?)?\d+[A-Z0-9]*)/i,
+  // Single letter + digits at end (e.g., "A101", "B2", "A1")
+  /\s+([A-Z]\d{1,4})$/i,
+  // Digit(s) + optional letter at end (e.g., "4B", "12A", "101", "1401")
+  /\s+(\d{1,4}[A-Z]?)$/i,
 ];
 
 // Separators that commonly precede unit designators
