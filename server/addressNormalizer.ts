@@ -9,6 +9,102 @@ export interface AddressComponents {
   latitude?: number;
   longitude?: number;
   raw?: string;
+  unit?: string;           // Parsed unit number (e.g., "PH004", "101", "A")
+  baseAddress?: string;    // Address without unit for building-level searches
+}
+
+// Unit designator patterns for apartment/condo parsing
+const UNIT_PATTERNS = [
+  // Standard designators with optional separator
+  /\b(?:apt|apartment|unit|ste|suite|#|no\.?|room|rm)\s*[#:]?\s*([A-Z0-9][-A-Z0-9/]*)/i,
+  // Penthouse variants
+  /\b(?:ph|penthouse)\s*[#:]?\s*([A-Z0-9][-A-Z0-9/]*)/i,
+  // Just "PH" followed by number
+  /\bph\s*(\d+[A-Z0-9]*)/i,
+  // Floor + unit format (e.g., "12A", "1401")
+  /\s+([A-Z]?\d{2,4}[A-Z]?)$/i,
+  // Hash or pound followed by unit
+  /#\s*([A-Z0-9][-A-Z0-9/]+)/i,
+];
+
+// Separators that commonly precede unit designators
+const UNIT_SEPARATORS = /[,\s]+(?:apt|apartment|unit|ste|suite|ph|penthouse|#|no\.?|room|rm)\s*[#:]?\s*/i;
+
+/**
+ * Extract unit number from an address string
+ * Returns { unit, baseAddress } where baseAddress is the address without the unit
+ */
+export function extractUnit(address: string): { unit: string | null; baseAddress: string } {
+  if (!address) return { unit: null, baseAddress: address };
+
+  let workingAddress = address.trim();
+  let extractedUnit: string | null = null;
+
+  // First try to find unit with explicit designators
+  for (const pattern of UNIT_PATTERNS) {
+    const match = workingAddress.match(pattern);
+    if (match && match[1]) {
+      extractedUnit = match[1].toUpperCase();
+      // Remove the matched unit portion from the address
+      workingAddress = workingAddress.replace(pattern, '').trim();
+      // Clean up any trailing commas or extra spaces
+      workingAddress = workingAddress.replace(/,\s*$/, '').replace(/\s{2,}/g, ' ').trim();
+      break;
+    }
+  }
+
+  // If no unit found, check for comma-separated unit at end (e.g., "123 Main St, 4B")
+  if (!extractedUnit) {
+    const commaUnitMatch = workingAddress.match(/,\s*([A-Z]?\d{1,4}[A-Z]?)$/i);
+    if (commaUnitMatch) {
+      extractedUnit = commaUnitMatch[1].toUpperCase();
+      workingAddress = workingAddress.replace(/,\s*[A-Z]?\d{1,4}[A-Z]?$/i, '').trim();
+    }
+  }
+
+  return {
+    unit: extractedUnit,
+    baseAddress: workingAddress,
+  };
+}
+
+/**
+ * Normalize a unit number to standard format
+ */
+export function normalizeUnit(unit: string | null | undefined): string | null {
+  if (!unit) return null;
+  
+  let normalized = unit.trim().toUpperCase();
+  
+  // If empty after trim, return null
+  if (!normalized) return null;
+  
+  // Remove any leading hashes or colons first
+  normalized = normalized.replace(/^[#:]+\s*/, '').trim();
+  
+  // Handle penthouse patterns - normalize to PH + number
+  const phMatch = normalized.match(/^(?:PENTHOUSE|PH)\s*[-#:]?\s*(.*)$/i);
+  if (phMatch) {
+    const phNum = phMatch[1]?.trim() || '';
+    return phNum ? `PH${phNum}` : 'PH';
+  }
+  
+  // Remove common prefixes only if they have content after
+  const prefixMatch = normalized.match(/^(?:APT|APARTMENT|UNIT|STE|SUITE|NO\.?|ROOM|RM)\s*[-#:]?\s*(.+)$/i);
+  if (prefixMatch && prefixMatch[1]) {
+    normalized = prefixMatch[1].trim();
+  }
+  
+  // Return null if nothing meaningful left
+  return normalized || null;
+}
+
+/**
+ * Format address with unit for display
+ */
+export function formatAddressWithUnit(baseAddress: string, unit: string | null): string {
+  if (!unit) return baseAddress;
+  return `${baseAddress} APT ${unit}`;
 }
 
 export interface GooglePlaceDetails {
@@ -146,7 +242,11 @@ export function parseFromGooglePlacesComponents(details: GooglePlaceDetails): Ad
 export function parseFromDescription(description: string): AddressComponents | null {
   if (!description) return null;
 
-  let cleaned = description
+  // First extract any unit from the address
+  const { unit: extractedUnit, baseAddress: cleanedForUnit } = extractUnit(description);
+  const normalizedUnit = normalizeUnit(extractedUnit);
+
+  let cleaned = cleanedForUnit
     .replace(/,?\s*USA$/i, '')
     .replace(/,?\s*United States$/i, '')
     .trim();
@@ -203,13 +303,17 @@ export function parseFromDescription(description: string): AddressComponents | n
     }
   }
 
+  const normalizedLine1 = normalizeStreetLine(line1);
+  
   return {
-    line1: normalizeStreetLine(line1),
+    line1: normalizedUnit ? formatAddressWithUnit(normalizedLine1, normalizedUnit) : normalizedLine1,
     city: city.toUpperCase(),
     stateCode: normalizeStateCode(stateCode),
     postalCode: postalCode || undefined,
     countryCode: 'US',
     raw: description,
+    unit: normalizedUnit || undefined,
+    baseAddress: normalizedLine1,
   };
 }
 

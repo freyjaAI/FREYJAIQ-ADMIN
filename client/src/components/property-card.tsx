@@ -20,7 +20,11 @@ interface MortgageData {
 }
 
 interface PropertyCardProps {
-  property: Property & { mortgage?: MortgageData };
+  property: Property & { 
+    mortgage?: MortgageData;
+    unit?: string;
+    isUnitSearch?: boolean;
+  };
   showOwnerLink?: boolean;
   compact?: boolean;
 }
@@ -76,7 +80,14 @@ export function PropertyCard({
             <Icon className="h-4 w-4 text-muted-foreground" />
           </div>
           <div className="min-w-0">
-            <div className="font-medium truncate">{property.address}</div>
+            <div className="flex items-center gap-2">
+              <span className="font-medium truncate">{property.address}</span>
+              {(property.propertyUnit || property.unit) && (
+                <Badge variant="secondary" className="text-xs flex-shrink-0">
+                  Unit {property.propertyUnit || property.unit}
+                </Badge>
+              )}
+            </div>
             <div className="text-xs text-muted-foreground">
               {property.city}, {property.state} {property.zipCode}
             </div>
@@ -115,15 +126,27 @@ export function PropertyCard({
                 <Icon className="h-5 w-5 text-muted-foreground" />
               </div>
               <div>
-                <h3 className="font-semibold">{property.address}</h3>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="font-semibold">{property.address}</h3>
+                  {(property.propertyUnit || property.unit) && (
+                    <Badge variant="secondary" className="text-xs">
+                      Unit {property.propertyUnit || property.unit}
+                    </Badge>
+                  )}
+                </div>
                 <div className="text-sm text-muted-foreground">
                   {property.city}, {property.state} {property.zipCode}
                 </div>
               </div>
             </div>
-            {property.propertyType && (
-              <Badge variant="outline">{property.propertyType}</Badge>
-            )}
+            <div className="flex items-center gap-2 flex-wrap">
+              {property.propertyType && (
+                <Badge variant="outline">{property.propertyType}</Badge>
+              )}
+              {property.isUnitSearch && (
+                <Badge variant="default" className="text-xs">Unit Owner</Badge>
+              )}
+            </div>
           </div>
 
           {property.apn && (

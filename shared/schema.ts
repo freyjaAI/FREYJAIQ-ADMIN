@@ -167,6 +167,7 @@ export const owners = pgTable("owners", {
   akaNames: text("aka_names").array(),
   primaryAddress: text("primary_address"),
   mailingAddress: text("mailing_address"),
+  propertyUnit: varchar("property_unit", { length: 50 }), // Unit number context (e.g., "PH004", "101")
   riskFlags: text("risk_flags").array(),
   sellerIntentScore: integer("seller_intent_score"),
   contactConfidenceScore: integer("contact_confidence_score"),
@@ -202,6 +203,8 @@ export type Owner = typeof owners.$inferSelect;
 export const properties = pgTable("properties", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   address: text("address").notNull(),
+  baseAddress: text("base_address"), // Address without unit (for building-level matching)
+  propertyUnit: varchar("property_unit", { length: 50 }), // Unit/apartment number (e.g., "PH004", "101")
   city: varchar("city"),
   state: varchar("state"),
   zipCode: varchar("zip_code"),

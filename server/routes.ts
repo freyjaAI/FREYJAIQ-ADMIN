@@ -5771,6 +5771,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(400).json({ message: "Search query required" });
       }
 
+      // Extract unit number from address query (e.g., "690 SW 1ST CT apt ph004")
+      const { extractUnit, normalizeUnit, formatAddressWithUnit } = await import("./addressNormalizer");
+      const { unit: extractedUnit, baseAddress: addressWithoutUnit } = extractUnit(query);
+      const normalizedUnit = normalizeUnit(extractedUnit);
+      
+      // Use base address for searching if unit was found, otherwise use original query
+      const searchQuery = (type === "address" && normalizedUnit) ? addressWithoutUnit : query;
+      
+      if (normalizedUnit) {
+        console.log(`[SEARCH] Unit detected: "${normalizedUnit}" from "${query}", searching base: "${searchQuery}"`);
+      }
+
       // Check cache first - return cached results within 12-hour TTL to prevent duplicate charges
       const searchCacheKey = generateCacheKey(CachePrefix.PROPERTY, 'search', query, type || 'all');
       const cachedSearchResult = await getCachedResult<any>('search', searchCacheKey, 0);
@@ -5825,7 +5837,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               case 'home_harvest':
               case 'homeharvest':
                 console.log(`[PROPERTY SEARCH] Trying HomeHarvest (cost: $${provider.costPerCall})...`);
-                const hhResult = await dataProviders.searchPropertyViaHomeHarvest(query);
+                const hhResult = await dataProviders.searchPropertyViaHomeHarvest(searchQuery);
                 trackProviderCall('home_harvest', false);
                 costTracker.trackCall("home_harvest", false);
                 
@@ -5867,7 +5879,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                 
               case 'attom':
                 console.log(`[PROPERTY SEARCH] Trying ATTOM (cost: $${provider.costPerCall})...`);
-                const attomResult = await dataProviders.searchPropertyByAddress(query);
+                const attomResult = await dataProviders.searchPropertyByAddress(searchQuery);
                 trackProviderCall('attom', false);
                 costTracker.trackCall("attom", false);
                 
@@ -5915,7 +5927,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                   trackProviderCall('gemini', false);
                   costTracker.trackCall("gemini", false);
                   
-                  const geminiResult = await GeminiDeepResearch.researchPropertyOwnership(query);
+                  const geminiResult = await GeminiDeepResearch.researchPropertyOwnership(searchQuery);
                   if (geminiResult) {
                     property = {
                       attomId: "",
@@ -5972,7 +5984,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           trackProviderCall('gemini', false);
           costTracker.trackCall("gemini", false);
           
-          const geminiResult = await GeminiDeepResearch.researchPropertyOwnership(query);
+          const geminiResult = await GeminiDeepResearch.researchPropertyOwnership(searchQuery);
           if (geminiResult) {
             property = {
               attomId: "",
@@ -6013,6 +6025,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
         
         if (property) {
+          // Add unit information to property result if unit was extracted
+          if (normalizedUnit) {
+            property.unit = normalizedUnit;
+            property.isUnitSearch = true;
+            // Update address to include unit for display
+            if (property.address?.line1) {
+              property.address.fullAddressWithUnit = formatAddressWithUnit(property.address.line1, normalizedUnit);
+            }
+            console.log(`[SEARCH] Returning property with unit: ${normalizedUnit}`);
+          }
+          
           results.properties.push(property);
           results.sources.push(propertySource);
 
@@ -6037,10 +6060,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             }
 
             if (ownerId) {
-              const existingProperty = (await storage.searchProperties(property.address.line1))[0];
+              // For unit searches, include unit in the address for unique property records
+              const fullAddress = normalizedUnit 
+                ? formatAddressWithUnit(property.address.line1, normalizedUnit)
+                : property.address.line1;
+              const existingProperty = (await storage.searchProperties(fullAddress))[0];
               if (!existingProperty) {
                 await storage.upsertProperty({
-                  address: property.address.line1,
+                  address: fullAddress,
+                  baseAddress: property.address.line1, // Store base address for building-level matching
+                  propertyUnit: normalizedUnit || undefined, // Store unit number separately
                   city: property.address.city,
                   state: property.address.state,
                   zipCode: property.address.zip,
