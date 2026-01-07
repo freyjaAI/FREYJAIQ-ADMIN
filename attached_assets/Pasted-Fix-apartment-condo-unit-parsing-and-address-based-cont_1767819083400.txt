@@ -1,0 +1,56 @@
+Fix apartment/condo unit parsing and address-based contact enrichment:
+
+PROBLEM: Searching "690 SW 1ST CT apt ph004" found correct owner (Bruce Turner Mitchell) but enrichment pulled WRONG person's data - someone from Jacksonville FL with 904 area codes instead of the Miami apartment owner.
+
+ROOT CAUSE: Enrichment searches by NAME ONLY without verifying the person actually lives at the property address.
+
+CRITICAL FIXES:
+
+1. ADDRESS NORMALIZATION - Add apartment unit parsing:
+- Parse apt/unit/ph/ste numbers from search input
+- Normalize formats: "apt ph004", "#PH004", "Unit PH-004" → "APT PH004"
+- Store property_unit field in properties table
+- Store both full address (with unit) and base address
+
+2. CONTACT ENRICHMENT WITH ADDRESS VALIDATION:
+- ALWAYS pass property address context to enrichment providers
+- Filter enrichment results to ONLY persons with matching city/state
+- REJECT results if person's address is in different city (e.g., reject Jacksonville when property is Miami)
+- Add addressMatchScore field (0-100): 100=exact match, 50=same city, 0=different city (reject)
+
+3. ENRICHMENT SERVICE CHANGES (server/dossierService.ts):
+```javascript
+async enrichOwnerContacts(owner, property) {
+  const addressContext = {
+    street: property.address,
+    city: property.city,
+    state: property.state,
+    propertyUnit: property.property_unit
+  };
+  
+  // Pass address to enrichment
+  const data = await enrichWithAddress(owner.name, addressContext);
+  
+  // VALIDATE before storing
+  if (data.city !== property.city) {
+    console.warn(`REJECT: ${data.city} ≠ ${property.city}`);
+    return null; // Don't store wrong person
+  }
+}
+```
+
+4. PROVIDER UPDATES:
+- AttomProvider: Add address filter to person lookup
+- DataAxleProvider: Include property city in search criteria  
+- ApifySkipTraceProvider: Pass property address, filter by location
+
+5. DATABASE:
+- Add properties.property_unit column
+- Add owners.enrichment_address_match_score column
+- Add owners.enrichment_status: 'not_enriched' | 'enriched' | 'address_mismatch'
+
+6. UI WARNING:
+- If enrichment address doesn't match property, show: "⚠️ Contact info may be for different person"
+- Add "Re-Enrich" button to retry with stricter matching
+
+CRITICAL: Never show contact info if addresses don't match. Better NO data than WRONG data.
