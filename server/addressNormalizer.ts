@@ -57,6 +57,16 @@ export function extractUnit(address: string): { unit: string | null; baseAddress
         .replace(/^\s*,/, '')             // Leading comma
         .replace(/\s{2,}/g, ' ')          // Multiple spaces → single
         .trim();
+      
+      // Fix missing comma between street and city
+      // Pattern: Street type (Ave, St, Ct, etc.) followed by space and city name (no comma)
+      // Example: "690 SW 1st Ave Miami, FL" -> "690 SW 1st Ave, Miami, FL"
+      const streetCityFix = workingAddress.match(
+        /^(.+?\b(?:Ave(?:nue)?|St(?:reet)?|Ct|Court|Dr(?:ive)?|Rd|Road|Blvd|Boulevard|Ln|Lane|Way|Pl(?:ace)?|Cir(?:cle)?|Ter(?:race)?|Pkwy|Parkway|Hwy|Highway))\s+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)?,\s*[A-Z]{2}(?:\s+\d{5})?(?:,?\s*USA)?)\s*$/i
+      );
+      if (streetCityFix) {
+        workingAddress = `${streetCityFix[1]}, ${streetCityFix[2]}`;
+      }
       break;
     }
   }
