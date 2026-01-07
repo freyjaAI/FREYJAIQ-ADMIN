@@ -5790,6 +5790,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (normalizedUnit) {
         console.log(`[SEARCH] Unit: "${normalizedUnit}" (${providedUnit ? 'from UI' : 'extracted'}), searching: "${searchQuery}"`);
       }
+      
+      // Create full address with unit for ATTOM (condo unit searches)
+      const searchQueryWithUnit = normalizedUnit 
+        ? formatAddressWithUnit(searchQuery, normalizedUnit)
+        : searchQuery;
+      
+      if (normalizedUnit) {
+        console.log(`[SEARCH] ATTOM will search: "${searchQueryWithUnit}"`);
+      }
 
       // Check cache first - return cached results within 12-hour TTL to prevent duplicate charges
       const searchCacheKey = generateCacheKey(CachePrefix.PROPERTY, 'search', query, type || 'all');
@@ -5887,7 +5896,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                 
               case 'attom':
                 console.log(`[PROPERTY SEARCH] Trying ATTOM (cost: $${provider.costPerCall})...`);
-                const attomResult = await dataProviders.searchPropertyByAddress(searchQuery);
+                // Use address WITH unit for condos - ATTOM can find unit-specific owners
+                const attomResult = await dataProviders.searchPropertyByAddress(searchQueryWithUnit);
                 trackProviderCall('attom', false);
                 costTracker.trackCall("attom", false);
                 
