@@ -20,7 +20,7 @@ interface PersonSearchData {
 }
 
 interface SearchBarProps {
-  onSearch: (query: string, type: SearchType, personData?: PersonSearchData) => void;
+  onSearch: (query: string, type: SearchType, personData?: PersonSearchData, unit?: string) => void;
   isLoading?: boolean;
   className?: string;
   placeholder?: string;
@@ -43,6 +43,9 @@ export function SearchBar({
   const inputRef = useRef<HTMLInputElement>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<NodeJS.Timeout>();
+
+  // Address search unit field
+  const [unit, setUnit] = useState("");
 
   // Person search fields
   const [personName, setPersonName] = useState("");
@@ -129,7 +132,8 @@ export function SearchBar({
       }
     } else if (query.trim()) {
       setShowSuggestions(false);
-      onSearch(query.trim(), searchType);
+      const trimmedUnit = unit.trim() || undefined;
+      onSearch(query.trim(), searchType, undefined, searchType === "address" ? trimmedUnit : undefined);
     }
   };
 
@@ -137,7 +141,9 @@ export function SearchBar({
     setQuery(suggestion.description);
     setShowSuggestions(false);
     setSuggestions([]);
-    onSearch(suggestion.description, searchType);
+    // When selecting from suggestions, search immediately (unit can be added after)
+    const trimmedUnit = unit.trim() || undefined;
+    onSearch(suggestion.description, searchType, undefined, trimmedUnit);
   };
 
   const getPlaceholder = () => {
@@ -171,6 +177,12 @@ export function SearchBar({
     setPersonAddress("");
     setPersonCity("");
     setPersonState("");
+  };
+
+  const clearAddressFields = () => {
+    setQuery("");
+    setUnit("");
+    setSuggestions([]);
   };
 
   const isPersonSearchValid = personName.trim().length > 0;
@@ -314,7 +326,8 @@ export function SearchBar({
         <form onSubmit={handleSubmit} className="flex gap-2">
           <div 
             className={cn(
-              "relative flex-1 rounded-md transition-all duration-200",
+              "relative rounded-md transition-all duration-200",
+              searchType === "address" ? "flex-[3]" : "flex-1",
               size === "large" && "backdrop-blur-sm",
               isFocused && size === "large" && "search-glow"
             )}
@@ -407,6 +420,22 @@ export function SearchBar({
               </div>
             )}
           </div>
+
+          {/* Unit/Apt field for address searches */}
+          {searchType === "address" && (
+            <Input
+              type="text"
+              value={unit}
+              onChange={(e) => setUnit(e.target.value)}
+              placeholder="Unit/Apt"
+              className={cn(
+                "w-24 transition-all duration-200 border-border/50 text-center",
+                size === "large" && "h-16 w-28 text-lg bg-card/80 backdrop-blur-sm"
+              )}
+              data-testid="input-unit"
+            />
+          )}
+
           <Button
             type="submit"
             disabled={!query.trim() || isLoading}
@@ -430,6 +459,7 @@ export function SearchBar({
             setShowSuggestions(false);
             // Clear fields when switching types
             setQuery("");
+            setUnit("");
             clearPersonFields();
           }
         }}

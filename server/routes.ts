@@ -5765,22 +5765,30 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         });
       }
 
-      const { query, type } = req.body;
+      const { query, type, unit: providedUnit } = req.body;
 
       if (!query || typeof query !== "string") {
         return res.status(400).json({ message: "Search query required" });
       }
 
       // Extract unit number from address query (e.g., "690 SW 1ST CT apt ph004")
+      // OR use explicitly provided unit from UI
       const { extractUnit, normalizeUnit, formatAddressWithUnit } = await import("./addressNormalizer");
       const { unit: extractedUnit, baseAddress: addressWithoutUnit } = extractUnit(query);
-      const normalizedUnit = normalizeUnit(extractedUnit);
       
-      // Use base address for searching if unit was found, otherwise use original query
-      const searchQuery = (type === "address" && normalizedUnit) ? addressWithoutUnit : query;
+      // Use provided unit if given, otherwise use extracted unit
+      const normalizedUnit = providedUnit 
+        ? normalizeUnit(providedUnit) 
+        : normalizeUnit(extractedUnit);
+      
+      // Use base address for searching if unit was found/provided, otherwise use original query
+      // If unit is provided separately, the query should already be clean (from Google autocomplete)
+      const searchQuery = (type === "address" && normalizedUnit) 
+        ? (providedUnit ? query : addressWithoutUnit) 
+        : query;
       
       if (normalizedUnit) {
-        console.log(`[SEARCH] Unit detected: "${normalizedUnit}" from "${query}", searching base: "${searchQuery}"`);
+        console.log(`[SEARCH] Unit: "${normalizedUnit}" (${providedUnit ? 'from UI' : 'extracted'}), searching: "${searchQuery}"`);
       }
 
       // Check cache first - return cached results within 12-hour TTL to prevent duplicate charges

@@ -72,8 +72,8 @@ export default function SearchPage() {
 
   // External data providers search
   const externalSearchMutation = useMutation({
-    mutationFn: async ({ query, type }: { query: string; type: string }) => {
-      const res = await apiRequest("POST", "/api/search/external", { query, type });
+    mutationFn: async ({ query, type, unit }: { query: string; type: string; unit?: string }) => {
+      const res = await apiRequest("POST", "/api/search/external", { query, type, unit });
       return res.json() as Promise<ExternalSearchResult>;
     },
     onSuccess: (data) => {
@@ -155,7 +155,7 @@ export default function SearchPage() {
     },
   });
 
-  const handleSearch = (query: string, type: string, newPersonData?: { name: string; address: string; city: string; state: string }) => {
+  const handleSearch = (query: string, type: string, newPersonData?: { name: string; address: string; city: string; state: string }, unit?: string) => {
     setCurrentQuery(query);
     setCurrentType(type);
     setExternalResults(null);
@@ -177,13 +177,13 @@ export default function SearchPage() {
         type 
       });
     } else {
-      window.history.replaceState(
-        null,
-        "",
-        `/search?q=${encodeURIComponent(query)}&type=${type}`
-      );
-      // Also trigger external search
-      externalSearchMutation.mutate({ query, type });
+      // Build URL with optional unit
+      const urlParams = new URLSearchParams({ q: query, type });
+      if (unit) urlParams.set("unit", unit);
+      window.history.replaceState(null, "", `/search?${urlParams.toString()}`);
+      
+      // Also trigger external search - pass unit separately for address searches
+      externalSearchMutation.mutate({ query, type, unit: type === "address" ? unit : undefined });
     }
   };
 
