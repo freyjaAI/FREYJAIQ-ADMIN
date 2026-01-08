@@ -32,7 +32,14 @@ export function LegalAcceptanceModal({ userId }: LegalAcceptanceModalProps) {
     currentTermsVersion: string;
     currentPrivacyVersion: string;
   }>({
-    queryKey: ["/api/legal/status"],
+    queryKey: ["/api/legal/status", userId],
+    queryFn: async () => {
+      const res = await fetch("/api/legal/status", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch legal status");
+      return res.json();
+    },
+    enabled: !!userId,
+    staleTime: 0,
   });
 
   const acceptMutation = useMutation({
@@ -52,7 +59,7 @@ export function LegalAcceptanceModal({ userId }: LegalAcceptanceModalProps) {
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/legal/status"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/legal/status", userId] });
     },
   });
 
