@@ -13,6 +13,7 @@ import {
   firms,
   tiers,
   usageSummaries,
+  userLegalAcceptances,
   type User,
   type UpsertUser,
   type Firm,
@@ -53,6 +54,10 @@ import {
   type InsertTestCase,
   type TestRun,
   type InsertTestRun,
+  type UserLegalAcceptance,
+  type InsertUserLegalAcceptance,
+  CURRENT_TERMS_VERSION,
+  CURRENT_PRIVACY_VERSION,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, ilike, or, and, desc, sql } from "drizzle-orm";
@@ -168,6 +173,11 @@ export interface IStorage {
   createTestRun(run: InsertTestRun): Promise<TestRun>;
   getTestRuns(testCaseId?: string): Promise<TestRun[]>;
   getLatestTestRuns(limit?: number): Promise<Array<TestRun & { testCase: TestCase | null }>>;
+
+  // Legal acceptance operations
+  getUserLegalAcceptance(userId: string): Promise<UserLegalAcceptance | undefined>;
+  createLegalAcceptance(acceptance: InsertUserLegalAcceptance): Promise<UserLegalAcceptance>;
+  hasAcceptedCurrentTerms(userId: string): Promise<{ hasAccepted: boolean; needsUpdate: boolean }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -948,6 +958,43 @@ export class DatabaseStorage implements IStorage {
       ...r.testRun,
       testCase: r.testCase,
     }));
+  }
+
+  // Legal acceptance operations
+  async getUserLegalAcceptance(userId: string): Promise<UserLegalAcceptance | undefined> {
+    const [acceptance] = await db
+      .select()
+      .from(userLegalAcceptances)
+      .where(eq(userLegalAcceptances.userId, userId))
+      .orderBy(desc(userLegalAcceptances.acceptedAt))
+      .limit(1);
+    return acceptance;
+  }
+
+  async createLegalAcceptance(acceptance: InsertUserLegalAcceptance): Promise<UserLegalAcceptance> {
+    const [newAcceptance] = await db
+      .insert(userLegalAcceptances)
+      .values(acceptance)
+      .returning();
+    return newAcceptance;
+  }
+
+  async hasAcceptedCurrentTerms(userId: string): Promise<{ hasAccepted: boolean; needsUpdate: boolean }> {
+    const acceptance = await this.getUserLegalAcceptance(userId);
+    
+    if (!acceptance) {
+      return { hasAccepted: false, needsUpdate: false };
+    }
+
+    const needsUpdate = 
+      acceptance.termsVersion !== CURRENT_TERMS_VERSION ||
+      acceptance.privacyVersion !== CURRENT_PRIVACY_VERSION;
+
+    return {
+      hasAccepted: acceptance.acceptedTerms && acceptance.acceptedPrivacy && 
+                   acceptance.acceptedB2bUseOnly && acceptance.acceptedTcpaFcraCompliance,
+      needsUpdate,
+    };
   }
 }
 

@@ -37,8 +37,10 @@ export function LegalAcceptanceModal({ userId }: LegalAcceptanceModalProps) {
 
   const acceptMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest("/api/legal/accept", {
+      const response = await fetch("/api/legal/accept", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           acceptedTerms: true,
           acceptedPrivacy: true,
@@ -46,6 +48,8 @@ export function LegalAcceptanceModal({ userId }: LegalAcceptanceModalProps) {
           acceptedTcpaFcraCompliance: true,
         }),
       });
+      if (!response.ok) throw new Error("Failed to accept terms");
+      return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/legal/status"] });

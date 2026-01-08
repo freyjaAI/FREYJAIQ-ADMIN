@@ -43,6 +43,8 @@ import { KeyboardShortcutsModal } from "@/components/keyboard-shortcuts-modal";
 import { CookieConsent } from "@/components/cookie-consent";
 import { NoFirmAccess } from "@/components/no-firm-access";
 import { UsageIndicator, UsageBanner } from "@/components/usage-indicator";
+import { LegalAcceptanceModal } from "@/components/legal-acceptance-modal";
+import { LegalFooter } from "@/components/legal-footer";
 
 function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
   const style = {
@@ -115,42 +117,45 @@ function Router() {
   }
 
   return (
-    <AuthenticatedLayout>
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={location}
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -8 }}
-          transition={{ duration: 0.2, ease: "easeOut" }}
-        >
-          <Switch>
-            <Route path="/" component={Dashboard} />
-            <Route path="/search" component={SearchPage} />
-            <Route path="/owners" component={OwnersPage} />
-            <Route path="/owners/:id" component={OwnerDossierPage} />
-            <Route path="/properties" component={PropertiesPage} />
-            <Route path="/dossiers" component={DossiersPage} />
-            <Route path="/llcs" component={LLCsPage} />
-            <Route path="/llcs/:id" component={LlcDossierPage} />
-            <Route path="/dossier/:id" component={UnifiedDossierPage} />
-            <Route path="/settings" component={SettingsPage} />
-            <Route path="/firm-settings" component={FirmSettingsPage} />
-            <Route path="/admin/bug-reports" component={AdminBugReportsPage} />
-            <Route path="/admin/api-usage" component={AdminApiUsagePage} />
-            <Route path="/admin/firms-tiers" component={AdminFirmsTiersPage} />
-            <Route path="/admin/provider-health" component={AdminProviderHealthPage} />
-            <Route path="/admin/testing" component={AdminTestingPage} />
-            <Route path="/map" component={MapView} />
-            <Route path="/bulk-enrichment" component={BulkEnrichmentPage} />
-            <Route path="/privacy" component={PrivacyPolicyPage} />
-            <Route path="/terms" component={TermsOfServicePage} />
-            <Route component={NotFound} />
-          </Switch>
-        </motion.div>
-      </AnimatePresence>
-      <BugReportWidget />
-    </AuthenticatedLayout>
+    <>
+      <LegalAcceptanceModal userId={user?.id || ""} />
+      <AuthenticatedLayout>
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={location}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+          >
+            <Switch>
+              <Route path="/" component={Dashboard} />
+              <Route path="/search" component={SearchPage} />
+              <Route path="/owners" component={OwnersPage} />
+              <Route path="/owners/:id" component={OwnerDossierPage} />
+              <Route path="/properties" component={PropertiesPage} />
+              <Route path="/dossiers" component={DossiersPage} />
+              <Route path="/llcs" component={LLCsPage} />
+              <Route path="/llcs/:id" component={LlcDossierPage} />
+              <Route path="/dossier/:id" component={UnifiedDossierPage} />
+              <Route path="/settings" component={SettingsPage} />
+              <Route path="/firm-settings" component={FirmSettingsPage} />
+              <Route path="/admin/bug-reports" component={AdminBugReportsPage} />
+              <Route path="/admin/api-usage" component={AdminApiUsagePage} />
+              <Route path="/admin/firms-tiers" component={AdminFirmsTiersPage} />
+              <Route path="/admin/provider-health" component={AdminProviderHealthPage} />
+              <Route path="/admin/testing" component={AdminTestingPage} />
+              <Route path="/map" component={MapView} />
+              <Route path="/bulk-enrichment" component={BulkEnrichmentPage} />
+              <Route path="/privacy" component={PrivacyPolicyPage} />
+              <Route path="/terms" component={TermsOfServicePage} />
+              <Route component={NotFound} />
+            </Switch>
+          </motion.div>
+        </AnimatePresence>
+        <BugReportWidget />
+      </AuthenticatedLayout>
+    </>
   );
 }
 

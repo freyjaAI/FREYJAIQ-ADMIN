@@ -1318,6 +1318,69 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json({ token: getCsrfToken(req) });
   });
 
+  // Legal acceptance endpoints
+  app.get("/api/legal/status", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) {
+        return res.status(401).json({ message: "User ID not found" });
+      }
+
+      const status = await storage.hasAcceptedCurrentTerms(userId);
+      const { CURRENT_TERMS_VERSION, CURRENT_PRIVACY_VERSION } = await import("@shared/schema");
+      
+      res.json({
+        ...status,
+        currentTermsVersion: CURRENT_TERMS_VERSION,
+        currentPrivacyVersion: CURRENT_PRIVACY_VERSION,
+      });
+    } catch (error) {
+      console.error("Error checking legal status:", error);
+      res.status(500).json({ message: "Failed to check legal status" });
+    }
+  });
+
+  app.post("/api/legal/accept", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) {
+        return res.status(401).json({ message: "User ID not found" });
+      }
+
+      const { acceptedTerms, acceptedPrivacy, acceptedB2bUseOnly, acceptedTcpaFcraCompliance } = req.body;
+
+      if (!acceptedTerms || !acceptedPrivacy || !acceptedB2bUseOnly || !acceptedTcpaFcraCompliance) {
+        return res.status(400).json({ message: "All checkboxes must be accepted" });
+      }
+
+      const { CURRENT_TERMS_VERSION, CURRENT_PRIVACY_VERSION } = await import("@shared/schema");
+      
+      const ipAddress = req.headers["x-forwarded-for"]?.toString().split(",")[0] || 
+                        req.socket?.remoteAddress || 
+                        "unknown";
+      const userAgent = req.headers["user-agent"] || "unknown";
+
+      const acceptance = await storage.createLegalAcceptance({
+        userId,
+        termsVersion: CURRENT_TERMS_VERSION,
+        privacyVersion: CURRENT_PRIVACY_VERSION,
+        acceptedTerms,
+        acceptedPrivacy,
+        acceptedB2bUseOnly,
+        acceptedTcpaFcraCompliance,
+        ipAddress,
+        userAgent,
+      });
+
+      console.log(`[LEGAL] User ${userId} accepted terms v${CURRENT_TERMS_VERSION} from IP ${ipAddress}`);
+      
+      res.json({ success: true, acceptedAt: acceptance.acceptedAt });
+    } catch (error) {
+      console.error("Error accepting terms:", error);
+      res.status(500).json({ message: "Failed to record acceptance" });
+    }
+  });
+
   // Endpoint to get user's usage and limits
   app.get("/api/me/usage", isAuthenticated, async (req: any, res) => {
     try {
