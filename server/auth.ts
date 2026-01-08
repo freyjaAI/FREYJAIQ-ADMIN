@@ -175,7 +175,8 @@ export async function setupAuth(app: Express) {
   // Ensure admin user exists
   await ensureAdminUser();
 
-  app.get("/api/auth/validate-signup-code", async (req, res) => {
+  // Handler for signup code validation - supports both query param and path param
+  async function validateSignupCode(req: any, res: any, code: string | undefined) {
     // All paths get consistent timing to prevent enumeration
     const startTime = Date.now();
     const MIN_RESPONSE_TIME = 150; // Minimum response time in ms
@@ -204,7 +205,6 @@ export async function setupAuth(app: Express) {
         });
       }
       
-      const code = req.query.code as string;
       if (!code) {
         return sendResponse(400, { message: "Signup code is required" });
       }
@@ -227,6 +227,16 @@ export async function setupAuth(app: Express) {
       console.error("Signup code validation error:", error);
       return sendResponse(500, { message: "Failed to validate signup code" });
     }
+  }
+
+  // Support query param: /api/auth/validate-signup-code?code=XXX
+  app.get("/api/auth/validate-signup-code", async (req, res) => {
+    return validateSignupCode(req, res, req.query.code as string);
+  });
+
+  // Support path param: /api/auth/validate-signup-code/XXX (used by frontend)
+  app.get("/api/auth/validate-signup-code/:code", async (req, res) => {
+    return validateSignupCode(req, res, req.params.code);
   });
   
   // Separate rate limit for registration to prevent brute-force on registration
