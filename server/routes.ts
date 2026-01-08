@@ -14,7 +14,7 @@ import {
   calculateContactConfidence,
 } from "./openai";
 import { dataProviders } from "./dataProviders";
-import { insertOwnerSchema, insertPropertySchema, insertContactInfoSchema, ownerLlcLinks, owners, contactInfos, properties, llcOwnershipChains, ProviderSource, PROVIDER_DISPLAY_NAMES, bugReports, insertBugReportSchema, tiers, firms, usageSummaries, insertTierSchema, insertFirmSchema } from "@shared/schema";
+import { insertOwnerSchema, insertPropertySchema, insertContactInfoSchema, ownerLlcLinks, owners, contactInfos, properties, llcOwnershipChains, ProviderSource, PROVIDER_DISPLAY_NAMES, bugReports, insertBugReportSchema, tiers, firms, usageSummaries, insertTierSchema, insertFirmSchema, users } from "@shared/schema";
 import crypto from "crypto";
 import { z } from "zod";
 import { db } from "./db";
@@ -3058,6 +3058,157 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
       console.error("Failed to update firm:", error);
       res.status(500).json({ message: "Failed to update firm" });
+    }
+  });
+
+  // GET /api/admin/firms/:firmId/users - get all users in a firm
+  app.get("/api/admin/firms/:firmId/users", isAuthenticated, adminRateLimit, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "User not found" });
+
+      const user = await storage.getUser(userId);
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const { firmId } = req.params;
+      const [firm] = await db.select().from(firms).where(eq(firms.id, firmId));
+      if (!firm) {
+        return res.status(404).json({ message: "Firm not found" });
+      }
+
+      const firmUsers = await storage.getUsersByFirmId(firmId);
+      
+      // Get usage for each user this month
+      const period = new Date().toISOString().slice(0, 7); // YYYY-MM
+      const usersWithUsage = await Promise.all(firmUsers.map(async (u) => {
+        const [usageRecord] = await db.select()
+          .from(usageSummaries)
+          .where(sql`${usageSummaries.userId} = ${u.id} AND ${usageSummaries.periodStart} = ${period}`);
+        return {
+          id: u.id,
+          email: u.email,
+          firstName: u.firstName,
+          lastName: u.lastName,
+          role: u.role,
+          createdAt: u.createdAt,
+          usage: usageRecord?.totalCalls ?? 0,
+        };
+      }));
+
+      res.json({
+        firmId,
+        firmName: firm.name,
+        users: usersWithUsage,
+      });
+    } catch (error) {
+      console.error("Failed to get firm users:", error);
+      res.status(500).json({ message: "Failed to get firm users" });
+    }
+  });
+
+  // PATCH /api/admin/users/:userId - admin update user (role, firm assignment)
+  app.patch("/api/admin/users/:userId", isAuthenticated, adminRateLimit, async (req: any, res) => {
+    try {
+      const adminId = getUserId(req);
+      if (!adminId) return res.status(401).json({ message: "User not found" });
+
+      const admin = await storage.getUser(adminId);
+      if (!admin || admin.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const { userId: targetUserId } = req.params;
+      const { role, firmId } = req.body;
+
+      const targetUser = await storage.getUser(targetUserId);
+      if (!targetUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Prevent demoting yourself
+      if (targetUserId === adminId && role && role !== "admin") {
+        return res.status(400).json({ message: "Cannot demote yourself" });
+      }
+
+      // Validate role if provided
+      const validRoles = ["user", "firm_admin", "admin"];
+      if (role && !validRoles.includes(role)) {
+        return res.status(400).json({ message: "Invalid role" });
+      }
+
+      // Validate firmId if provided
+      if (firmId !== undefined && firmId !== null) {
+        const [firm] = await db.select().from(firms).where(eq(firms.id, firmId));
+        if (!firm) {
+          return res.status(400).json({ message: "Firm not found" });
+        }
+      }
+
+      // Update user
+      const updateData: any = {};
+      if (role !== undefined) updateData.role = role;
+      if (firmId !== undefined) updateData.firmId = firmId;
+
+      const [updated] = await db.update(users)
+        .set(updateData)
+        .where(eq(users.id, targetUserId))
+        .returning();
+
+      console.log(`[ADMIN] Updated user ${updated.email}: role=${updated.role}, firmId=${updated.firmId}`);
+      
+      res.json({
+        id: updated.id,
+        email: updated.email,
+        firstName: updated.firstName,
+        lastName: updated.lastName,
+        role: updated.role,
+        firmId: updated.firmId,
+      });
+    } catch (error) {
+      console.error("Failed to update user:", error);
+      res.status(500).json({ message: "Failed to update user" });
+    }
+  });
+
+  // DELETE /api/admin/users/:userId/firm - remove user from firm (admin)
+  app.delete("/api/admin/users/:userId/firm", isAuthenticated, adminRateLimit, async (req: any, res) => {
+    try {
+      const adminId = getUserId(req);
+      if (!adminId) return res.status(401).json({ message: "User not found" });
+
+      const admin = await storage.getUser(adminId);
+      if (!admin || admin.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const { userId: targetUserId } = req.params;
+      
+      const targetUser = await storage.getUser(targetUserId);
+      if (!targetUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Cannot remove yourself from firm
+      if (targetUserId === adminId) {
+        return res.status(400).json({ message: "Cannot remove yourself from firm" });
+      }
+
+      // Remove from firm and demote from firm_admin if applicable
+      const newRole = targetUser.role === "firm_admin" ? "user" : targetUser.role;
+      
+      const [updated] = await db.update(users)
+        .set({ firmId: null, role: newRole })
+        .where(eq(users.id, targetUserId))
+        .returning();
+
+      console.log(`[ADMIN] Removed user ${updated.email} from firm`);
+      
+      res.json({ success: true, message: "User removed from firm" });
+    } catch (error) {
+      console.error("Failed to remove user from firm:", error);
+      res.status(500).json({ message: "Failed to remove user from firm" });
     }
   });
 
