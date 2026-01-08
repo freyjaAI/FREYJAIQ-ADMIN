@@ -9,6 +9,10 @@ import {
   Check,
   RefreshCw,
   Users,
+  ChevronDown,
+  ChevronRight,
+  UserMinus,
+  Shield,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -52,6 +56,16 @@ interface FirmWithUsage extends Firm {
   monthlyFirmCallLimit: number | null;
   monthlyUserCallLimit: number | null;
   monthlyCallsUsed: number;
+}
+
+interface FirmUser {
+  id: string;
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+  role: string | null;
+  createdAt: string | null;
+  usage: number;
 }
 
 function TiersTab() {
@@ -322,6 +336,7 @@ function FirmsTab() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingFirm, setEditingFirm] = useState<FirmWithUsage | null>(null);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const [expandedFirmId, setExpandedFirmId] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     name: "",
     tierId: "",
@@ -337,7 +352,36 @@ function FirmsTab() {
     queryKey: ["/api/admin/tiers"],
   });
 
+  const { data: firmUsers, isLoading: usersLoading } = useQuery<{ firmId: string; firmName: string; users: FirmUser[] }>({
+    queryKey: ["/api/admin/firms", expandedFirmId, "users"],
+    queryFn: async ({ queryKey }) => {
+      const [, firmId] = queryKey;
+      if (!firmId) throw new Error("No firm ID");
+      const res = await fetch(`/api/admin/firms/${firmId}/users`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch users");
+      return res.json();
+    },
+    enabled: !!expandedFirmId,
+  });
+
   const activeTiers = tiers?.filter(t => t.isActive) || [];
+
+  const updateUserMutation = useMutation({
+    mutationFn: async ({ userId, data }: { userId: string; data: { role?: string; firmId?: string | null } }) => {
+      const res = await apiRequest("PATCH", `/api/admin/users/${userId}`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/firms"] });
+      if (expandedFirmId) {
+        queryClient.invalidateQueries({ queryKey: ["/api/admin/firms", expandedFirmId, "users"] });
+      }
+      toast({ title: "User updated successfully" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to update user", description: error.message, variant: "destructive" });
+    },
+  });
 
   const createMutation = useMutation({
     mutationFn: async (data: any) => {
@@ -454,6 +498,7 @@ function FirmsTab() {
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-8"></TableHead>
               <TableHead>Name</TableHead>
               <TableHead>Tier</TableHead>
               <TableHead>Signup Code</TableHead>
@@ -466,64 +511,176 @@ function FirmsTab() {
               const usagePercent = firm.monthlyFirmCallLimit
                 ? Math.min((firm.monthlyCallsUsed / firm.monthlyFirmCallLimit) * 100, 100)
                 : 0;
+              const isExpanded = expandedFirmId === firm.id;
               return (
-                <TableRow key={firm.id} data-testid={`row-firm-${firm.id}`}>
-                  <TableCell className="font-medium">{firm.name}</TableCell>
-                  <TableCell>
-                    {firm.tierName ? (
-                      <Badge variant="outline">{firm.tierName}</Badge>
-                    ) : (
-                      <span className="text-muted-foreground">-</span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <code className="bg-muted px-2 py-1 rounded text-sm font-mono">
-                        {firm.signupCode}
-                      </code>
+                <>
+                  <TableRow key={firm.id} data-testid={`row-firm-${firm.id}`}>
+                    <TableCell>
                       <Button
                         size="icon"
                         variant="ghost"
-                        onClick={() => copyToClipboard(firm.signupCode)}
-                        data-testid={`button-copy-code-${firm.id}`}
+                        onClick={() => setExpandedFirmId(isExpanded ? null : firm.id)}
+                        data-testid={`button-expand-firm-${firm.id}`}
                       >
-                        {copiedCode === firm.signupCode ? (
-                          <Check className="h-4 w-4 text-green-500" />
+                        {isExpanded ? (
+                          <ChevronDown className="h-4 w-4" />
                         ) : (
-                          <Copy className="h-4 w-4" />
+                          <ChevronRight className="h-4 w-4" />
                         )}
                       </Button>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="space-y-1 min-w-[150px]">
-                      <div className="flex items-center justify-between text-sm">
-                        <span>{firm.monthlyCallsUsed.toLocaleString()}</span>
-                        <span className="text-muted-foreground">
-                          / {firm.monthlyFirmCallLimit?.toLocaleString() || "Unlimited"}
-                        </span>
-                      </div>
-                      {firm.monthlyFirmCallLimit && (
-                        <Progress value={usagePercent} className="h-2" />
+                    </TableCell>
+                    <TableCell className="font-medium">{firm.name}</TableCell>
+                    <TableCell>
+                      {firm.tierName ? (
+                        <Badge variant="outline">{firm.tierName}</Badge>
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
                       )}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={() => openEdit(firm)}
-                      data-testid={`button-edit-firm-${firm.id}`}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <code className="bg-muted px-2 py-1 rounded text-sm font-mono">
+                          {firm.signupCode}
+                        </code>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => copyToClipboard(firm.signupCode)}
+                          data-testid={`button-copy-code-${firm.id}`}
+                        >
+                          {copiedCode === firm.signupCode ? (
+                            <Check className="h-4 w-4 text-green-500" />
+                          ) : (
+                            <Copy className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="space-y-1 min-w-[150px]">
+                        <div className="flex items-center justify-between text-sm">
+                          <span>{firm.monthlyCallsUsed.toLocaleString()}</span>
+                          <span className="text-muted-foreground">
+                            / {firm.monthlyFirmCallLimit?.toLocaleString() || "Unlimited"}
+                          </span>
+                        </div>
+                        {firm.monthlyFirmCallLimit && (
+                          <Progress value={usagePercent} className="h-2" />
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => openEdit(firm)}
+                        data-testid={`button-edit-firm-${firm.id}`}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                  {isExpanded && (
+                    <TableRow key={`${firm.id}-users`} className="bg-muted/30">
+                      <TableCell colSpan={6} className="p-0">
+                        <div className="p-4 pl-12">
+                          <div className="flex items-center gap-2 mb-3">
+                            <Users className="h-4 w-4 text-muted-foreground" />
+                            <span className="font-medium text-sm">Team Members</span>
+                          </div>
+                          {usersLoading ? (
+                            <div className="space-y-2">
+                              <Skeleton className="h-8 w-full" />
+                              <Skeleton className="h-8 w-full" />
+                            </div>
+                          ) : firmUsers?.firmId === firm.id && firmUsers.users && firmUsers.users.length > 0 ? (
+                            <div className="rounded-md border bg-background">
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead>User</TableHead>
+                                    <TableHead>Role</TableHead>
+                                    <TableHead className="text-right">Monthly Calls</TableHead>
+                                    <TableHead className="text-right">Actions</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {firmUsers.users.map((user) => (
+                                    <TableRow key={user.id} data-testid={`row-user-${user.id}`}>
+                                      <TableCell>
+                                        <div>
+                                          <div className="font-medium">
+                                            {user.firstName || user.lastName
+                                              ? `${user.firstName || ''} ${user.lastName || ''}`.trim()
+                                              : 'No name'}
+                                          </div>
+                                          <div className="text-sm text-muted-foreground">{user.email}</div>
+                                        </div>
+                                      </TableCell>
+                                      <TableCell>
+                                        <Select
+                                          value={user.role || "user"}
+                                          onValueChange={(value) => updateUserMutation.mutate({
+                                            userId: user.id,
+                                            data: { role: value }
+                                          })}
+                                          disabled={updateUserMutation.isPending}
+                                        >
+                                          <SelectTrigger className="w-32" data-testid={`select-role-${user.id}`}>
+                                            <SelectValue />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            <SelectItem value="user">User</SelectItem>
+                                            <SelectItem value="firm_admin">Firm Admin</SelectItem>
+                                            <SelectItem value="admin">Admin</SelectItem>
+                                          </SelectContent>
+                                        </Select>
+                                      </TableCell>
+                                      <TableCell className="text-right">
+                                        {user.usage.toLocaleString()}
+                                      </TableCell>
+                                      <TableCell className="text-right">
+                                        <Button
+                                          size="icon"
+                                          variant="ghost"
+                                          onClick={() => {
+                                            if (confirm(`Remove ${user.email} from ${firm.name}?`)) {
+                                              updateUserMutation.mutate({
+                                                userId: user.id,
+                                                data: { firmId: null }
+                                              });
+                                            }
+                                          }}
+                                          disabled={updateUserMutation.isPending}
+                                          data-testid={`button-remove-user-${user.id}`}
+                                          title="Remove from firm"
+                                        >
+                                          <UserMinus className="h-4 w-4" />
+                                        </Button>
+                                      </TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </div>
+                          ) : firmUsers?.firmId === firm.id ? (
+                            <p className="text-sm text-muted-foreground py-4">No users in this firm yet.</p>
+                          ) : (
+                            <div className="space-y-2">
+                              <Skeleton className="h-8 w-full" />
+                              <Skeleton className="h-8 w-full" />
+                            </div>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </>
               );
             })}
             {(!firms || firms.length === 0) && (
               <TableRow>
-                <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
                   No firms configured. Create one to get started.
                 </TableCell>
               </TableRow>
