@@ -17,6 +17,7 @@ import {
 import { SearchBar } from "@/components/search-bar";
 import { OwnerCard } from "@/components/owner-card";
 import { PropertyCard } from "@/components/property-card";
+import { DataDisclaimerBanner } from "@/components/data-disclaimer-banner";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Owner, Property, ContactInfo } from "@shared/schema";
@@ -339,6 +340,7 @@ export default function SearchPage() {
 
           {externalResults && externalResults.properties.length > 0 && (
             <div className="space-y-4">
+              <DataDisclaimerBanner variant="compact" />
               <div className="flex items-center gap-2">
                 <Globe className="h-4 w-4 text-primary" />
                 <h2 className="text-lg font-semibold">Property Records</h2>

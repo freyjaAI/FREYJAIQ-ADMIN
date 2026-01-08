@@ -191,20 +191,28 @@ export default function Landing() {
             </div>
             <span className="text-sm font-medium">Freyja IQ</span>
           </div>
-          <div className="flex items-center gap-4">
-            <Link href="/privacy">
-              <span className="text-xs text-muted-foreground hover:text-foreground cursor-pointer transition-colors" data-testid="link-privacy">
-                Privacy Policy
-              </span>
-            </Link>
+          <div className="flex flex-wrap items-center justify-center gap-4">
             <Link href="/terms">
               <span className="text-xs text-muted-foreground hover:text-foreground cursor-pointer transition-colors" data-testid="link-terms">
                 Terms of Service
               </span>
             </Link>
+            <Link href="/privacy">
+              <span className="text-xs text-muted-foreground hover:text-foreground cursor-pointer transition-colors" data-testid="link-privacy">
+                Privacy Policy
+              </span>
+            </Link>
+            <Link href="/terms#acceptable-use">
+              <span className="text-xs text-muted-foreground hover:text-foreground cursor-pointer transition-colors" data-testid="link-acceptable-use">
+                Acceptable Use
+              </span>
+            </Link>
+            <a href="mailto:support@freyjaiq.com" className="text-xs text-muted-foreground hover:text-foreground cursor-pointer transition-colors" data-testid="link-contact">
+              Contact
+            </a>
           </div>
           <p className="text-xs text-muted-foreground">
-            The modern CRE prospecting platform
+            {new Date().getFullYear()} FreyjaIQ. All rights reserved.
           </p>
         </div>
       </footer>

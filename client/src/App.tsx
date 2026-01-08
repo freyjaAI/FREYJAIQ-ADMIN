@@ -74,7 +74,10 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
             </div>
           </header>
           <UsageBanner />
-          <main id="main-content" className="flex-1 overflow-auto p-6" tabIndex={-1}>{children}</main>
+          <main id="main-content" className="flex-1 overflow-auto" tabIndex={-1}>
+            <div className="p-6 min-h-[calc(100vh-8rem)]">{children}</div>
+            <LegalFooter />
+          </main>
         </SidebarInset>
       </div>
     </SidebarProvider>

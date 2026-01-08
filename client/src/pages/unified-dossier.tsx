@@ -33,6 +33,7 @@ import { ScoreBadge } from "@/components/score-badge";
 import { EntityTypeBadge, RiskBadge } from "@/components/risk-badge";
 import { EnrichmentPipelineBar } from "@/components/enrichment-pipeline-bar";
 import { AIDisclosureBadge } from "@/components/ai-disclosure-badge";
+import { DataDisclaimerBanner } from "@/components/data-disclaimer-banner";
 
 type EntityType = "individual" | "entity" | "property";
 type EnrichmentStatus = "idle" | "pending" | "running" | "complete" | "failed" | "stale";
@@ -734,6 +735,10 @@ export default function UnifiedDossierPage() {
         entityType={dossier.entityType}
         onEnrichmentComplete={() => refetch()}
       />
+
+      <div className="mt-4">
+        <DataDisclaimerBanner variant="compact" />
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
         <div className="lg:col-span-2 space-y-6">
