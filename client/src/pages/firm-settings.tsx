@@ -191,6 +191,29 @@ export default function FirmSettingsPage() {
     }
   };
 
+  // Check if user has a firmId (needed for firm settings access)
+  const userHasFirm = !!user?.firmId;
+  
+  // Check if the error is specifically about not being in a firm
+  const notInFirmError = settingsError && 
+    ((settingsError as any)?.message?.includes("not associated with a firm") ||
+     (settingsError as any)?.message?.includes("not part of a firm"));
+
+  if (!userHasFirm || notInFirmError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
+        <Building2 className="h-12 w-12 text-muted-foreground" />
+        <div className="text-center">
+          <h2 className="text-xl font-semibold">No Firm Associated</h2>
+          <p className="text-muted-foreground max-w-md">
+            You are not currently associated with a firm. To access firm settings, 
+            you need to sign up with a firm code or be added to a firm by an administrator.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (user?.role !== "firm_admin" && user?.role !== "admin") {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
