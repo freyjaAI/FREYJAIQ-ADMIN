@@ -860,6 +860,39 @@ export const insertTestRunSchema = createInsertSchema(testRuns).omit({
 export type InsertTestRun = z.infer<typeof insertTestRunSchema>;
 export type TestRun = typeof testRuns.$inferSelect;
 
+// Legal acceptance tracking for compliance
+export const userLegalAcceptances = pgTable("user_legal_acceptances", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  termsVersion: varchar("terms_version").notNull(), // e.g. "2024-01-08"
+  privacyVersion: varchar("privacy_version").notNull(),
+  acceptedTerms: boolean("accepted_terms").default(false).notNull(),
+  acceptedPrivacy: boolean("accepted_privacy").default(false).notNull(),
+  acceptedB2bUseOnly: boolean("accepted_b2b_use_only").default(false).notNull(),
+  acceptedTcpaFcraCompliance: boolean("accepted_tcpa_fcra_compliance").default(false).notNull(),
+  ipAddress: varchar("ip_address"),
+  userAgent: text("user_agent"),
+  acceptedAt: timestamp("accepted_at").defaultNow(),
+});
+
+export const userLegalAcceptancesRelations = relations(userLegalAcceptances, ({ one }) => ({
+  user: one(users, {
+    fields: [userLegalAcceptances.userId],
+    references: [users.id],
+  }),
+}));
+
+export const insertUserLegalAcceptanceSchema = createInsertSchema(userLegalAcceptances).omit({
+  id: true,
+  acceptedAt: true,
+});
+export type InsertUserLegalAcceptance = z.infer<typeof insertUserLegalAcceptanceSchema>;
+export type UserLegalAcceptance = typeof userLegalAcceptances.$inferSelect;
+
+// Current legal document versions - update these when terms change
+export const CURRENT_TERMS_VERSION = "2025-01-08";
+export const CURRENT_PRIVACY_VERSION = "2025-01-08";
+
 export interface TargetingConfig {
   // Geographic filters
   states?: string[];

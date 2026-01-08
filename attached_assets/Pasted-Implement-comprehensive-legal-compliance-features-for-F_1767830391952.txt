@@ -1,0 +1,77 @@
+Implement comprehensive legal compliance features for FreyjaIQ:
+
+1. TERMS OF SERVICE & ACCEPTABLE USE POLICY:
+   - Create /terms route and page
+   - B2B commercial use only - explicitly prohibit:
+     * Consumer credit/lending decisions (FCRA violation)
+     * Employment screening (FCRA violation)
+     * Tenant/housing screening (FCRA/Fair Housing violation)
+     * Insurance underwriting (FCRA violation)
+   - User accepts full liability for TCPA compliance:
+     * "User is solely responsible for compliance with TCPA"
+     * "Do not use auto-dialers or robo-calling without consent"
+     * "Obtain prior express written consent before calling cell phones"
+   - Data accuracy disclaimer:
+     * "Data sourced from third-party providers and public records"
+     * "Information may be outdated or inaccurate - verify before use"
+     * "FreyjaIQ makes no warranties about data accuracy"
+     * "User assumes all risk for data inaccuracies"
+   - Indemnification clause: Users indemnify FreyjaIQ for their misuse
+
+2. PRIVACY POLICY:
+   - Create /privacy route and page
+   - Disclose all data sources:
+     * ATTOM (property records)
+     * RealEstateAPI, HomeHarvest (property data)
+     * Apify Skip Trace (contact enrichment via public records)
+     * Data Axle, Melissa, Pacific East (business verification)
+     * OpenCorporates, SEC EDGAR (corporate/LLC data)
+     * Google, Perplexity, Gemini (AI enrichment)
+   - CCPA compliance:
+     * Right to know data collected
+     * Right to delete (with limitations for business records)
+     * Right to opt-out of data sale/sharing
+     * Contact email for privacy requests
+   - Data retention policy
+   - Security measures
+   - Third-party data sharing disclosure
+
+3. DATA SOURCE DISCLOSURES:
+   - Add disclaimer banner on search results pages:
+     * "⚠️ Data from public records and third-party sources. Verify accuracy before use."
+   - On owner dossiers, show data source badges:
+     * "Contact info: Public Records via Apify"
+     * "Property data: ATTOM"
+     * "LLC info: OpenCorporates"
+   - Timestamp when data was last refreshed
+
+4. REQUIRED ACCEPTANCE FLOW:
+   - First-time users must accept Terms before using platform:
+     * Modal on first login: "Please review and accept our Terms of Service"
+     * Checkbox: "I agree to Terms of Service and Privacy Policy"
+     * Checkbox: "I understand this data is for B2B commercial use only"
+     * Checkbox: "I accept full liability for TCPA/FCRA compliance"
+   - Store acceptance in database (user_legal_acceptance table)
+   - Re-prompt if terms updated
+
+5. FOOTER LINKS:
+   - Add to all pages:
+     * Terms of Service
+     * Privacy Policy  
+     * Acceptable Use Policy
+     * Data Sources
+     * Contact Us
+
+6. LIABILITY SHIELDS IN DATABASE:
+   - Add to schema: user_legal_acceptance table:
+     * user_id, terms_version, accepted_at, ip_address
+   - Track which terms version user agreed to
+
+IMPORTANT LEGAL LANGUAGE:
+- "AS-IS" basis with no warranties
+- User indemnifies FreyjaIQ for their use of data
+- Limitation of liability (no consequential damages)
+- Governing law and venue (your state)
+- Severability clause
+
+Implement this ASAP to protect FreyjaIQ from liability. Make the terms clear, prominent, and require explicit acceptance.
