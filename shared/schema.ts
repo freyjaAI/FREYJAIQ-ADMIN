@@ -10,6 +10,8 @@ import {
   real,
   boolean,
   serial,
+  numeric,
+  date,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
@@ -892,6 +894,47 @@ export type UserLegalAcceptance = typeof userLegalAcceptances.$inferSelect;
 // Current legal document versions - update these when terms change
 export const CURRENT_TERMS_VERSION = "2025-01-08";
 export const CURRENT_PRIVACY_VERSION = "2025-01-08";
+
+// Term bucket enum values for mortgage maturity predictions
+export const termBucketValues = ["5yr", "7yr", "10yr", "15yr", "20yr", "other"] as const;
+export type TermBucket = typeof termBucketValues[number];
+
+// Mortgage maturity predictions for commercial properties
+export const mortgageMaturityPredictions = pgTable("mortgage_maturity_predictions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  propertyId: varchar("property_id").notNull(), // ATTOM property ID or internal reference
+  mortgageRecordingDate: date("mortgage_recording_date").notNull(),
+  loanAmount: numeric("loan_amount", { precision: 18, scale: 2 }), // supports up to trillions with 2 decimal places
+  loanType: varchar("loan_type"), // e.g. "commercial", "conventional"
+  lenderName: varchar("lender_name"),
+  propertyType: varchar("property_type"), // e.g. "office", "retail", "industrial"
+  predictedMaturityDate: date("predicted_maturity_date"),
+  predictedTermMonths: integer("predicted_term_months"), // e.g. 60, 84, 120, 240
+  termBucket: varchar("term_bucket"), // "5yr", "7yr", "10yr", "15yr", "20yr", "other"
+  confidenceScore: real("confidence_score"), // 0-1 model confidence
+  predictionMethod: varchar("prediction_method").notNull(), // "ml_model", "industry_standard", "manual"
+  features: jsonb("features"), // all feature data used for prediction
+  attomRawData: jsonb("attom_raw_data"), // cache ATTOM mortgage API response
+  knownMaturityDate: date("known_maturity_date"), // training data where actual maturity is known
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_mortgage_property_id").on(table.propertyId),
+  index("idx_mortgage_predicted_maturity").on(table.predictedMaturityDate),
+  index("idx_mortgage_confidence").on(table.confidenceScore),
+  index("idx_mortgage_created_at").on(table.createdAt),
+]);
+
+export const insertMortgageMaturityPredictionSchema = createInsertSchema(mortgageMaturityPredictions).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  termBucket: z.enum(termBucketValues).nullable().optional(),
+  confidenceScore: z.number().min(0).max(1).nullable().optional(),
+});
+export type InsertMortgageMaturityPrediction = z.infer<typeof insertMortgageMaturityPredictionSchema>;
+export type MortgageMaturityPrediction = typeof mortgageMaturityPredictions.$inferSelect;
 
 export interface TargetingConfig {
   // Geographic filters
