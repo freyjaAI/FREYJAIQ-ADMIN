@@ -130,6 +130,13 @@ export const rateLimitConfigs = {
     maxRequests: 50,
     message: "Admin API rate limit exceeded.",
   } as RateLimitConfig,
+
+  // Mortgage maturity rate limit: 100 requests per hour
+  mortgageMaturity: {
+    windowMs: 60 * 60 * 1000,
+    maxRequests: 100,
+    message: "Mortgage maturity prediction rate limit exceeded. Please try again later.",
+  } as RateLimitConfig,
 };
 
 // Convenience middleware exports
@@ -139,3 +146,4 @@ export const enrichmentRateLimit = rateLimiter.middleware(rateLimitConfigs.enric
 export const exportRateLimit = rateLimiter.middleware(rateLimitConfigs.export, "export");
 export const authRateLimit = rateLimiter.middleware(rateLimitConfigs.auth, "auth");
 export const adminRateLimit = rateLimiter.middleware(rateLimitConfigs.admin, "admin");
+export const mortgageMaturityRateLimit = rateLimiter.middleware(rateLimitConfigs.mortgageMaturity, "mortgageMaturity");

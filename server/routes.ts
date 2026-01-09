@@ -3,7 +3,7 @@ import type { Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated, isFirmAdmin, isAdmin, getUserId } from "./auth";
 import { auditLogger } from "./auditLogger";
-import { searchRateLimit, enrichmentRateLimit, adminRateLimit } from "./rateLimiter";
+import { searchRateLimit, enrichmentRateLimit, adminRateLimit, mortgageMaturityRateLimit } from "./rateLimiter";
 import { csrfProtection, getCsrfToken } from "./csrf";
 import { dataRetentionScheduler } from "./dataRetentionScheduler";
 import { securityAuditService } from "./securityAudit";
@@ -47,6 +47,7 @@ import {
 } from "./cacheService";
 import { getAllProviderHealth, resetProviderHealth, getDownProviders, getDegradedProviders } from "./providerHealthService";
 import { startHealthMonitorScheduler } from "./healthMonitorScheduler";
+import { predictMaturityDate, batchPredictMaturityDates, isPredictionError } from "./services/maturityPredictionService";
 
 // Common first names to help detect person names (subset of most common US names)
 const COMMON_FIRST_NAMES = new Set([
@@ -8257,6 +8258,208 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.status(500).json({
         success: false,
         error: error?.message || String(error)
+      });
+    }
+  });
+
+  // ============================================
+  // MORTGAGE MATURITY PREDICTION ENDPOINTS
+  // ============================================
+
+  // GET /api/properties/:propertyId/mortgage-maturity
+  // Predict mortgage maturity date for a property
+  app.get("/api/properties/:propertyId/mortgage-maturity", isAuthenticated, mortgageMaturityRateLimit, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(401).json({ message: "User not found" });
+      }
+
+      const firmId = user.firmId || null;
+      const tierCheck = await checkTierLimits(firmId, userId, storage);
+      if (!tierCheck.allowed) {
+        return res.status(429).json({ 
+          error: tierCheck.error,
+          message: tierCheck.message || "Quota exceeded",
+          quotaExceeded: true 
+        });
+      }
+
+      const { propertyId } = req.params;
+      if (!propertyId) {
+        return res.status(400).json({ message: "Property ID is required" });
+      }
+
+      console.log(`[MortgageMaturity] Predicting for property: ${propertyId} by user: ${userId}`);
+      
+      const result = await predictMaturityDate(propertyId, {
+        includeRawData: false,
+      });
+
+      await recordUsageAfterCall(userId, firmId, 1);
+      apiUsageTracker.recordRequest("mortgage_maturity", 1);
+
+      if (isPredictionError(result)) {
+        if (result.error === "no_mortgage_data") {
+          return res.status(404).json({
+            message: result.message,
+            error: result.error,
+            propertyId: result.propertyId,
+          });
+        }
+        return res.status(500).json({
+          message: result.message,
+          error: result.error,
+          propertyId: result.propertyId,
+        });
+      }
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("[MortgageMaturity] Error:", error);
+      res.status(500).json({ 
+        message: "Failed to predict mortgage maturity",
+        error: error?.message || String(error) 
+      });
+    }
+  });
+
+  // POST /api/properties/:propertyId/mortgage-maturity/refresh
+  // Force re-prediction (admin/firm_admin only)
+  app.post("/api/properties/:propertyId/mortgage-maturity/refresh", isAuthenticated, mortgageMaturityRateLimit, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(401).json({ message: "User not found" });
+      }
+
+      if (user.role !== "admin" && user.role !== "firm_admin") {
+        return res.status(403).json({ message: "Admin or Firm Admin access required" });
+      }
+
+      const firmId = user.firmId || null;
+      const tierCheck = await checkTierLimits(firmId, userId, storage);
+      if (!tierCheck.allowed) {
+        return res.status(429).json({ 
+          error: tierCheck.error,
+          message: tierCheck.message || "Quota exceeded",
+          quotaExceeded: true 
+        });
+      }
+
+      const { propertyId } = req.params;
+      if (!propertyId) {
+        return res.status(400).json({ message: "Property ID is required" });
+      }
+
+      console.log(`[MortgageMaturity] Forcing refresh for property: ${propertyId} by admin: ${userId}`);
+      
+      const result = await predictMaturityDate(propertyId, {
+        forceRefresh: true,
+        includeRawData: true,
+      });
+
+      await recordUsageAfterCall(userId, firmId, 1);
+      apiUsageTracker.recordRequest("mortgage_maturity", 1);
+
+      if (isPredictionError(result)) {
+        if (result.error === "no_mortgage_data") {
+          return res.status(404).json({
+            message: result.message,
+            error: result.error,
+            propertyId: result.propertyId,
+          });
+        }
+        return res.status(500).json({
+          message: result.message,
+          error: result.error,
+          propertyId: result.propertyId,
+        });
+      }
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("[MortgageMaturity] Refresh error:", error);
+      res.status(500).json({ 
+        message: "Failed to refresh mortgage maturity prediction",
+        error: error?.message || String(error) 
+      });
+    }
+  });
+
+  // POST /api/mortgage-maturity/batch
+  // Batch predict mortgage maturity for multiple properties (max 50)
+  app.post("/api/mortgage-maturity/batch", isAuthenticated, mortgageMaturityRateLimit, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(401).json({ message: "User not found" });
+      }
+
+      const batchSchema = z.object({
+        propertyIds: z.array(z.string()).min(1).max(50),
+        forceRefresh: z.boolean().optional().default(false),
+      });
+
+      const parsed = batchSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ 
+          message: "Invalid request body",
+          errors: parsed.error.flatten() 
+        });
+      }
+
+      const { propertyIds, forceRefresh } = parsed.data;
+
+      const firmId = user.firmId || null;
+      const tierCheck = await checkTierLimits(firmId, userId, storage);
+      if (!tierCheck.allowed) {
+        return res.status(429).json({ 
+          error: tierCheck.error,
+          message: tierCheck.message || "Quota exceeded",
+          quotaExceeded: true,
+        });
+      }
+
+      console.log(`[MortgageMaturity] Batch prediction for ${propertyIds.length} properties by user: ${userId}`);
+      
+      const results = await batchPredictMaturityDates(propertyIds, {
+        forceRefresh,
+        includeRawData: false,
+      });
+
+      await recordUsageAfterCall(userId, firmId, propertyIds.length);
+      apiUsageTracker.recordRequest("mortgage_maturity", propertyIds.length);
+
+      const successCount = results.filter(r => !isPredictionError(r)).length;
+      const errorCount = results.filter(r => isPredictionError(r)).length;
+
+      res.json({
+        total: results.length,
+        successCount,
+        errorCount,
+        results,
+      });
+    } catch (error: any) {
+      console.error("[MortgageMaturity] Batch error:", error);
+      res.status(500).json({ 
+        message: "Failed to batch predict mortgage maturities",
+        error: error?.message || String(error) 
       });
     }
   });
