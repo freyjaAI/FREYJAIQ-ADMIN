@@ -23,9 +23,17 @@ Preferred communication style: Simple, everyday language.
 
 ### Data Storage
 - **Database**: PostgreSQL via Drizzle ORM.
-- **Schema**: `users`, `sessions`, `owners`, `properties`, `contactInfos`, `legalEvents`, `ownerLlcLinks`, `searchHistory`, `dossierExports`.
+- **Schema**: `users`, `sessions`, `owners`, `properties`, `contactInfos`, `legalEvents`, `ownerLlcLinks`, `searchHistory`, `dossierExports`, `mortgage_maturity_predictions`.
 - **ORM**: Type-safe queries with Drizzle ORM, Zod schema generation, drizzle-kit for migrations.
 - **Data Access**: Repository pattern via `storage.ts`.
+
+### Mortgage Maturity Predictions
+- **Purpose**: Store and predict commercial mortgage maturity dates for seller timing analysis.
+- **Database Table**: `mortgage_maturity_predictions` with fields for property ID, recording date, loan amount, lender info, predicted maturity date, term bucket (5yr/7yr/10yr/15yr/20yr/other), confidence score, and prediction method.
+- **Provider**: `AttomMortgageProvider` in `server/providers/AttomMortgageProvider.ts` fetches mortgage/lien data from ATTOM API.
+- **Caching**: 30-day cache TTL for mortgage data (very stable).
+- **Methods**: `getMortgageData(address)`, `getMortgageDataById(attomId)`, `getMortgageHistory(attomId)`.
+- **Cost Tracking**: Integrated with `apiUsageTracker` and provider health monitoring.
 
 ### Authentication & Authorization
 - **Authentication**: Replit Auth (OpenID Connect) with Passport.js.

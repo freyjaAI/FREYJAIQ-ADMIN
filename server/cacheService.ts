@@ -47,6 +47,9 @@ export const CacheTTL = {
   
   // Dossier data - aggregate cache
   DOSSIER_DEFAULT: 6 * 60 * 60,       // 6 hours for full dossiers
+  
+  // Mortgage data - very stable
+  MORTGAGE_DEFAULT: 30 * 24 * 60 * 60, // 30 days (mortgage data rarely changes)
 } as const;
 
 // Cache metrics tracking

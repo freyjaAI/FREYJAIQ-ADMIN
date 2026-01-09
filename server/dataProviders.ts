@@ -3,6 +3,7 @@ import pRetry from "p-retry";
 import * as PacificEast from "./providers/PacificEastProvider";
 import * as Perplexity from "./providers/PerplexityProvider";
 import * as HomeHarvest from "./providers/HomeHarvestProvider";
+import * as AttomMortgage from "./providers/AttomMortgageProvider";
 import { OpenMartProvider, OpenMartBusiness, OpenMartSearchParams } from "./providers/OpenMartProvider";
 import { ApifyStartupInvestorsProvider, InvestorProfile, ApifyInvestorSearchParams } from "./providers/ApifyStartupInvestorsProvider";
 import { parseFromDescription, toAttomQuery, toAttomSplitQuery, isValidForSearch, AddressComponents } from "./addressNormalizer";
@@ -4106,3 +4107,5 @@ export const dataProviders = new DataProviderManager();
 // Re-export types for use in other modules
 export type { OpenMartBusiness, OpenMartSearchParams } from "./providers/OpenMartProvider";
 export type { InvestorProfile, ApifyInvestorSearchParams } from "./providers/ApifyStartupInvestorsProvider";
+export type { MortgageRecord, AttomMortgageResult } from "./providers/AttomMortgageProvider";
+export { getAttomMortgageProvider, getMortgageData, getMortgageDataById, getMortgageHistory } from "./providers/AttomMortgageProvider";
