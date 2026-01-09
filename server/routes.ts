@@ -48,6 +48,8 @@ import {
 import { getAllProviderHealth, resetProviderHealth, getDownProviders, getDegradedProviders } from "./providerHealthService";
 import { startHealthMonitorScheduler } from "./healthMonitorScheduler";
 import { predictMaturityDate, batchPredictMaturityDates, isPredictionError } from "./services/maturityPredictionService";
+import { trainMaturityModel, getTrainingDataStats } from "./services/ml/maturityModelTrainer";
+import { isModelAvailable, getModelVersion } from "./services/ml/maturityModelPredictor";
 
 // Common first names to help detect person names (subset of most common US names)
 const COMMON_FIRST_NAMES = new Set([
@@ -2182,6 +2184,62 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       });
     } catch (error) {
       res.status(500).json({ message: "Failed to run manual cleanup", error: String(error) });
+    }
+  });
+
+  // ML Model Training - Get training data stats (admin)
+  app.get("/api/admin/ml/maturity-model/stats", isAuthenticated, adminRateLimit, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) {
+        return res.status(401).json({ message: "User not found" });
+      }
+      
+      const user = await storage.getUser(userId);
+      if (user?.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const stats = await getTrainingDataStats();
+      const modelStatus = {
+        available: isModelAvailable(),
+        version: getModelVersion(),
+      };
+
+      res.json({
+        trainingData: stats,
+        model: modelStatus,
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get ML stats", error: String(error) });
+    }
+  });
+
+  // ML Model Training - Trigger training (admin)
+  app.post("/api/admin/ml/train-maturity-model", isAuthenticated, adminRateLimit, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) {
+        return res.status(401).json({ message: "User not found" });
+      }
+      
+      const user = await storage.getUser(userId);
+      if (user?.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      console.log(`[Admin] User ${userId} triggered ML model training`);
+      
+      const result = await trainMaturityModel();
+      
+      res.json({
+        success: result.status === "success",
+        training: result,
+        message: result.message,
+      });
+    } catch (error) {
+      console.error("[Admin] ML training error:", error);
+      res.status(500).json({ message: "Failed to train ML model", error: String(error) });
     }
   });
 

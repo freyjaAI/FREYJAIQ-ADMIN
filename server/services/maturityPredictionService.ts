@@ -15,6 +15,7 @@ import { getMortgageData, getMortgageDataById, getMortgageHistory } from "../pro
 import type { AttomMortgageResult, MortgageRecord } from "../providers/AttomMortgageProvider";
 import { extractMortgageFeatures, validateFeatures, type MortgageFeatures, type PropertyData } from "./ml/mortgageFeatureExtractor";
 import { estimateTermByIndustryStandard, calculatePredictedMaturityDate } from "./ml/industryStandardTerms";
+import { predictWithMLModel, isModelAvailable } from "./ml/maturityModelPredictor";
 import type { TermBucket } from "@shared/schema";
 
 export interface PredictionOptions {
@@ -217,16 +218,40 @@ export async function predictMaturityDate(
 
   const validation = validateFeatures(features);
   
-  const termEstimation = estimateTermByIndustryStandard(features);
+  let predictionMethod: "ml_model" | "industry_standard" = "industry_standard";
+  let predictedTermMonths: number;
+  let termBucket: TermBucket;
+  let confidenceScore: number;
+  let reasoning: string;
+
+  const mlPrediction = await predictWithMLModel(features);
   
-  let adjustedConfidence = termEstimation.confidenceScore;
+  if (mlPrediction && mlPrediction.confidenceScore >= 0.5) {
+    console.log(`[MaturityPrediction] Using ML model prediction with confidence ${mlPrediction.confidenceScore}`);
+    predictionMethod = "ml_model";
+    predictedTermMonths = mlPrediction.predictedTermMonths;
+    termBucket = mlPrediction.termBucket;
+    confidenceScore = mlPrediction.confidenceScore;
+    reasoning = `ML model prediction (v${mlPrediction.modelVersion})`;
+  } else {
+    const termEstimation = estimateTermByIndustryStandard(features);
+    predictedTermMonths = termEstimation.predictedTermMonths;
+    termBucket = termEstimation.termBucket;
+    confidenceScore = termEstimation.confidenceScore;
+    reasoning = termEstimation.reasoning;
+    
+    if (mlPrediction) {
+      console.log(`[MaturityPrediction] ML model confidence too low (${mlPrediction.confidenceScore}), using industry standard`);
+    }
+  }
+  
   if (!validation.isComplete) {
-    adjustedConfidence = Math.max(0.3, adjustedConfidence * validation.completenessScore);
+    confidenceScore = Math.max(0.3, confidenceScore * validation.completenessScore);
   }
 
   const predictedMaturityDate = calculatePredictedMaturityDate(
     features.recordingDate,
-    termEstimation.predictedTermMonths
+    predictedTermMonths
   );
 
   try {
@@ -234,10 +259,10 @@ export async function predictMaturityDate(
       propertyId,
       features,
       {
-        predictedTermMonths: termEstimation.predictedTermMonths,
-        termBucket: termEstimation.termBucket,
-        confidenceScore: adjustedConfidence,
-        reasoning: termEstimation.reasoning,
+        predictedTermMonths,
+        termBucket,
+        confidenceScore,
+        reasoning,
       },
       includeRawData ? mortgageData.rawResponse : undefined
     );
@@ -249,14 +274,14 @@ export async function predictMaturityDate(
     propertyId,
     mortgageRecordingDate: features.recordingDate,
     predictedMaturityDate,
-    predictedTermMonths: termEstimation.predictedTermMonths,
-    termBucket: termEstimation.termBucket,
-    confidenceScore: adjustedConfidence,
-    predictionMethod: "industry_standard",
+    predictedTermMonths,
+    termBucket,
+    confidenceScore,
+    predictionMethod,
     lenderName: features.lenderName !== "unknown" ? features.lenderName : undefined,
     loanAmount: features.loanAmount > 0 ? features.loanAmount : undefined,
     propertyType: features.propertyTypeCategory !== "unknown" ? features.propertyTypeCategory : undefined,
-    reasoning: termEstimation.reasoning,
+    reasoning,
     cached: false,
     features: includeRawData ? features : undefined,
   };
