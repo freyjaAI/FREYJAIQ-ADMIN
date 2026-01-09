@@ -34,6 +34,7 @@ import { EntityTypeBadge, RiskBadge } from "@/components/risk-badge";
 import { EnrichmentPipelineBar } from "@/components/enrichment-pipeline-bar";
 import { AIDisclosureBadge } from "@/components/ai-disclosure-badge";
 import { DataDisclaimerBanner } from "@/components/data-disclaimer-banner";
+import { MortgageMaturityCard } from "@/components/mortgage-maturity-card";
 
 type EntityType = "individual" | "entity" | "property";
 type EnrichmentStatus = "idle" | "pending" | "running" | "complete" | "failed" | "stale";
@@ -743,6 +744,9 @@ export default function UnifiedDossierPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
         <div className="lg:col-span-2 space-y-6">
           <CoreInfoCard core={dossier.core} entityType={dossier.entityType} />
+          {dossier.entityType === "property" && (
+            <MortgageMaturityCard propertyId={id!} />
+          )}
           <ContactCard contact={dossier.contact} />
           <OwnershipCard ownership={dossier.ownership} entityType={dossier.entityType} />
           <NetworkCard network={dossier.network} />
